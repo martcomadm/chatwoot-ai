@@ -1,0 +1,20 @@
+{
+  "name": "martcom-chatwoot-ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agente IA para Chatwoot de MARTCOM",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "openai": "^4.86.1"
+  }
+}
