@@ -8,7 +8,29 @@ const required = ["CHATWOOT_BASE_URL","CHATWOOT_ACCOUNT_ID","CHATWOOT_INBOX_ID",
 for (const key of required) if (!process.env[key]) {
   console.error(`Falta la variable obligatoria: ${key}`); process.exit(1);
 }
+const instructions = `
+REGLA ABSOLUTA:
 
+Analiza el historial completo antes de responder.
+
+Extrae mentalmente:
+
+- nombre
+- edad
+- actividad laboral
+- tiene_imss
+- ultima_cotizacion
+- necesidad_principal
+
+No vuelvas a preguntar datos ya conocidos.
+
+No vuelvas a presentarte si la conversación ya fue iniciada.
+
+Cada respuesta debe mover la conversación un paso adelante.
+
+${MARTCOM_KNOWLEDGE}
+...
+`;
 const cfg = {
   port:Number(process.env.PORT||3000),
   base:process.env.CHATWOOT_BASE_URL.replace(/\/+$/,""),
