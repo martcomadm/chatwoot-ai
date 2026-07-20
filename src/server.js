@@ -249,11 +249,44 @@ async function processConversationUpdate(payload) {
 app.get("/", (_req, res) => res.json({ service: "martcom-chatwoot-ai", version: "2.1.0", status: "ok", schedule: `${cfg.startHour}:00-${cfg.endHour}:00 ${cfg.timezone}`, inbox_id: cfg.inboxId, agent_id: cfg.aiAgentId }));
 app.get("/health", (_req, res) => res.json({ status: "ok", version: "2.1.0", timestamp: new Date().toISOString() }));
 app.post("/webhook/chatwoot", (req, res) => {
-  if (cfg.webhookSecret && req.query.secret !== cfg.webhookSecret) return res.status(401).json({ error: "unauthorized" });
-  res.status(200).json({ received: true });
+  if (
+    cfg.webhookSecret &&
+    req.query.secret !== cfg.webhookSecret
+  ) {
+    return res.status(401).json({
+      error: "unauthorized",
+    });
+  }
+
+  res.status(200).json({
+    received: true,
+  });
+
   const event = String(req.body?.event || "");
-  if (event === "message_created") void processIncoming(req.body);
-  else if (event === "conversation_updated") void processConversationUpdate(req.body);
+
+  console.log(
+    "WEBHOOK RECIBIDO:",
+    JSON.stringify({
+      event,
+      top_level_id: req.body?.id,
+      conversation_id: req.body?.conversation?.id,
+      inbox_id_top: req.body?.inbox_id,
+      inbox_id_conversation: req.body?.conversation?.inbox_id,
+      inbox_object: req.body?.inbox,
+      assignee_top: req.body?.assignee,
+      assignee_meta: req.body?.meta?.assignee,
+      assignee_conversation: req.body?.conversation?.assignee,
+      assignee_conversation_meta:
+        req.body?.conversation?.meta?.assignee,
+      changed_attributes: req.body?.changed_attributes,
+    })
+  );
+
+  if (event === "message_created") {
+    void processIncoming(req.body);
+  } else if (event === "conversation_updated") {
+    void processConversationUpdate(req.body);
+  }
 });
 
 app.listen(cfg.port, "0.0.0.0", () => console.log(`AXEL IA V2.1 escuchando en puerto ${cfg.port}`));
