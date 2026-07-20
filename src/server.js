@@ -8,29 +8,7 @@ const required = ["CHATWOOT_BASE_URL","CHATWOOT_ACCOUNT_ID","CHATWOOT_INBOX_ID",
 for (const key of required) if (!process.env[key]) {
   console.error(`Falta la variable obligatoria: ${key}`); process.exit(1);
 }
-const instructions = `
-REGLA ABSOLUTA:
 
-Analiza el historial completo antes de responder.
-
-Extrae mentalmente:
-
-- nombre
-- edad
-- actividad laboral
-- tiene_imss
-- ultima_cotizacion
-- necesidad_principal
-
-No vuelvas a preguntar datos ya conocidos.
-
-No vuelvas a presentarte si la conversación ya fue iniciada.
-
-Cada respuesta debe mover la conversación un paso adelante.
-
-${MARTCOM_KNOWLEDGE}
-...
-`;
 const cfg = {
   port:Number(process.env.PORT||3000),
   base:process.env.CHATWOOT_BASE_URL.replace(/\/+$/,""),
@@ -85,6 +63,18 @@ function sensitive(text=""){
   return curp.test(text)||nss.test(text)||words.some(w=>t.includes(w));
 }
 
+function providerIntent(text=""){
+  const t=String(text).toLowerCase();
+  const words=["cartera de clientes","mis clientes","para mis clientes","vendo seguro","vendo seguros",
+  "vendo seguridad social","yo vendo","soy agente","soy asesor","quiero canalizar","quiero ofrecer",
+  "intermediario","proveedor","alianza comercial"];
+  return words.some(w=>t.includes(w));
+}
+function started(c){
+  const ms=c?.messages||c?.payload?.messages||[];
+  return ms.some(m=>!m.private&&(m.message_type==="outgoing"||m.message_type===1));
+}
+
 async function cw(path,opt={}){
   const r=await fetch(`${cfg.base}${path}`,{...opt,headers:{
     "Content-Type":"application/json","api_access_token":cfg.token,...(opt.headers||{})
@@ -135,11 +125,29 @@ async function handoff(id,c,reason){
   let note; try{note=await summarize(c,reason)}catch{note=`AXEL IA - RESUMEN\nMotivo: ${reason}\nRevisar historial.`}
   await send(id,note,true);
 }
-async function decision(c,labs){
+async function facts(c){
+  const r=await openai.responses.create({model:cfg.model,instructions:`Extrae solo datos explícitos del historial. No inventes.
+Devuelve solo JSON válido:
+{"name":null,"age":null,"activity":null,"has_imss":null,"had_imss_before":null,"last_contribution":null,"main_need":null,"is_provider":false,"provider_context":null,"strong_interest":false}
+is_provider=true si tiene cartera, vende seguros/seguridad social o busca servicio para sus clientes.`,
+  input:history(c)||"Sin historial."});
+  return parseJson(r.output_text);
+}
+async function decision(c,labs,known,isProvider){
   const r=await openai.responses.create({model:cfg.model,instructions:`${MARTCOM_KNOWLEDGE}
+DATOS YA CONOCIDOS:
+${JSON.stringify(known,null,2)}
+CONVERSACIÓN YA INICIADA: ${started(c)?"SÍ":"NO"}
+PROVEEDOR DETECTADO: ${isProvider?"SÍ":"NO"}
+
 Devuelve solo JSON:
 {"reply":"","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}
-Reglas:
+Reglas absolutas:
+- No preguntes datos que ya tienen valor en DATOS YA CONOCIDOS.
+- Si la conversación ya inició, no saludes ni te presentes.
+- Si es proveedor, agrega proveedor, elimina cliente y habla de su cartera; no preguntes por su IMSS personal.
+- cliente solo significa cliente actual confirmado de MARTCOM.
+- Haz una sola pregunta principal y avanza desde el último mensaje.
 - reply máximo ${cfg.maxReply} caracteres.
 - No agregues cerrado, no_contesta ni venta.
 - No elimines asignado, predictivo ni reasignado.
@@ -151,6 +159,10 @@ Reglas:
   d.add_labels=(Array.isArray(d.add_labels)?d.add_labels:[]).filter(x=>labelsAllowed.has(x)&&!["cerrado","no_contesta","venta"].includes(x));
   d.remove_labels=(Array.isArray(d.remove_labels)?d.remove_labels:[]).filter(x=>labelsAllowed.has(x)&&!["asignado","predictivo","reasignado"].includes(x));
   d.handoff=Boolean(d.handoff); d.handoff_reason=String(d.handoff_reason||"").trim();
+  if(isProvider||known?.is_provider){
+    if(!d.add_labels.includes("proveedor"))d.add_labels.push("proveedor");
+    if(!d.remove_labels.includes("cliente"))d.remove_labels.push("cliente");
+  }
   if(d.handoff&&!d.add_labels.includes(cfg.validation))d.add_labels.push(cfg.validation);
   return d;
 }
@@ -178,11 +190,14 @@ async function processIncoming(p){
       console.log(JSON.stringify({event:"handoff",conversationId:id})); return;
     }
 
-    const d=await decision(c,labs);
+    const h=history(c);
+    const isProvider=providerIntent(h);
+    const known=await facts(c);
+    const d=await decision(c,labs,known,isProvider);
     labs=await mergeLabels(id,d.add_labels,d.remove_labels);
     if(d.handoff) await handoff(id,c,d.handoff_reason||"Requiere revisión humana.");
     else if(d.reply) await send(id,d.reply);
-    console.log(JSON.stringify({event:"processed",conversationId:id,labels:labs,handoff:d.handoff}));
+    console.log(JSON.stringify({event:"processed",conversationId:id,provider:isProvider||known?.is_provider,knownFacts:known,labels:labs,handoff:d.handoff}));
   }catch(e){
     console.error(`Error en conversación ${id}:`,e);
   }finally{locks.delete(id)}
@@ -194,8 +209,8 @@ async function processUpdate(p){
   catch(e){console.error("Error al etiquetar conversación:",e)}
 }
 
-app.get("/",(_q,r)=>r.json({service:"martcom-chatwoot-ai",version:"2.0.0",status:"ok",schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
-app.get("/health",(_q,r)=>r.json({status:"ok",version:"2.0.0",timestamp:new Date().toISOString()}));
+app.get("/",(_q,r)=>r.json({service:"martcom-chatwoot-ai",version:"2.2.0",status:"ok",schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
+app.get("/health",(_q,r)=>r.json({status:"ok",version:"2.2.0",timestamp:new Date().toISOString()}));
 app.post("/webhook/chatwoot",(q,r)=>{
   if(cfg.secret&&q.query.secret!==cfg.secret)return r.status(401).json({error:"unauthorized"});
   r.status(200).json({received:true});
@@ -203,4 +218,4 @@ app.post("/webhook/chatwoot",(q,r)=>{
   if(e==="message_created")void processIncoming(q.body);
   else if(e==="conversation_updated")void processUpdate(q.body);
 });
-app.listen(cfg.port,"0.0.0.0",()=>console.log(`AXEL IA V2 escuchando en puerto ${cfg.port}`));
+app.listen(cfg.port,"0.0.0.0",()=>console.log(`AXEL IA V2.2 escuchando en puerto ${cfg.port}`));
