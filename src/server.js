@@ -3,219 +3,258 @@ import express from "express";
 import OpenAI from "openai";
 import { MARTCOM_KNOWLEDGE } from "./knowledge.js";
 
-const required = ["CHATWOOT_BASE_URL","CHATWOOT_ACCOUNT_ID","CHATWOOT_INBOX_ID",
-"CHATWOOT_AI_AGENT_ID","CHATWOOT_ACCESS_TOKEN","OPENAI_API_KEY","OPENAI_MODEL"];
-for (const key of required) if (!process.env[key]) {
-  console.error(`Falta la variable obligatoria: ${key}`); process.exit(1);
+const required = ["CHATWOOT_BASE_URL","CHATWOOT_ACCOUNT_ID","CHATWOOT_INBOX_ID","CHATWOOT_AI_AGENT_ID","CHATWOOT_ACCESS_TOKEN","OPENAI_API_KEY","OPENAI_MODEL"];
+for (const key of required) {
+  if (!process.env[key]) {
+    console.error(`Falta la variable obligatoria: ${key}`);
+    process.exit(1);
+  }
 }
 
 const cfg = {
-  port:Number(process.env.PORT||3000),
-  base:process.env.CHATWOOT_BASE_URL.replace(/\/+$/,""),
-  account:Number(process.env.CHATWOOT_ACCOUNT_ID),
-  inbox:Number(process.env.CHATWOOT_INBOX_ID),
-  agent:Number(process.env.CHATWOOT_AI_AGENT_ID),
-  token:process.env.CHATWOOT_ACCESS_TOKEN,
-  model:process.env.OPENAI_MODEL,
-  timezone:process.env.AI_TIMEZONE||"America/Mexico_City",
-  start:Number(process.env.AI_START_HOUR||7),
-  end:Number(process.env.AI_END_HOUR||22),
-  delay:Number(process.env.AI_RESPONSE_DELAY_SECONDS||4),
-  maxHistory:Number(process.env.AI_MAX_HISTORY_MESSAGES||30),
-  maxReply:Number(process.env.AI_MAX_REPLY_CHARS||900),
-  secret:process.env.WEBHOOK_SECRET||"",
-  assigned:process.env.AI_ASSIGNED_LABEL||"asignado",
-  unattended:process.env.AI_UNATTENDED_LABEL||"sin_atender",
-  validation:process.env.AI_VALIDATION_LABEL||"validacion",
+  port: Number(process.env.PORT || 3000),
+  chatwootBaseUrl: process.env.CHATWOOT_BASE_URL.replace(/\/+$/, ""),
+  accountId: Number(process.env.CHATWOOT_ACCOUNT_ID),
+  inboxId: Number(process.env.CHATWOOT_INBOX_ID),
+  aiAgentId: Number(process.env.CHATWOOT_AI_AGENT_ID),
+  chatwootToken: process.env.CHATWOOT_ACCESS_TOKEN,
+  model: process.env.OPENAI_MODEL,
+  timezone: process.env.AI_TIMEZONE || "America/Mexico_City",
+  startHour: Number(process.env.AI_START_HOUR || 7),
+  endHour: Number(process.env.AI_END_HOUR || 22),
+  maxHistory: Number(process.env.AI_MAX_HISTORY_MESSAGES || 30),
+  delaySeconds: Number(process.env.AI_RESPONSE_DELAY_SECONDS || 4),
+  maxReplyChars: Number(process.env.AI_MAX_REPLY_CHARS || 900),
+  assignedLabel: process.env.AI_ASSIGNED_LABEL || "asignado",
+  unattendedLabel: process.env.AI_UNATTENDED_LABEL || "sin_atender",
+  validationLabel: process.env.AI_VALIDATION_LABEL || "validacion",
+  webhookSecret: process.env.WEBHOOK_SECRET || "",
 };
 
-const labelsAllowed = new Set(["asignado","cerrado","chat_basura","cliente","embarazo",
-"no_contesta","no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado",
-"seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"]);
+const allowedLabels = new Set(["asignado","cerrado","chat_basura","cliente","embarazo","no_contesta","no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado","seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"]);
 const stopLabels = new Set(["cerrado","chat_basura","no_quiere_el_servicio","rechazado","venta","validacion"]);
-const openai = new OpenAI({apiKey:process.env.OPENAI_API_KEY});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const app = express();
-app.use(express.json({limit:"4mb"}));
-const locks = new Set(), seen = new Map();
-setInterval(()=>{const c=Date.now()-21600000; for(const [k,v] of seen) if(v<c) seen.delete(k)},1800000).unref();
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+app.use(express.json({ limit: "4mb" }));
 
-function hour(){
-  const p=new Intl.DateTimeFormat("en-US",{timeZone:cfg.timezone,hour:"2-digit",hour12:false}).formatToParts(new Date());
-  return Number(p.find(x=>x.type==="hour")?.value||0);
-}
-function inSchedule(){const h=hour(); return h>=cfg.start&&h<cfg.end}
-function msg(p){return p?.message||p}
-function convId(p){return Number(p?.conversation?.id??p?.message?.conversation_id??p?.conversation_id)}
-function inboxId(p){return Number(p?.conversation?.inbox_id??p?.conversation?.inbox?.id??p?.inbox?.id??p?.message?.inbox_id)}
-function assigneeId(p){return Number(p?.conversation?.meta?.assignee?.id??p?.conversation?.assignee?.id??p?.meta?.assignee?.id??p?.assignee?.id)}
-function incoming(m){return m?.message_type==="incoming"||m?.message_type===0}
-function attachments(m){return Array.isArray(m?.attachments)&&m.attachments.length>0}
+const processedMessages = new Map();
+const conversationLocks = new Set();
+setInterval(() => {
+  const cutoff = Date.now() - 6 * 60 * 60 * 1000;
+  for (const [id, timestamp] of processedMessages.entries()) if (timestamp < cutoff) processedMessages.delete(id);
+}, 30 * 60 * 1000).unref();
 
-function sensitive(text=""){
-  const t=String(text).trim().toLowerCase();
-  const curp=/\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/i;
-  const nss=/\b\d{11}\b/;
-  const words=["mi curp","curp:","mi nss","nss:","numero de seguro social","número de seguro social",
-  "ine","constancia de situacion fiscal","constancia de situación fiscal","comprobante",
-  "ya pague","ya pagué","revisar mis semanas","revisar semanas","revisar mi caso",
-  "quiero una llamada","pueden llamarme","validar","verificar mi información"];
-  return curp.test(text)||nss.test(text)||words.some(w=>t.includes(w));
-}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function providerIntent(text=""){
-  const t=String(text).toLowerCase();
-  const words=["cartera de clientes","mis clientes","para mis clientes","vendo seguro","vendo seguros",
-  "vendo seguridad social","yo vendo","soy agente","soy asesor","quiero canalizar","quiero ofrecer",
-  "intermediario","proveedor","alianza comercial"];
-  return words.some(w=>t.includes(w));
+function getLocalHour() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: cfg.timezone, hour: "2-digit", hour12: false }).formatToParts(new Date());
+  return Number(parts.find((p) => p.type === "hour")?.value || 0);
 }
-function started(c){
-  const ms=c?.messages||c?.payload?.messages||[];
-  return ms.some(m=>!m.private&&(m.message_type==="outgoing"||m.message_type===1));
+function isWithinSchedule() { const hour = getLocalHour(); return hour >= cfg.startHour && hour < cfg.endHour; }
+function getMessage(payload) { return payload?.message || payload; }
+function getConversationId(payload) { return Number(payload?.conversation?.id ?? payload?.message?.conversation_id ?? payload?.conversation_id); }
+function getInboxId(payload) { return Number(payload?.conversation?.inbox_id ?? payload?.conversation?.inbox?.id ?? payload?.inbox?.id ?? payload?.message?.inbox_id); }
+function getAssigneeId(payload) { return Number(payload?.conversation?.meta?.assignee?.id ?? payload?.conversation?.assignee?.id ?? payload?.meta?.assignee?.id ?? payload?.assignee?.id); }
+function isIncoming(message) { return message?.message_type === "incoming" || message?.message_type === 0; }
+function senderIsContact(message) { const type = String(message?.sender_type || message?.sender?.type || "").toLowerCase(); return !type || type === "contact"; }
+function hasAttachments(message) { return Array.isArray(message?.attachments) && message.attachments.length > 0; }
+
+function containsSensitiveDataOrReviewRequest(content = "") {
+  const text = String(content).trim();
+  const lower = text.toLowerCase();
+  const curpPattern = /\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/i;
+  const nssPattern = /\b\d{11}\b/;
+  const terms = ["mi curp","curp:","mi nss","nss:","numero de seguro social","número de seguro social","ine","constancia de situacion fiscal","constancia de situación fiscal","comprobante","deposito","depósito","transferencia","ya pague","ya pagué","revisar mis semanas","revisar semanas","revisar mi caso","revisen mi caso","quiero una llamada","pueden llamarme","háblenme","hablenme","validar","verificar mi informacion","verificar mi información"];
+  return curpPattern.test(text) || nssPattern.test(text) || terms.some((term) => lower.includes(term));
 }
 
-async function cw(path,opt={}){
-  const r=await fetch(`${cfg.base}${path}`,{...opt,headers:{
-    "Content-Type":"application/json","api_access_token":cfg.token,...(opt.headers||{})
-  }});
-  const tx=await r.text(); let d=null; try{d=tx?JSON.parse(tx):null}catch{d=tx}
-  if(!r.ok) throw new Error(`Chatwoot ${r.status}: ${JSON.stringify(d)}`);
-  return d;
+async function cw(path, options = {}) {
+  const response = await fetch(`${cfg.chatwootBaseUrl}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", api_access_token: cfg.chatwootToken, ...(options.headers || {}) },
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!response.ok) throw new Error(`Chatwoot ${response.status}: ${JSON.stringify(data)}`);
+  return data;
 }
-const getConv=id=>cw(`/api/v1/accounts/${cfg.account}/conversations/${id}`);
-async function getLabels(id){const d=await cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/labels`); return Array.isArray(d?.payload)?d.payload:[]}
-async function setLabels(id,arr){return cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/labels`,{method:"POST",body:JSON.stringify({labels:[...new Set(arr)].filter(x=>labelsAllowed.has(x))})})}
-async function mergeLabels(id,add=[],remove=[]){
-  const cur=await getLabels(id), next=new Set(cur.filter(x=>labelsAllowed.has(x)));
-  remove.forEach(x=>next.delete(x)); add.forEach(x=>labelsAllowed.has(x)&&next.add(x));
-  if([...next].sort().join("|")!==[...cur].sort().join("|")) await setLabels(id,[...next]);
+
+async function getConversation(id) { return cw(`/api/v1/accounts/${cfg.accountId}/conversations/${id}`); }
+async function getLabels(id) {
+  const data = await cw(`/api/v1/accounts/${cfg.accountId}/conversations/${id}/labels`);
+  return Array.isArray(data?.payload) ? data.payload : [];
+}
+async function setLabels(id, labels) {
+  const clean = [...new Set(labels)].filter((label) => allowedLabels.has(label));
+  return cw(`/api/v1/accounts/${cfg.accountId}/conversations/${id}/labels`, { method: "POST", body: JSON.stringify({ labels: clean }) });
+}
+async function mergeLabels(id, add = [], remove = []) {
+  const current = await getLabels(id);
+  const next = new Set(current.filter((label) => allowedLabels.has(label)));
+  for (const label of remove) next.delete(label);
+  for (const label of add) if (allowedLabels.has(label)) next.add(label);
+  if ([...next].sort().join("|") !== [...current].sort().join("|")) await setLabels(id, [...next]);
   return [...next];
 }
-async function send(id,content,priv=false){return cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/messages`,{method:"POST",body:JSON.stringify({content,message_type:"outgoing",private:priv})})}
-function history(c){
-  const ms=c?.messages||c?.payload?.messages||[];
-  return ms.filter(m=>!m.private&&m.content).slice(-cfg.maxHistory).map(m=>
-    `${(m.message_type==="incoming"||m.message_type===0)?"CLIENTE":"AGENTE"}: ${String(m.content).trim()}`
-  ).join("\n");
+async function sendMessage(id, content, privateNote = false) {
+  return cw(`/api/v1/accounts/${cfg.accountId}/conversations/${id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content, message_type: "outgoing", private: privateNote }),
+  });
 }
-function parseJson(t){
-  const s=String(t||"").replace(/^```json\s*/i,"").replace(/^```\s*/i,"").replace(/```$/i,"").trim();
-  try{return JSON.parse(s)}catch{const a=s.indexOf("{"),b=s.lastIndexOf("}"); if(a>=0&&b>a)return JSON.parse(s.slice(a,b+1)); throw new Error("JSON inválido")}
-}
-async function summarize(c,reason){
-  const r=await openai.responses.create({model:cfg.model,instructions:`Resume para un asesor MARTCOM sin inventar.
-Formato:
-AXEL IA - RESUMEN
-Nombre:
-Edad:
-Actividad:
-Necesidad:
-IMSS actual:
-Última cotización:
-Datos/documentos recibidos:
-Motivo de transferencia:
-Usa "No informado" cuando falte un dato.`,
-  input:`Motivo: ${reason}\n\nHistorial:\n${history(c)}`});
-  return r.output_text.trim().slice(0,1600);
-}
-async function handoff(id,c,reason){
-  await mergeLabels(id,[cfg.validation],[]);
-  await send(id,"Perfecto, ya recibí la información. Un asesor revisará personalmente su caso para darle una orientación precisa. En unos momentos continuará la atención.");
-  let note; try{note=await summarize(c,reason)}catch{note=`AXEL IA - RESUMEN\nMotivo: ${reason}\nRevisar historial.`}
-  await send(id,note,true);
-}
-async function facts(c){
-  const r=await openai.responses.create({model:cfg.model,instructions:`Extrae solo datos explícitos del historial. No inventes.
-Devuelve solo JSON válido:
-{"name":null,"age":null,"activity":null,"has_imss":null,"had_imss_before":null,"last_contribution":null,"main_need":null,"is_provider":false,"provider_context":null,"strong_interest":false}
-is_provider=true si tiene cartera, vende seguros/seguridad social o busca servicio para sus clientes.`,
-  input:history(c)||"Sin historial."});
-  return parseJson(r.output_text);
-}
-async function decision(c,labs,known,isProvider){
-  const r=await openai.responses.create({model:cfg.model,instructions:`${MARTCOM_KNOWLEDGE}
-DATOS YA CONOCIDOS:
-${JSON.stringify(known,null,2)}
-CONVERSACIÓN YA INICIADA: ${started(c)?"SÍ":"NO"}
-PROVEEDOR DETECTADO: ${isProvider?"SÍ":"NO"}
 
-Devuelve solo JSON:
-{"reply":"","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}
-Reglas absolutas:
-- No preguntes datos que ya tienen valor en DATOS YA CONOCIDOS.
-- Si la conversación ya inició, no saludes ni te presentes.
-- Si es proveedor, agrega proveedor, elimina cliente y habla de su cartera; no preguntes por su IMSS personal.
-- cliente solo significa cliente actual confirmado de MARTCOM.
-- Haz una sola pregunta principal y avanza desde el último mensaje.
-- reply máximo ${cfg.maxReply} caracteres.
-- No agregues cerrado, no_contesta ni venta.
-- No elimines asignado, predictivo ni reasignado.
-- Si requiere revisión humana, handoff=true y agrega validacion.
-- Si hay interés fuerte, solicita primero CURP y después NSS, no ambos de golpe.`,
-  input:`Etiquetas: ${labs.join(", ")||"ninguna"}\n\nHistorial:\n${history(c)}`});
-  const d=parseJson(r.output_text);
-  d.reply=String(d.reply||"").trim().slice(0,cfg.maxReply);
-  d.add_labels=(Array.isArray(d.add_labels)?d.add_labels:[]).filter(x=>labelsAllowed.has(x)&&!["cerrado","no_contesta","venta"].includes(x));
-  d.remove_labels=(Array.isArray(d.remove_labels)?d.remove_labels:[]).filter(x=>labelsAllowed.has(x)&&!["asignado","predictivo","reasignado"].includes(x));
-  d.handoff=Boolean(d.handoff); d.handoff_reason=String(d.handoff_reason||"").trim();
-  if(isProvider||known?.is_provider){
-    if(!d.add_labels.includes("proveedor"))d.add_labels.push("proveedor");
-    if(!d.remove_labels.includes("cliente"))d.remove_labels.push("cliente");
+function getConversationMessages(conversation) {
+  for (const candidate of [conversation?.messages, conversation?.payload?.messages, conversation?.conversation?.messages]) {
+    if (Array.isArray(candidate)) return candidate;
   }
-  if(d.handoff&&!d.add_labels.includes(cfg.validation))d.add_labels.push(cfg.validation);
+  return [];
+}
+function normalizeHistory(conversation) {
+  return getConversationMessages(conversation)
+    .filter((m) => !m.private && m.content)
+    .slice(-cfg.maxHistory)
+    .map((m) => `${isIncoming(m) ? "CLIENTE" : "AGENTE"}: ${String(m.content).trim()}`)
+    .join("\n");
+}
+function getLastIncomingMessage(conversation) {
+  const messages = getConversationMessages(conversation);
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m && isIncoming(m) && m.private !== true && senderIsContact(m)) return m;
+  }
+  return null;
+}
+function extractJson(text) {
+  const cleaned = String(text || "").replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
+  try { return JSON.parse(cleaned); } catch {
+    const start = cleaned.indexOf("{"); const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error("La respuesta del modelo no contiene JSON válido.");
+  }
+}
+
+async function makeHandoffSummary(conversation, reason) {
+  const response = await openai.responses.create({
+    model: cfg.model,
+    instructions: `Genera un resumen privado para un asesor humano de MARTCOM. No inventes datos. Usa únicamente el historial. Formato:\nAXEL IA - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nIMSS actual:\nÚltima cotización:\nDatos/documentos recibidos:\nMotivo de transferencia:\nSi un dato no está disponible escribe "No informado".`,
+    input: `Motivo técnico: ${reason}\n\nHistorial:\n${normalizeHistory(conversation)}`,
+  });
+  return response.output_text.trim().slice(0, 1600);
+}
+async function transferToHuman(id, conversation, reason) {
+  const reply = "Perfecto, ya recibí la información. Un asesor revisará personalmente su caso para darle una orientación precisa. En unos momentos continuará la atención.";
+  await mergeLabels(id, [cfg.validationLabel], []);
+  await sendMessage(id, reply, false);
+  let summary;
+  try { summary = await makeHandoffSummary(conversation, reason); }
+  catch { summary = `AXEL IA - RESUMEN\nMotivo de transferencia: ${reason}\nRevisar historial completo.`; }
+  await sendMessage(id, summary, true);
+}
+
+async function generateDecision(conversation, labels) {
+  const response = await openai.responses.create({
+    model: cfg.model,
+    instructions: `${MARTCOM_KNOWLEDGE}\nDevuelve ÚNICAMENTE JSON válido con esta forma:\n{"reply":"mensaje breve","add_labels":["etiqueta"],"remove_labels":["etiqueta"],"handoff":false,"handoff_reason":""}\nReglas técnicas: reply máximo ${cfg.maxReplyChars} caracteres. No agregues cerrado, no_contesta ni venta. No elimines asignado, predictivo ni reasignado. Si requiere consulta oficial, pago, vigencia, documentos o caso particular usa handoff=true y agrega validacion. Si hay interés fuerte, solicita CURP o NSS, no ambos de golpe.`,
+    input: `Etiquetas actuales: ${labels.join(", ") || "ninguna"}\n\nHistorial:\n${normalizeHistory(conversation)}`,
+  });
+  const d = extractJson(response.output_text);
+  d.reply = String(d.reply || "").trim().slice(0, cfg.maxReplyChars);
+  d.add_labels = Array.isArray(d.add_labels) ? d.add_labels.filter((x) => allowedLabels.has(x) && !["cerrado","no_contesta","venta"].includes(x)) : [];
+  d.remove_labels = Array.isArray(d.remove_labels) ? d.remove_labels.filter((x) => allowedLabels.has(x) && !["asignado","predictivo","reasignado"].includes(x)) : [];
+  d.handoff = Boolean(d.handoff);
+  d.handoff_reason = String(d.handoff_reason || "").trim();
+  if (d.handoff && !d.add_labels.includes(cfg.validationLabel)) d.add_labels.push(cfg.validationLabel);
   return d;
 }
-async function processIncoming(p){
-  const m=msg(p), mid=String(m?.id||""), id=convId(p);
-  if(!mid||!id||seen.has(mid))return; seen.set(mid,Date.now());
-  if(inboxId(p)!==cfg.inbox||!incoming(m)||m?.private===true)return;
-  if(!inSchedule()){console.log(`Fuera de horario. Conversación ${id}`);return}
-  if(locks.has(id))return; locks.add(id);
-  try{
-    await sleep(cfg.delay*1000);
-    const c=await getConv(id);
-    const ib=Number(c?.inbox_id||c?.inbox?.id);
-    const ai=Number(c?.meta?.assignee?.id||c?.assignee?.id);
-    const st=String(c?.status||"").toLowerCase();
-    if(ib!==cfg.inbox)return;
-    if(ai!==cfg.agent){console.log(`Ignorada ${id}: asignada al agente ${ai}.`);return}
-    if(["resolved","closed"].includes(st))return;
 
-    let labs=await mergeLabels(id,[cfg.assigned],[cfg.unattended]);
-    if(labs.some(x=>stopLabels.has(x))){console.log(`Ignorada ${id}: etiqueta de detención.`);return}
+async function processConversationMessage({ conversationId, message, source }) {
+  const messageId = String(message?.id || "");
+  if (!conversationId || !messageId) return;
+  if (processedMessages.has(messageId)) { console.log(`Mensaje ${messageId} ignorado: ya fue procesado (${source}).`); return; }
+  if (conversationLocks.has(conversationId)) { console.log(`Conversación ${conversationId} ignorada: ya está siendo procesada.`); return; }
+  if (!isWithinSchedule()) { console.log(`Fuera de horario. Conversación ${conversationId}`); return; }
 
-    if(attachments(m)||sensitive(m?.content||"")){
-      await handoff(id,c,attachments(m)?"Documento o archivo recibido.":"Dato sensible o solicitud de revisión recibida.");
-      console.log(JSON.stringify({event:"handoff",conversationId:id})); return;
+  conversationLocks.add(conversationId);
+  try {
+    await sleep(cfg.delaySeconds * 1000);
+    const conversation = await getConversation(conversationId);
+    const actualInboxId = Number(conversation?.inbox_id || conversation?.inbox?.id);
+    const actualAssigneeId = Number(conversation?.meta?.assignee?.id || conversation?.assignee?.id);
+    const status = String(conversation?.status || "").toLowerCase();
+
+    if (actualInboxId !== cfg.inboxId) return console.log(`Ignorada ${conversationId}: inbox ${actualInboxId}.`);
+    if (actualAssigneeId !== cfg.aiAgentId) return console.log(`Ignorada ${conversationId}: asignada al agente ${actualAssigneeId}.`);
+    if (["resolved","closed"].includes(status)) return console.log(`Ignorada ${conversationId}: estado ${status}.`);
+
+    let labels = await mergeLabels(conversationId, [cfg.assignedLabel], [cfg.unattendedLabel]);
+    if (labels.some((label) => stopLabels.has(label))) return console.log(`Ignorada ${conversationId}: tiene etiqueta de detención.`);
+
+    processedMessages.set(messageId, Date.now());
+    const sensitive = hasAttachments(message) || containsSensitiveDataOrReviewRequest(message?.content || "");
+    if (sensitive) {
+      const reason = hasAttachments(message) ? "El cliente envió uno o más archivos o documentos." : "El cliente envió datos sensibles o solicitó revisión humana o específica.";
+      await transferToHuman(conversationId, conversation, reason);
+      console.log(JSON.stringify({ event: "handoff", source, conversationId, messageId, reason }));
+      return;
     }
 
-    const h=history(c);
-    const isProvider=providerIntent(h);
-    const known=await facts(c);
-    const d=await decision(c,labs,known,isProvider);
-    labs=await mergeLabels(id,d.add_labels,d.remove_labels);
-    if(d.handoff) await handoff(id,c,d.handoff_reason||"Requiere revisión humana.");
-    else if(d.reply) await send(id,d.reply);
-    console.log(JSON.stringify({event:"processed",conversationId:id,provider:isProvider||known?.is_provider,knownFacts:known,labels:labs,handoff:d.handoff}));
-  }catch(e){
-    console.error(`Error en conversación ${id}:`,e);
-  }finally{locks.delete(id)}
-}
-async function processUpdate(p){
-  const id=convId(p);
-  if(!id||inboxId(p)!==cfg.inbox||assigneeId(p)!==cfg.agent)return;
-  try{await mergeLabels(id,[cfg.assigned],[cfg.unattended]); console.log(`Conversación ${id} recibida por AXEL IA.`)}
-  catch(e){console.error("Error al etiquetar conversación:",e)}
+    const decision = await generateDecision(conversation, labels);
+    labels = await mergeLabels(conversationId, decision.add_labels, decision.remove_labels);
+    if (decision.handoff) await transferToHuman(conversationId, conversation, decision.handoff_reason || "El caso requiere revisión humana.");
+    else if (decision.reply) await sendMessage(conversationId, decision.reply, false);
+
+    console.log(JSON.stringify({ event: "processed", source, conversationId, messageId, labels, handoff: decision.handoff }));
+  } catch (error) {
+    console.error(`Error en conversación ${conversationId}:`, error);
+  } finally {
+    conversationLocks.delete(conversationId);
+  }
 }
 
-app.get("/",(_q,r)=>r.json({service:"martcom-chatwoot-ai",version:"2.2.0",status:"ok",schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
-app.get("/health",(_q,r)=>r.json({status:"ok",version:"2.2.0",timestamp:new Date().toISOString()}));
-app.post("/webhook/chatwoot",(q,r)=>{
-  if(cfg.secret&&q.query.secret!==cfg.secret)return r.status(401).json({error:"unauthorized"});
-  r.status(200).json({received:true});
-  const e=String(q.body?.event||"");
-  if(e==="message_created")void processIncoming(q.body);
-  else if(e==="conversation_updated")void processUpdate(q.body);
+async function processIncoming(payload) {
+  const message = getMessage(payload);
+  const conversationId = getConversationId(payload);
+  const inboxId = getInboxId(payload);
+  if (!message?.id || !conversationId || inboxId !== cfg.inboxId) return;
+  if (!isIncoming(message) || message?.private === true || !senderIsContact(message)) return;
+  await processConversationMessage({ conversationId, message, source: "message_created" });
+}
+
+async function processConversationUpdate(payload) {
+  const conversationId = getConversationId(payload);
+  const inboxId = getInboxId(payload);
+  const assigneeId = getAssigneeId(payload);
+  if (!conversationId || inboxId !== cfg.inboxId || assigneeId !== cfg.aiAgentId) return;
+
+  try {
+    const conversation = await getConversation(conversationId);
+    const actualInboxId = Number(conversation?.inbox_id || conversation?.inbox?.id);
+    const actualAssigneeId = Number(conversation?.meta?.assignee?.id || conversation?.assignee?.id);
+    if (actualInboxId !== cfg.inboxId || actualAssigneeId !== cfg.aiAgentId) return;
+
+    const labels = await mergeLabels(conversationId, [cfg.assignedLabel], [cfg.unattendedLabel]);
+    console.log(`Conversación ${conversationId} recibida por AXEL IA.`);
+    if (labels.some((label) => stopLabels.has(label))) return console.log(`Conversación ${conversationId} no procesada: tiene etiqueta de detención.`);
+
+    const lastIncomingMessage = getLastIncomingMessage(conversation);
+    if (!lastIncomingMessage) return console.log(`Conversación ${conversationId} no tiene un mensaje entrante pendiente.`);
+
+    await processConversationMessage({ conversationId, message: lastIncomingMessage, source: "conversation_updated" });
+  } catch (error) {
+    console.error(`Error al procesar conversación asignada ${conversationId}:`, error);
+  }
+}
+
+app.get("/", (_req, res) => res.json({ service: "martcom-chatwoot-ai", version: "2.1.0", status: "ok", schedule: `${cfg.startHour}:00-${cfg.endHour}:00 ${cfg.timezone}`, inbox_id: cfg.inboxId, agent_id: cfg.aiAgentId }));
+app.get("/health", (_req, res) => res.json({ status: "ok", version: "2.1.0", timestamp: new Date().toISOString() }));
+app.post("/webhook/chatwoot", (req, res) => {
+  if (cfg.webhookSecret && req.query.secret !== cfg.webhookSecret) return res.status(401).json({ error: "unauthorized" });
+  res.status(200).json({ received: true });
+  const event = String(req.body?.event || "");
+  if (event === "message_created") void processIncoming(req.body);
+  else if (event === "conversation_updated") void processConversationUpdate(req.body);
 });
-app.listen(cfg.port,"0.0.0.0",()=>console.log(`AXEL IA V2.2 escuchando en puerto ${cfg.port}`));
+
+app.listen(cfg.port, "0.0.0.0", () => console.log(`AXEL IA V2.1 escuchando en puerto ${cfg.port}`));
+
