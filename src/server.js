@@ -154,7 +154,12 @@ No agregues cliente, venta, cerrado ni no_contesta.
 No elimines asignado, predictivo, reasignado, cliente ni venta.
 Haz una sola pregunta principal.
 No preguntes datos confirmados en memoria.
-Si todos los datos principales están confirmados y hay interés, solicita CURP.`,
+Si todos los datos principales están confirmados y hay interés, solicita CURP.
+No repitas ni resumas los datos confirmados salvo que sea necesario para aclarar algo.
+Evita frases como "tengo anotado", "confirmo", "ya registré", "veo que" o "entiendo que".
+No uses el nombre del cliente en todos los mensajes.
+Responde como un asesor humano: breve, directo y natural.
+Antes de devolver el JSON revisa que reply no suene como formulario ni repita la memoria.`,
     input:`ETIQUETAS:\n${labels.join(", ")||"ninguna"}\n\nHISTORIAL:\n${historyOf(conversation)}`
   });
   return jsonFrom(response.output_text);
@@ -178,7 +183,10 @@ Usa esta memoria:
 ${JSON.stringify(memory,null,2)}
 Devuelve solo JSON:
 {"reply":"mensaje breve","question_key":"otro_dato_pendiente_o_null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}
-No repitas preguntas ya respondidas.`,
+No repitas preguntas ya respondidas.
+No recites la memoria ni confirmes nuevamente datos conocidos.
+Evita "tengo anotado", "confirmo", "ya registré" y frases similares.
+La respuesta debe sonar humana, breve y natural.`,
     input:`HISTORIAL:\n${historyOf(conversation)}`
   });
   return jsonFrom(response.output_text);
@@ -309,14 +317,14 @@ async function processConversationUpdate(payload){
 }
 
 app.get("/",(_req,res)=>res.json({
-  service:"martcom-chatwoot-ai",version:"2.4.0",status:"ok",
+  service:"martcom-chatwoot-ai",version:"2.4.1",status:"ok",
   memory_file:cfg.memoryFile,
   schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,
   inbox_id:cfg.inbox,agent_id:cfg.agent
 }));
 
 app.get("/health",(_req,res)=>res.json({
-  status:"ok",version:"2.4.0",timestamp:new Date().toISOString()
+  status:"ok",version:"2.4.1",timestamp:new Date().toISOString()
 }));
 
 app.get("/memory/:conversationId",(req,res)=>{
@@ -342,7 +350,6 @@ app.post("/webhook/chatwoot",(req,res)=>{
 });
 
 app.listen(cfg.port,"0.0.0.0",()=>{
-  console.log(`AXEL IA V2.4 escuchando en puerto ${cfg.port}`);
+  console.log(`AXEL IA V2.4.1 escuchando en puerto ${cfg.port}`);
   console.log(`Memoria persistente: ${cfg.memoryFile}`);
 });
-
