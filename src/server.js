@@ -2,319 +2,193 @@ import "dotenv/config";
 import express from "express";
 import OpenAI from "openai";
 import { MARTCOM_KNOWLEDGE } from "./knowledge.js";
+import { MemoryStore } from "./memory-store.js";
 
-const required = [
-  "CHATWOOT_BASE_URL","CHATWOOT_ACCOUNT_ID","CHATWOOT_INBOX_ID",
-  "CHATWOOT_AI_AGENT_ID","CHATWOOT_ACCESS_TOKEN","OPENAI_API_KEY","OPENAI_MODEL"
-];
+const need=["CHATWOOT_BASE_URL","CHATWOOT_ACCOUNT_ID","CHATWOOT_INBOX_ID","CHATWOOT_AI_AGENT_ID","CHATWOOT_ACCESS_TOKEN","OPENAI_API_KEY","OPENAI_MODEL"];
+for(const k of need){if(!process.env[k]){console.error(`Falta ${k}`);process.exit(1);}}
 
-for (const key of required) {
-  if (!process.env[key]) {
-    console.error(`Falta la variable obligatoria: ${key}`);
-    process.exit(1);
-  }
-}
-
-const cfg = {
-  port: Number(process.env.PORT || 3000),
-  chatwootBaseUrl: process.env.CHATWOOT_BASE_URL.replace(/\/+$/, ""),
-  accountId: Number(process.env.CHATWOOT_ACCOUNT_ID),
-  inboxId: Number(process.env.CHATWOOT_INBOX_ID),
-  aiAgentId: Number(process.env.CHATWOOT_AI_AGENT_ID),
-  chatwootToken: process.env.CHATWOOT_ACCESS_TOKEN,
-  model: process.env.OPENAI_MODEL,
-  timezone: process.env.AI_TIMEZONE || "America/Mexico_City",
-  startHour: Number(process.env.AI_START_HOUR || 7),
-  endHour: Number(process.env.AI_END_HOUR || 22),
-  maxHistory: Number(process.env.AI_MAX_HISTORY_MESSAGES || 40),
-  delaySeconds: Number(process.env.AI_RESPONSE_DELAY_SECONDS || 4),
-  maxReplyChars: Number(process.env.AI_MAX_REPLY_CHARS || 900),
-  assignedLabel: process.env.AI_ASSIGNED_LABEL || "asignado",
-  unattendedLabel: process.env.AI_UNATTENDED_LABEL || "sin_atender",
-  validationLabel: process.env.AI_VALIDATION_LABEL || "validacion",
-  webhookSecret: process.env.WEBHOOK_SECRET || "",
+const cfg={
+  port:Number(process.env.PORT||3000),
+  base:process.env.CHATWOOT_BASE_URL.replace(/\/+$/,""),
+  account:Number(process.env.CHATWOOT_ACCOUNT_ID),
+  inbox:Number(process.env.CHATWOOT_INBOX_ID),
+  agent:Number(process.env.CHATWOOT_AI_AGENT_ID),
+  token:process.env.CHATWOOT_ACCESS_TOKEN,
+  model:process.env.OPENAI_MODEL,
+  timezone:process.env.AI_TIMEZONE||"America/Mexico_City",
+  start:Number(process.env.AI_START_HOUR||7),
+  end:Number(process.env.AI_END_HOUR||22),
+  maxHistory:Number(process.env.AI_MAX_HISTORY_MESSAGES||40),
+  delay:Number(process.env.AI_RESPONSE_DELAY_SECONDS||4),
+  maxReply:Number(process.env.AI_MAX_REPLY_CHARS||850),
+  assigned:process.env.AI_ASSIGNED_LABEL||"asignado",
+  unattended:process.env.AI_UNATTENDED_LABEL||"sin_atender",
+  validation:process.env.AI_VALIDATION_LABEL||"validacion",
+  memoryFile:process.env.MEMORY_FILE||"/app/data/conversation-memory.json",
+  secret:process.env.WEBHOOK_SECRET||""
 };
 
-const allowedLabels = new Set([
-  "asignado","cerrado","chat_basura","cliente","embarazo","no_contesta",
-  "no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado",
-  "seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"
-]);
+const allowed=new Set(["asignado","cerrado","chat_basura","cliente","embarazo","no_contesta","no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado","seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"]);
+const stop=new Set(["cerrado","chat_basura","no_quiere_el_servicio","rechazado","venta","validacion"]);
+const protectedLabels=new Set(["asignado","predictivo","reasignado","cliente","venta"]);
+const openai=new OpenAI({apiKey:process.env.OPENAI_API_KEY});
+const memories=new MemoryStore(cfg.memoryFile);
+const locks=new Set();
+const app=express();
+app.use(express.json({limit:"4mb"}));
 
-const stopLabels = new Set([
-  "cerrado","chat_basura","no_quiere_el_servicio","rechazado","venta","validacion"
-]);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const arrays=(a=[],b=[],max=50)=>[...new Set([...(a||[]),...(b||[])])].slice(-max);
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const app = express();
-app.use(express.json({ limit: "4mb" }));
-
-const processedMessages = new Map();
-const conversationLocks = new Set();
-
-setInterval(() => {
-  const cutoff = Date.now() - 6 * 60 * 60 * 1000;
-  for (const [id, timestamp] of processedMessages.entries()) {
-    if (timestamp < cutoff) processedMessages.delete(id);
-  }
-}, 30 * 60 * 1000).unref();
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function getLocalHour() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: cfg.timezone, hour: "2-digit", hour12: false
-  }).formatToParts(new Date());
-  return Number(parts.find((p) => p.type === "hour")?.value || 0);
+function localHour(){
+  const parts=new Intl.DateTimeFormat("en-US",{timeZone:cfg.timezone,hour:"2-digit",hour12:false}).formatToParts(new Date());
+  return Number(parts.find(x=>x.type==="hour")?.value||0);
 }
+const inSchedule=()=>localHour()>=cfg.start&&localHour()<cfg.end;
+const messageOf=p=>p?.message||p;
+const conversationIdOf=p=>Number(p?.conversation?.id??p?.message?.conversation_id??p?.conversation_id??p?.id);
+const inboxIdOf=p=>Number(p?.conversation?.inbox_id??p?.conversation?.inbox?.id??p?.inbox?.id??p?.message?.inbox_id);
+const incoming=m=>m?.message_type==="incoming"||m?.message_type===0;
+const contact=m=>{const t=String(m?.sender_type||m?.sender?.type||"").toLowerCase();return !t||t==="contact";};
+const attachments=m=>Array.isArray(m?.attachments)&&m.attachments.length>0;
 
-function isWithinSchedule() {
-  const hour = getLocalHour();
-  return hour >= cfg.startHour && hour < cfg.endHour;
-}
-
-function getMessage(payload) { return payload?.message || payload; }
-
-function getConversationId(payload) {
-  return Number(
-    payload?.conversation?.id ??
-    payload?.message?.conversation_id ??
-    payload?.conversation_id ??
-    payload?.id
-  );
-}
-
-function getInboxId(payload) {
-  return Number(
-    payload?.conversation?.inbox_id ??
-    payload?.conversation?.inbox?.id ??
-    payload?.inbox?.id ??
-    payload?.message?.inbox_id
-  );
-}
-
-function isIncoming(message) {
-  return message?.message_type === "incoming" || message?.message_type === 0;
-}
-
-function senderIsContact(message) {
-  const type = String(message?.sender_type || message?.sender?.type || "").toLowerCase();
-  return !type || type === "contact";
-}
-
-function hasAttachments(message) {
-  return Array.isArray(message?.attachments) && message.attachments.length > 0;
-}
-
-function detectHandoffReason(content = "") {
-  const text = String(content).trim();
-  const lower = text.toLowerCase();
-  const curpPattern = /\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/i;
-  const nssPattern = /\b\d{2}[\s-]?\d{2}[\s-]?\d{2}[\s-]?\d{5}\b/;
-
-  if (curpPattern.test(text)) return "El cliente proporcionó una CURP.";
-  if (nssPattern.test(text)) return "El cliente proporcionó un NSS.";
-
-  const human = [
-    "quiero hablar con un asesor","quiero hablar con una persona",
-    "comuníqueme con un asesor","comuniqueme con un asesor",
-    "pueden llamarme","puede llamarme","quiero una llamada","háblenme","hablenme"
-  ];
-  if (human.some((phrase) => lower.includes(phrase))) {
-    return "El cliente solicitó atención directa de un asesor.";
-  }
-
-  const payment = [
-    "ya hice el pago","ya realicé el pago","ya realice el pago",
-    "ya pagué","ya pague","te envío el comprobante",
-    "te envio el comprobante","adjunto el comprobante"
-  ];
-  if (payment.some((phrase) => lower.includes(phrase))) {
-    return "El cliente reportó un pago o comprobante que requiere validación.";
-  }
+function handoffReason(content=""){
+  const text=String(content).trim(), lower=text.toLowerCase();
+  if(/\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/i.test(text)) return "El cliente proporcionó una CURP.";
+  if(/\b\d{2}[\s-]?\d{2}[\s-]?\d{2}[\s-]?\d{5}\b/.test(text)) return "El cliente proporcionó un NSS.";
+  const human=["quiero hablar con un asesor","quiero hablar con una persona","comuníqueme con un asesor","comuniqueme con un asesor","pueden llamarme","puede llamarme","quiero una llamada","háblenme","hablenme"];
+  if(human.some(x=>lower.includes(x))) return "El cliente solicitó atención directa de un asesor.";
+  const paid=["ya hice el pago","ya realicé el pago","ya realice el pago","ya pagué","ya pague","te envío el comprobante","te envio el comprobante","adjunto el comprobante"];
+  if(paid.some(x=>lower.includes(x))) return "El cliente reportó un pago o comprobante.";
   return null;
 }
 
-async function cw(path, options = {}) {
-  const response = await fetch(`${cfg.chatwootBaseUrl}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      api_access_token: cfg.chatwootToken,
-      ...(options.headers || {})
-    }
-  });
-
-  const text = await response.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-
-  if (!response.ok) {
-    throw new Error(`Chatwoot ${response.status}: ${JSON.stringify(data)}`);
-  }
+async function cw(path,options={}){
+  const res=await fetch(cfg.base+path,{...options,headers:{"Content-Type":"application/json",api_access_token:cfg.token,...(options.headers||{})}});
+  const text=await res.text(); let data=null;
+  try{data=text?JSON.parse(text):null;}catch{data=text;}
+  if(!res.ok) throw new Error(`Chatwoot ${res.status}: ${JSON.stringify(data)}`);
   return data;
 }
-
-async function getConversation(conversationId) {
-  return cw(`/api/v1/accounts/${cfg.accountId}/conversations/${conversationId}`);
+const getConversation=id=>cw(`/api/v1/accounts/${cfg.account}/conversations/${id}`);
+async function getLabels(id){
+  const d=await cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/labels`);
+  return Array.isArray(d?.payload)?d.payload:[];
 }
-
-async function getLabels(conversationId) {
-  const data = await cw(
-    `/api/v1/accounts/${cfg.accountId}/conversations/${conversationId}/labels`
-  );
-  return Array.isArray(data?.payload) ? data.payload : [];
+async function setLabels(id,labels){
+  const clean=[...new Set(labels)].filter(x=>allowed.has(x));
+  return cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/labels`,{method:"POST",body:JSON.stringify({labels:clean})});
 }
-
-async function setLabels(conversationId, labels) {
-  const clean = [...new Set(labels)].filter((label) => allowedLabels.has(label));
-  return cw(
-    `/api/v1/accounts/${cfg.accountId}/conversations/${conversationId}/labels`,
-    { method: "POST", body: JSON.stringify({ labels: clean }) }
-  );
-}
-
-async function mergeLabels(conversationId, add = [], remove = []) {
-  const current = await getLabels(conversationId);
-  const next = new Set(current.filter((label) => allowedLabels.has(label)));
-
-  for (const label of remove) next.delete(label);
-  for (const label of add) if (allowedLabels.has(label)) next.add(label);
-
-  if ([...next].sort().join("|") !== [...current].sort().join("|")) {
-    await setLabels(conversationId, [...next]);
-  }
+async function mergeLabels(id,add=[],remove=[]){
+  const current=await getLabels(id), next=new Set(current.filter(x=>allowed.has(x)));
+  for(const x of remove) if(!protectedLabels.has(x)) next.delete(x);
+  for(const x of add) if(allowed.has(x)) next.add(x);
+  if([...next].sort().join("|")!==[...current].sort().join("|")) await setLabels(id,[...next]);
   return [...next];
 }
+const sendMessage=(id,content,priv=false)=>cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/messages`,{method:"POST",body:JSON.stringify({content,message_type:"outgoing",private:priv})});
 
-async function sendMessage(conversationId, content, privateNote = false) {
-  return cw(
-    `/api/v1/accounts/${cfg.accountId}/conversations/${conversationId}/messages`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        content,
-        message_type: "outgoing",
-        private: privateNote
-      })
-    }
-  );
-}
-
-function getConversationMessages(conversation) {
-  const candidates = [
-    conversation?.messages,
-    conversation?.payload?.messages,
-    conversation?.conversation?.messages
-  ];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) return candidate;
-  }
+function messagesOf(c){
+  for(const x of [c?.messages,c?.payload?.messages,c?.conversation?.messages]) if(Array.isArray(x)) return x;
   return [];
 }
-
-function normalizeHistory(conversation) {
-  return getConversationMessages(conversation)
-    .filter((message) => !message.private && message.content)
-    .slice(-cfg.maxHistory)
-    .map((message) => {
-      const role =
-        message.message_type === "incoming" || message.message_type === 0
-          ? "CLIENTE" : "AGENTE";
-      return `${role}: ${String(message.content).trim()}`;
-    })
-    .join("\n");
+function historyOf(c){
+  return messagesOf(c).filter(m=>!m.private&&m.content).slice(-cfg.maxHistory).map(m=>`${incoming(m)?"CLIENTE":"AGENTE"}: ${String(m.content).trim()}`).join("\n");
 }
-
-function getLastIncomingMessage(conversation) {
-  const messages = getConversationMessages(conversation);
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (
-      message &&
-      isIncoming(message) &&
-      message.private !== true &&
-      senderIsContact(message)
-    ) return message;
-  }
+function lastIncoming(c){
+  const ms=messagesOf(c);
+  for(let i=ms.length-1;i>=0;i--){const m=ms[i];if(m&&incoming(m)&&!m.private&&contact(m)) return m;}
   return null;
 }
-
-function extractJson(text) {
-  const cleaned = String(text || "")
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
-
-  try { return JSON.parse(cleaned); } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      return JSON.parse(cleaned.slice(start, end + 1));
-    }
-    throw new Error("La respuesta del modelo no contiene JSON válido.");
+function jsonFrom(text){
+  const s=String(text||"").replace(/^```json\s*/i,"").replace(/^```\s*/i,"").replace(/```$/i,"").trim();
+  try{return JSON.parse(s);}catch{
+    const a=s.indexOf("{"),b=s.lastIndexOf("}");
+    if(a>=0&&b>a)return JSON.parse(s.slice(a,b+1));
+    throw new Error("OpenAI no devolvió JSON válido");
   }
 }
-
-async function buildCustomerProfile(conversation) {
-  const history = normalizeHistory(conversation);
-
-  const response = await openai.responses.create({
-    model: cfg.model,
-    instructions: `
-Extrae una ficha estructurada del cliente.
-No inventes datos. No confundas CURP o NSS con nombre.
-Devuelve ÚNICAMENTE JSON válido:
-
-{
-  "nombre": null,
-  "edad": null,
-  "actividad": null,
-  "tipo_trabajo": null,
-  "tiene_imss": null,
-  "ultima_cotizacion": null,
-  "necesidades": [],
-  "afore_actual": null,
-  "pregunta_cambio_afore": false,
-  "curp_recibida": false,
-  "nss_recibido": false,
-  "documentos_recibidos": [],
-  "datos_confirmados": [],
-  "datos_pendientes": [],
-  "contradicciones": [],
-  "ultima_pregunta_del_agente": null
+function mergeMemory(current,patch){
+  const next={...current};
+  for(const k of ["nombre","edad","actividad","tipo_trabajo","tiene_imss","ultima_cotizacion","necesidad_principal","afore_actual"]){
+    const v=patch?.[k]; if(v!==null&&v!==undefined&&v!=="") next[k]=v;
+  }
+  for(const k of ["pregunta_cambio_afore","curp_recibida","nss_recibido"]){
+    if(typeof patch?.[k]==="boolean") next[k]=Boolean(current[k]||patch[k]);
+  }
+  next.necesidades=arrays(current.necesidades,patch?.necesidades);
+  next.documentos_recibidos=arrays(current.documentos_recibidos,patch?.documentos_recibidos);
+  next.contradicciones=arrays(current.contradicciones,patch?.contradicciones);
+  return next;
 }
 
-Reglas:
-- nombre solo si el cliente expresó su nombre.
-- CURP de 18 caracteres nunca es nombre.
-- NSS de 11 dígitos nunca es nombre.
-- tiene_imss debe ser true, false o null.
-- necesidades puede incluir servicio_medico, semanas, pension, beneficiarios,
-  afore, infonavit o afiliacion.
-- contradicciones debe señalar datos incompatibles.
-- datos_confirmados contiene lo ya conocido.
-- datos_pendientes solo contiene datos relevantes que faltan.
-`,
-    input: `Historial:\n${history}`
+async function extractMemoryUpdate(conversation,current,newMessage){
+  const response=await openai.responses.create({
+    model:cfg.model,
+    instructions:`Actualiza memoria persistente de un cliente MARTCOM. No borres datos confirmados ni inventes.
+Devuelve solo JSON:
+{"nombre":null,"edad":null,"actividad":null,"tipo_trabajo":null,"tiene_imss":null,"ultima_cotizacion":null,"necesidad_principal":null,"necesidades":[],"afore_actual":null,"pregunta_cambio_afore":false,"curp_recibida":false,"nss_recibido":false,"documentos_recibidos":[],"contradicciones":[]}
+CURP nunca es nombre. NSS nunca es nombre. tiene_imss solo true, false o null.
+Si dice "no tengo IMSS", usa false. Si dice "desempleado", actividad="desempleado".
+Si dice "servicio médico", necesidad_principal="servicio_medico".
+Si contradice un dato previo, conserva el previo y agrega contradicción.
+No tomes mensajes automáticos de entrada como datos confirmados.`,
+    input:`MEMORIA PREVIA:\n${JSON.stringify(current,null,2)}\n\nMENSAJE NUEVO:\n${String(newMessage?.content||"")}\n\nHISTORIAL:\n${historyOf(conversation)}`
   });
-
-  return extractJson(response.output_text);
+  return jsonFrom(response.output_text);
 }
 
-async function makeHandoffSummary(conversation, reason, profile) {
-  const history = normalizeHistory(conversation);
+async function generateDecision(conversation,labels,memory){
+  const response=await openai.responses.create({
+    model:cfg.model,
+    instructions:`${MARTCOM_KNOWLEDGE}
 
-  const response = await openai.responses.create({
-    model: cfg.model,
-    instructions: `
-Genera una nota privada breve para un asesor humano.
-Usa la ficha como fuente principal. No inventes.
-No confundas CURP con nombre.
+MEMORIA PERSISTENTE:
+${JSON.stringify(memory,null,2)}
 
-Formato obligatorio:
+Devuelve solo JSON:
+{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}
 
+Máximo ${cfg.maxReply} caracteres.
+No agregues cliente, venta, cerrado ni no_contesta.
+No elimines asignado, predictivo, reasignado, cliente ni venta.
+Haz una sola pregunta principal.
+No preguntes datos confirmados en memoria.
+Si todos los datos principales están confirmados y hay interés, solicita CURP.`,
+    input:`ETIQUETAS:\n${labels.join(", ")||"ninguna"}\n\nHISTORIAL:\n${historyOf(conversation)}`
+  });
+  return jsonFrom(response.output_text);
+}
+
+function answered(memory,key){
+  const map={
+    nombre:memory.nombre,edad:memory.edad,actividad:memory.actividad,
+    tiene_imss:memory.tiene_imss,ultima_cotizacion:memory.ultima_cotizacion,
+    necesidad_principal:memory.necesidad_principal,curp:memory.curp_recibida,nss:memory.nss_recibido
+  };
+  return key in map&&map[key]!==null&&map[key]!==""&&map[key]!==false;
+}
+
+async function fallbackDecision(conversation,memory,rejected){
+  const response=await openai.responses.create({
+    model:cfg.model,
+    instructions:`${MARTCOM_KNOWLEDGE}
+La respuesta anterior repitió "${rejected}", dato ya confirmado.
+Usa esta memoria:
+${JSON.stringify(memory,null,2)}
+Devuelve solo JSON:
+{"reply":"mensaje breve","question_key":"otro_dato_pendiente_o_null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}
+No repitas preguntas ya respondidas.`,
+    input:`HISTORIAL:\n${historyOf(conversation)}`
+  });
+  return jsonFrom(response.output_text);
+}
+
+async function handoffSummary(conversation,reason,memory){
+  const response=await openai.responses.create({
+    model:cfg.model,
+    instructions:`Genera nota privada breve. Usa memoria como fuente principal. No inventes ni confundas CURP/NSS con nombre.
+Formato:
 AXEL IA - RESUMEN
 Nombre:
 Edad:
@@ -325,292 +199,150 @@ IMSS actual:
 AFORE:
 CURP recibida:
 NSS recibido:
-Documentos recibidos:
+Documentos:
 Contradicciones:
 Motivo de transferencia:
-
-Si no hay dato, escribe "No informado".
-`,
-    input:
-      `Motivo: ${reason}\n\n` +
-      `Ficha:\n${JSON.stringify(profile, null, 2)}\n\n` +
-      `Historial:\n${history}`
+Si falta un dato escribe "No informado".`,
+    input:`MOTIVO:\n${reason}\n\nMEMORIA:\n${JSON.stringify(memory,null,2)}\n\nHISTORIAL:\n${historyOf(conversation)}`
   });
-
-  return response.output_text.trim().slice(0, 1800);
+  return response.output_text.trim().slice(0,1800);
 }
 
-async function transferToHuman(conversationId, conversation, reason, profile) {
-  const reply =
-    "Perfecto, ya recibí la información. Un asesor revisará personalmente su caso para darle una orientación precisa. En unos momentos continuará la atención.";
-
-  await mergeLabels(conversationId, [cfg.validationLabel], []);
-  await sendMessage(conversationId, reply, false);
-
+async function transfer(id,conversation,reason,memory){
+  await mergeLabels(id,[cfg.validation],[]);
+  await sendMessage(id,"Perfecto, ya recibí la información. Un asesor revisará personalmente su caso para darle una orientación precisa. En unos momentos continuará la atención.");
   let summary;
-  try {
-    summary = await makeHandoffSummary(conversation, reason, profile);
-  } catch {
-    summary =
-      `AXEL IA - RESUMEN\nMotivo de transferencia: ${reason}\n` +
-      `Revisar historial completo.`;
-  }
-  await sendMessage(conversationId, summary, true);
+  try{summary=await handoffSummary(conversation,reason,memory);}
+  catch{summary=`AXEL IA - RESUMEN\nMotivo de transferencia: ${reason}\nRevisar historial completo.`;}
+  await sendMessage(id,summary,true);
 }
 
-async function generateDecision(conversation, labels, profile) {
-  const history = normalizeHistory(conversation);
+async function processMessage({conversationId,message,source}){
+  const messageId=String(message?.id||"");
+  if(!conversationId||!messageId)return;
+  if(memories.hasProcessed(conversationId,messageId)){console.log(`Mensaje ${messageId} ya procesado`);return;}
+  if(locks.has(conversationId)){console.log(`Conversación ${conversationId} en proceso`);return;}
+  if(!inSchedule()){console.log(`Fuera de horario. Conversación ${conversationId}`);return;}
 
-  const response = await openai.responses.create({
-    model: cfg.model,
-    instructions: `
-${MARTCOM_KNOWLEDGE}
+  locks.add(conversationId);
+  try{
+    await sleep(cfg.delay*1000);
+    const conversation=await getConversation(conversationId);
+    const inbox=Number(conversation?.inbox_id||conversation?.inbox?.id);
+    const agent=Number(conversation?.meta?.assignee?.id||conversation?.assignee?.id);
+    const status=String(conversation?.status||"").toLowerCase();
+    if(inbox!==cfg.inbox)return;
+    if(agent!==cfg.agent){console.log(`Ignorada ${conversationId}: agente ${agent}`);return;}
+    if(["resolved","closed"].includes(status))return;
 
-FICHA DEL CLIENTE
-${JSON.stringify(profile, null, 2)}
+    let labels=await mergeLabels(conversationId,[cfg.assigned],[cfg.unattended]);
+    if(labels.some(x=>stop.has(x))){console.log(`Ignorada ${conversationId}: etiqueta de detención`);return;}
 
-Devuelve ÚNICAMENTE JSON válido:
-{
-  "reply": "mensaje breve para el cliente",
-  "add_labels": ["etiqueta"],
-  "remove_labels": ["etiqueta"],
-  "handoff": false,
-  "handoff_reason": ""
-}
+    let memory=memories.get(conversationId);
+    const patch=await extractMemoryUpdate(conversation,memory,message);
+    memory=mergeMemory(memory,patch);
 
-Reglas obligatorias:
-- No preguntes nada que aparezca en datos_confirmados.
-- Si tiene_imss es false, jamás vuelvas a preguntar si tiene IMSS.
-- Si edad existe, no la vuelvas a pedir.
-- Si actividad existe, no la vuelvas a pedir.
-- Si necesidades ya tiene datos, no vuelvas a listar todas las opciones.
-- Si contradicciones tiene elementos, pregunta solo por la contradicción más importante.
-- Haz una sola pregunta principal por turno.
-- Reconoce brevemente la información confirmada.
-- Si pregunta por cambio de AFORE, aclara que es un trámite distinto.
-- reply máximo ${cfg.maxReplyChars} caracteres.
-- No agregues cerrado, no_contesta ni venta automáticamente.
-- No elimines asignado, predictivo ni reasignado.
-- Si hay interés fuerte, solicita CURP o NSS, no ambos.
-- Si requiere revisión oficial o humana, handoff=true y agrega validacion.
-`,
-    input:
-      `Etiquetas actuales: ${labels.join(", ") || "ninguna"}\n\n` +
-      `Historial:\n${history}`
-  });
+    if(attachments(message)){
+      memory.documentos_recibidos=arrays(memory.documentos_recibidos,message.attachments.map(a=>a?.file_type||a?.extension||"archivo"));
+    }
 
-  const decision = extractJson(response.output_text);
-  decision.reply = String(decision.reply || "").trim().slice(0, cfg.maxReplyChars);
-  decision.add_labels = Array.isArray(decision.add_labels)
-    ? decision.add_labels.filter((label) => allowedLabels.has(label)) : [];
-  decision.remove_labels = Array.isArray(decision.remove_labels)
-    ? decision.remove_labels.filter((label) => allowedLabels.has(label)) : [];
-  decision.handoff = Boolean(decision.handoff);
-  decision.handoff_reason = String(decision.handoff_reason || "").trim();
+    await memories.set(conversationId,memory);
+    await memories.markProcessed(conversationId,messageId);
+    memory=memories.get(conversationId);
 
-  decision.add_labels = decision.add_labels.filter(
-    (label) => !["cerrado","no_contesta","venta"].includes(label)
-  );
-  decision.remove_labels = decision.remove_labels.filter(
-    (label) => !["asignado","predictivo","reasignado"].includes(label)
-  );
-
-  if (decision.handoff && !decision.add_labels.includes(cfg.validationLabel)) {
-    decision.add_labels.push(cfg.validationLabel);
-  }
-  return decision;
-}
-
-async function processConversationMessage({ conversationId, message, source }) {
-  const messageId = String(message?.id || "");
-  if (!conversationId || !messageId) return;
-
-  if (processedMessages.has(messageId)) {
-    console.log(`Mensaje ${messageId} ignorado: ya fue procesado.`);
-    return;
-  }
-
-  if (conversationLocks.has(conversationId)) {
-    console.log(`Conversación ${conversationId} ya está en proceso.`);
-    return;
-  }
-
-  if (!isWithinSchedule()) {
-    console.log(`Fuera de horario. Conversación ${conversationId}`);
-    return;
-  }
-
-  conversationLocks.add(conversationId);
-
-  try {
-    await sleep(cfg.delaySeconds * 1000);
-
-    const conversation = await getConversation(conversationId);
-    const actualInboxId = Number(conversation?.inbox_id || conversation?.inbox?.id);
-    const actualAssigneeId = Number(
-      conversation?.meta?.assignee?.id || conversation?.assignee?.id
-    );
-    const status = String(conversation?.status || "").toLowerCase();
-
-    if (actualInboxId !== cfg.inboxId) return;
-
-    if (actualAssigneeId !== cfg.aiAgentId) {
-      console.log(`Ignorada ${conversationId}: asignada al agente ${actualAssigneeId}.`);
+    const reason=attachments(message)?"El cliente envió uno o más archivos o documentos.":handoffReason(message?.content||"");
+    if(reason){
+      await transfer(conversationId,conversation,reason,memory);
+      console.log(JSON.stringify({event:"handoff",source,conversationId,messageId,reason,memory}));
       return;
     }
 
-    if (["resolved","closed"].includes(status)) return;
-
-    let labels = await mergeLabels(
-      conversationId,
-      [cfg.assignedLabel],
-      [cfg.unattendedLabel]
-    );
-
-    if (labels.some((label) => stopLabels.has(label))) {
-      console.log(`Ignorada ${conversationId}: tiene etiqueta de detención.`);
-      return;
+    let decision=await generateDecision(conversation,labels,memory);
+    if(decision.question_key&&answered(memory,decision.question_key)){
+      console.log(`Pregunta repetida bloqueada ${conversationId}: ${decision.question_key}`);
+      decision=await fallbackDecision(conversation,memory,decision.question_key);
     }
 
-    processedMessages.set(messageId, Date.now());
+    decision.reply=String(decision.reply||"").trim().slice(0,cfg.maxReply);
+    decision.add_labels=Array.isArray(decision.add_labels)?decision.add_labels.filter(x=>allowed.has(x)&&!["cliente","venta","cerrado","no_contesta"].includes(x)):[];
+    decision.remove_labels=Array.isArray(decision.remove_labels)?decision.remove_labels.filter(x=>allowed.has(x)&&!protectedLabels.has(x)):[];
+    labels=await mergeLabels(conversationId,decision.add_labels,decision.remove_labels);
 
-    const profile = await buildCustomerProfile(conversation);
-
-    const handoffReason = hasAttachments(message)
-      ? "El cliente envió uno o más archivos o documentos."
-      : detectHandoffReason(message?.content || "");
-
-    if (handoffReason) {
-      await transferToHuman(conversationId, conversation, handoffReason, profile);
-      console.log(JSON.stringify({
-        event: "handoff", source, conversationId, messageId, reason: handoffReason, profile
-      }));
-      return;
+    if(decision.handoff){
+      await transfer(conversationId,conversation,decision.handoff_reason||"El caso requiere revisión humana.",memory);
+    }else if(decision.reply){
+      await sendMessage(conversationId,decision.reply);
+      const questions=decision.question_key?arrays(memory.preguntas_realizadas,[decision.question_key],100):memory.preguntas_realizadas;
+      await memories.merge(conversationId,{preguntas_realizadas:questions,ultima_pregunta:decision.question_key||null,ultima_respuesta_agente:decision.reply});
     }
 
-    const decision = await generateDecision(conversation, labels, profile);
-
-    labels = await mergeLabels(
-      conversationId,
-      decision.add_labels,
-      decision.remove_labels
-    );
-
-    if (decision.handoff) {
-      await transferToHuman(
-        conversationId,
-        conversation,
-        decision.handoff_reason || "El caso requiere revisión humana.",
-        profile
-      );
-    } else if (decision.reply) {
-      await sendMessage(conversationId, decision.reply, false);
-    }
-
-    console.log(JSON.stringify({
-      event: "processed", source, conversationId, messageId,
-      labels, handoff: decision.handoff, profile
-    }));
-  } catch (error) {
-    console.error(`Error en conversación ${conversationId}:`, error);
-  } finally {
-    conversationLocks.delete(conversationId);
-  }
+    console.log(JSON.stringify({event:"processed",source,conversationId,messageId,labels,handoff:Boolean(decision.handoff),memory:memories.get(conversationId)}));
+  }catch(error){
+    console.error(`Error en conversación ${conversationId}:`,error);
+  }finally{locks.delete(conversationId);}
 }
 
-async function processIncoming(payload) {
-  const message = getMessage(payload);
-  const conversationId = getConversationId(payload);
-  const inboxId = getInboxId(payload);
-
-  if (!message?.id || !conversationId) return;
-  if (inboxId !== cfg.inboxId) return;
-
-  if (!isIncoming(message) || message?.private === true || !senderIsContact(message)) {
-    return;
-  }
-
-  await processConversationMessage({
-    conversationId,
-    message,
-    source: "message_created"
-  });
+async function processIncoming(payload){
+  const message=messageOf(payload), id=conversationIdOf(payload), inbox=inboxIdOf(payload);
+  if(!message?.id||!id||inbox!==cfg.inbox)return;
+  if(!incoming(message)||message?.private===true||!contact(message))return;
+  await processMessage({conversationId:id,message,source:"message_created"});
 }
 
-async function processConversationUpdate(payload) {
-  const conversationId = getConversationId(payload);
-  if (!conversationId) return;
+async function processConversationUpdate(payload){
+  const id=conversationIdOf(payload);
+  if(!id)return;
+  try{
+    const conversation=await getConversation(id);
+    const inbox=Number(conversation?.inbox_id||conversation?.inbox?.id);
+    const agent=Number(conversation?.meta?.assignee?.id||conversation?.assignee?.id);
+    if(inbox!==cfg.inbox||agent!==cfg.agent)return;
 
-  try {
-    const conversation = await getConversation(conversationId);
-    const actualInboxId = Number(conversation?.inbox_id || conversation?.inbox?.id);
-    const actualAssigneeId = Number(
-      conversation?.meta?.assignee?.id || conversation?.assignee?.id
-    );
+    const labels=await mergeLabels(id,[cfg.assigned],[cfg.unattended]);
+    console.log(`Conversación ${id} recibida por AXEL IA.`);
+    if(labels.some(x=>stop.has(x))){console.log(`Conversación ${id} detenida por etiqueta`);return;}
 
-    if (actualInboxId !== cfg.inboxId || actualAssigneeId !== cfg.aiAgentId) return;
-
-    const labels = await mergeLabels(
-      conversationId,
-      [cfg.assignedLabel],
-      [cfg.unattendedLabel]
-    );
-
-    console.log(`Conversación ${conversationId} recibida por AXEL IA.`);
-
-    if (labels.some((label) => stopLabels.has(label))) {
-      console.log(`Conversación ${conversationId} no procesada: etiqueta de detención.`);
-      return;
-    }
-
-    const lastIncomingMessage = getLastIncomingMessage(conversation);
-    if (!lastIncomingMessage) return;
-
-    await processConversationMessage({
-      conversationId,
-      message: lastIncomingMessage,
-      source: "conversation_updated"
-    });
-  } catch (error) {
-    console.error(`Error al procesar conversación asignada ${conversationId}:`, error);
-  }
+    const message=lastIncoming(conversation);
+    if(!message){console.log(`Conversación ${id} sin mensaje entrante`);return;}
+    await processMessage({conversationId:id,message,source:"conversation_updated"});
+  }catch(error){console.error(`Error asignación ${id}:`,error);}
 }
 
-app.get("/", (_req, res) => {
-  res.json({
-    service: "martcom-chatwoot-ai",
-    version: "2.3.0",
-    status: "ok",
-    schedule: `${cfg.startHour}:00-${cfg.endHour}:00 ${cfg.timezone}`,
-    inbox_id: cfg.inboxId,
-    agent_id: cfg.aiAgentId
-  });
+app.get("/",(_req,res)=>res.json({
+  service:"martcom-chatwoot-ai",version:"2.4.0",status:"ok",
+  memory_file:cfg.memoryFile,
+  schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,
+  inbox_id:cfg.inbox,agent_id:cfg.agent
+}));
+
+app.get("/health",(_req,res)=>res.json({
+  status:"ok",version:"2.4.0",timestamp:new Date().toISOString()
+}));
+
+app.get("/memory/:conversationId",(req,res)=>{
+  const id=Number(req.params.conversationId);
+  if(!id)return res.status(400).json({error:"conversation_id inválido"});
+  res.json(memories.get(id));
 });
 
-app.get("/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    version: "2.3.0",
-    timestamp: new Date().toISOString()
-  });
+app.delete("/memory/:conversationId",async(req,res)=>{
+  if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});
+  const id=Number(req.params.conversationId);
+  if(!id)return res.status(400).json({error:"conversation_id inválido"});
+  await memories.clear(id);
+  res.json({deleted:true,conversationId:id});
 });
 
-app.post("/webhook/chatwoot", (req, res) => {
-  if (cfg.webhookSecret && req.query.secret !== cfg.webhookSecret) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
-
-  res.status(200).json({ received: true });
-
-  const event = String(req.body?.event || "");
-  if (event === "message_created") {
-    void processIncoming(req.body);
-  } else if (event === "conversation_updated") {
-    void processConversationUpdate(req.body);
-  }
+app.post("/webhook/chatwoot",(req,res)=>{
+  if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});
+  res.status(200).json({received:true});
+  const event=String(req.body?.event||"");
+  if(event==="message_created")void processIncoming(req.body);
+  else if(event==="conversation_updated")void processConversationUpdate(req.body);
 });
 
-app.listen(cfg.port, "0.0.0.0", () => {
-  console.log(`AXEL IA V2.3 escuchando en puerto ${cfg.port}`);
+app.listen(cfg.port,"0.0.0.0",()=>{
+  console.log(`AXEL IA V2.4 escuchando en puerto ${cfg.port}`);
+  console.log(`Memoria persistente: ${cfg.memoryFile}`);
 });
 
