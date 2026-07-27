@@ -42,3 +42,4 @@ sin_atender, validacion, venta, ya_tiene_servicio.
 No agregues automáticamente cliente, venta, cerrado ni no_contesta.
 No elimines predictivo ni reasignado.
 `;
+
