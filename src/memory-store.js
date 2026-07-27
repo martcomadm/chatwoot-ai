@@ -8,6 +8,7 @@ const EMPTY = {
   curp_recibida:false,nss_recibido:false,documentos_recibidos:[],contradicciones:[],
   ventas:{plan_recomendado:null,temperatura:"frio",problema:null},
   flujo:{fase:"inicio",siguiente_paso:null},
+  asesor_presentacion:null,presentacion_realizada:false,
   preguntas_realizadas:[],ultima_pregunta:null,ultima_respuesta_agente:null,
   mensajes_procesados:[],actualizado_en:null
 };
