@@ -38,3 +38,10 @@ Y la memoria:
 ```env
 MEMORY_FILE=/app/data/conversation-memory.json
 ```
+
+## Log esperado
+
+```text
+AXEL IA V2.5 escuchando en puerto 3000
+Buffer de mensajes: 3000 ms
+Memoria persistente: /app/data/conversation-memory.json
