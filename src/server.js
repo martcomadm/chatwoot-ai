@@ -6,6 +6,7 @@ import { MemoryStore } from "./memory-store.js";
 import { extractFast, containsCurp, containsNss } from "./fast-extractor.js";
 import { analyzeSales, planNext, answered } from "./sales-engine.js";
 import { checkReply } from "./quality-checker.js";
+import { AgentRotationStore } from "./agent-rotation-store.js";
 
 const required=["CHATWOOT_BASE_URL","CHATWOOT_ACCOUNT_ID","CHATWOOT_INBOX_ID","CHATWOOT_AI_AGENT_ID","CHATWOOT_ACCESS_TOKEN","OPENAI_API_KEY","OPENAI_MODEL"];
 for(const key of required){if(!process.env[key]){console.error(`Falta ${key}`);process.exit(1);}}
@@ -28,6 +29,8 @@ const cfg={
   unattended:process.env.AI_UNATTENDED_LABEL||"sin_atender",
   validation:process.env.AI_VALIDATION_LABEL||"validacion",
   memoryFile:process.env.MEMORY_FILE||"/app/data/conversation-memory.json",
+  rotationFile:process.env.AGENT_ROTATION_FILE||"/app/data/agent-rotation.json",
+  introAgents:String(process.env.AI_INTRO_AGENTS||"Susana Solis,Carlos Ruiz,Jozic Martinez").split(",").map(value=>value.trim()).filter(Boolean),
   secret:process.env.WEBHOOK_SECRET||""
 };
 
@@ -36,6 +39,7 @@ const stop=new Set(["cerrado","chat_basura","no_quiere_el_servicio","rechazado",
 const protectedLabels=new Set(["asignado","predictivo","reasignado","cliente","venta"]);
 const openai=new OpenAI({apiKey:process.env.OPENAI_API_KEY});
 const memories=new MemoryStore(cfg.memoryFile);
+const agentRotation=new AgentRotationStore(cfg.rotationFile,cfg.introAgents);
 const app=express();
 const queue=new Map();
 app.use(express.json({limit:"4mb"}));
@@ -94,7 +98,7 @@ function mergeMemory(current,...patches){
   const next=structuredClone(current);
   for(const patch of patches){
     if(!patch) continue;
-    for(const key of ["nombre","primer_nombre","edad","actividad","tipo_trabajo","tiene_imss","ultima_cotizacion","necesidad_principal","afore_actual"]){
+    for(const key of ["nombre","primer_nombre","edad","actividad","tipo_trabajo","tiene_imss","ultima_cotizacion","necesidad_principal","afore_actual","asesor_presentacion"]){
       const value=patch[key];if(value!==null&&value!==undefined&&value!=="") next[key]=value;
     }
     for(const key of ["pregunta_cambio_afore","curp_recibida","nss_recibido"]){if(typeof patch[key]==="boolean") next[key]=Boolean(next[key]||patch[key]);}
@@ -139,13 +143,16 @@ async function generateDecision(conversation,labels,memory,planner,combinedText)
 MEMORIA PERSISTENTE:
 ${JSON.stringify(memory,null,2)}
 
+ASESOR DE PRESENTACIÓN ASIGNADO:
+${memory.asesor_presentacion||"No asignado"}
+
 DECISIÓN DEL MOTOR COMERCIAL:
 ${JSON.stringify(planner,null,2)}
 
 Devuelve solo JSON:
 {"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}
 
-Obedece la acción del motor comercial. Máximo ${cfg.maxReply} caracteres. Haz una sola pregunta. No agregues cliente, venta, cerrado ni no_contesta. No repitas datos conocidos. Antes de responder, considera todos los mensajes agrupados como un solo turno.`,
+Obedece la acción del motor comercial. Máximo ${cfg.maxReply} caracteres. Haz una sola pregunta. El nombre de presentación asignado es ${memory.asesor_presentacion||"el asesor asignado"}; no uses otro nombre. No agregues cliente, venta, cerrado ni no_contesta. No repitas datos conocidos. Antes de responder, considera todos los mensajes agrupados como un solo turno.`,
     input:`MENSAJES NUEVOS AGRUPADOS:\n${combinedText}\n\nETIQUETAS:\n${labels.join(", ")||"ninguna"}\n\nHISTORIAL:\n${historyOf(conversation)}`
   });
   return jsonFrom(response.output_text);
@@ -241,6 +248,10 @@ async function processQueued(conversationId){
     const messageIds=batch.map(message=>String(message.id));
 
     let memory=memories.get(conversationId);
+    if(!memory.asesor_presentacion){
+      memory.asesor_presentacion=await agentRotation.next();
+      await memories.set(conversationId,memory);
+    }
     const fastPatch=extractFast(combinedText,memory);
     const llmPatch=await extractAmbiguous(memory,combinedText,conversation);
     memory=mergeMemory(memory,llmPatch,fastPatch);
@@ -258,7 +269,7 @@ async function processQueued(conversationId){
     const reason=handoffReason(batch,combinedText);
     if(reason){
       await transfer(conversationId,conversation,reason,memory);
-      console.log(JSON.stringify({event:"handoff",version:"2.5.0",conversationId,messageIds,reason,sources,memory}));
+      console.log(JSON.stringify({event:"handoff",version:"2.5.1",conversationId,messageIds,reason,sources,memory}));
       return;
     }
 
@@ -281,11 +292,18 @@ async function processQueued(conversationId){
     if(decision.handoff||planner.action==="transferir"){
       await transfer(conversationId,conversation,decision.handoff_reason||"El caso requiere revisión humana.",memory);
     }else if(decision.reply){
+      if(!memory.presentacion_realizada){
+        const intro=`Hola, soy ${memory.asesor_presentacion} de MARTCOM.`;
+        const normalized=String(decision.reply||"").trim();
+        if(!normalized.toLowerCase().includes(String(memory.asesor_presentacion||"").toLowerCase())) decision.reply=`${intro} ${normalized}`.trim();
+        memory.presentacion_realizada=true;
+        await memories.merge(conversationId,{asesor_presentacion:memory.asesor_presentacion,presentacion_realizada:true});
+      }
       await sendMessage(conversationId,decision.reply);
       const questions=decision.question_key?arrays(memory.preguntas_realizadas,[decision.question_key]):memory.preguntas_realizadas;
       await memories.merge(conversationId,{preguntas_realizadas:questions,ultima_pregunta:decision.question_key||null,ultima_respuesta_agente:decision.reply});
     }
-    console.log(JSON.stringify({event:"processed",version:"2.5.0",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
+    console.log(JSON.stringify({event:"processed",version:"2.5.1",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
   }catch(error){console.error(`Error en conversación ${conversationId}:`,error);}
   finally{
     state.processing=false;
@@ -312,14 +330,15 @@ async function processConversationUpdate(payload){
   }catch(error){console.error(`Error asignación ${id}:`,error);}
 }
 
-app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.0",status:"ok",memory_file:cfg.memoryFile,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
-app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.0",timestamp:new Date().toISOString()}));
+app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.1",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
+app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.1",timestamp:new Date().toISOString()}));
 app.get("/memory/:conversationId",(req,res)=>{const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});res.json(memories.get(id));});
 app.delete("/memory/:conversationId",async(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});await memories.clear(id);res.json({deleted:true,conversationId:id});});
 app.post("/webhook/chatwoot",(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});res.status(200).json({received:true});const event=String(req.body?.event||"");if(event==="message_created")void processIncoming(req.body);else if(event==="conversation_updated")void processConversationUpdate(req.body);});
 
 app.listen(cfg.port,"0.0.0.0",()=>{
-  console.log(`AXEL IA V2.5 escuchando en puerto ${cfg.port}`);
+  console.log(`AXEL IA V2.5.1 escuchando en puerto ${cfg.port}`);
   console.log(`Buffer de mensajes: ${cfg.bufferMs} ms`);
   console.log(`Memoria persistente: ${cfg.memoryFile}`);
+  console.log(`Rotación de presentación: ${cfg.introAgents.join(" -> ")} (${cfg.rotationFile})`);
 });
