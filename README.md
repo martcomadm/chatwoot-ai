@@ -1,30 +1,34 @@
-# MARTCOM Chatwoot AI V2.5
+# MARTCOM Chatwoot AI V2.5.3
 
-## Cambios principales
+## Corrección principal
 
-- Buffer de mensajes de 3 segundos para agrupar mensajes consecutivos del cliente.
-- Extracción híbrida: reglas rápidas para nombre, edad, IMSS, actividad, CURP, NSS, AFORE e intereses; OpenAI para datos ambiguos.
-- Memoria ampliada con identidad, contexto laboral, intereses, plan recomendado, temperatura comercial y siguiente paso.
-- Motor comercial determinista que decide qué dato falta y evita cuestionarios rígidos.
-- Control de calidad antes de enviar respuestas: bloquea preguntas repetidas, frases robóticas y múltiples preguntas.
-- Uso ocasional del primer nombre, sin repetir el nombre completo.
-- Detección del caso “tengo empleo pero no me dan seguro”.
-- Recomendación interna de Plan 2 cuando existe interés en INFONAVIT o AFORE.
+Esta versión corrige el caso donde Chatwoot devuelve `403` al consultar una conversación y el bot recibe el webhook, pero no responde porque `conversation.messages` llega vacío.
 
-## Archivos nuevos
+### Cambios
 
-- `src/fast-extractor.js`
-- `src/sales-engine.js`
-- `src/quality-checker.js`
+- Conserva dentro del buffer todos los mensajes `message_created` recibidos por webhook.
+- Si la API de Chatwoot devuelve `403`, procesa directamente esos mensajes en lugar de depender de `conversation.messages`.
+- Agrupa correctamente varios mensajes enviados durante los 3 segundos del buffer.
+- Deduplica los mensajes por ID.
+- Un mensaje se marca como procesado únicamente después de enviar correctamente la respuesta o completar la transferencia.
+- Si OpenAI, Chatwoot o el envío fallan, el mensaje no queda falsamente marcado como atendido.
+- Mantiene memoria persistente, motor comercial, control de calidad y rotación round robin:
+  - Susana Solis
+  - Carlos Ruiz
+  - Jozic Martinez
 
-## Actualización desde V2.4.1
+## Variables
 
-Reemplaza todo el contenido del repositorio con esta versión. Conserva tus valores reales de EasyPanel.
-
-Variable nueva:
+No es necesario cambiar las variables actuales:
 
 ```env
+AI_TIMEZONE=America/Mexico_City
+AI_START_HOUR=0
+AI_END_HOUR=24
 AI_MESSAGE_BUFFER_MS=3000
+MEMORY_FILE=/app/data/conversation-memory.json
+AGENT_ROTATION_FILE=/app/data/agent-rotation.json
+AI_INTRO_AGENTS=Susana Solis,Carlos Ruiz,Jozic Martinez
 ```
 
 El volumen persistente sigue siendo:
@@ -33,15 +37,26 @@ El volumen persistente sigue siendo:
 /app/data
 ```
 
-Y la memoria:
+## Logs esperados
 
-```env
-MEMORY_FILE=/app/data/conversation-memory.json
-```
-
-## Log esperado
+Al iniciar:
 
 ```text
-AXEL IA V2.5 escuchando en puerto 3000
+AXEL IA V2.5.3 escuchando en puerto 3000
 Buffer de mensajes: 3000 ms
 Memoria persistente: /app/data/conversation-memory.json
+Rotación de presentación: Susana Solis -> Carlos Ruiz -> Jozic Martinez
+```
+
+Cuando Chatwoot rechace la lectura, pero el webhook tenga el mensaje:
+
+```text
+Aviso lectura 6250: Chatwoot 403: null. Se usará el contenido del webhook.
+Respaldo webhook 6250: procesando 1 mensaje(s) entrante(s) sin consultar historial.
+```
+
+Después debe aparecer un evento `processed` o `handoff`.
+
+## Implementación
+
+Reemplaza todo el contenido del repositorio con los archivos de este paquete y vuelve a implementar el servicio en EasyPanel.
