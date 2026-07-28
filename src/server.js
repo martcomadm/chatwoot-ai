@@ -225,12 +225,19 @@ async function transfer(id,conversation,reason,memory){
 }
 
 function queueState(id){
-  if(!queue.has(id)) queue.set(id,{ids:new Set(),sources:new Set(),timer:null,processing:false,dirty:false,payload:null});
+  if(!queue.has(id)) queue.set(id,{ids:new Set(),sources:new Set(),timer:null,processing:false,dirty:false,payload:null,webhookMessages:new Map()});
   return queue.get(id);
 }
 function enqueue(id,messageId,source,payload=null){
   const state=queueState(id);
-  if(payload){state.payload=payload;conversationCache.set(id,payload);}
+  if(payload){
+    state.payload=payload;
+    conversationCache.set(id,payload);
+    const webhookMessage=messageOf(payload);
+    if(webhookMessage?.id&&incoming(webhookMessage)&&webhookMessage?.private!==true&&contact(webhookMessage)){
+      state.webhookMessages.set(String(webhookMessage.id),webhookMessage);
+    }
+  }
   if(messageId) state.ids.add(String(messageId));
   state.sources.add(source);
   if(state.processing){state.dirty=true;return;}
@@ -267,13 +274,34 @@ async function processQueued(conversationId){
 
     const allMessages=messagesOf(conversation);
     const requested=new Set(requestedIds);
-    let batch=allMessages.filter(message=>message?.id&&requested.has(String(message.id))&&incoming(message)&&!message.private&&contact(message));
+    const webhookMessages=[...state.webhookMessages.values()];
+    let batch=allMessages.filter(message=>message?.id&&requested.has(String(message.id))&&incoming(message)&&message?.private!==true&&contact(message));
+
+    // Cuando Chatwoot rechaza la lectura con 403, conversation.messages puede venir vacío.
+    // En ese caso usamos directamente todos los mensajes entrantes conservados por el buffer.
     if(!batch.length){
-      for(let i=allMessages.length-1;i>=0;i--){const message=allMessages[i];if(message&&incoming(message)&&!message.private&&contact(message)){batch=[message];break;}}
+      batch=webhookMessages.filter(message=>message?.id&&requested.has(String(message.id))&&incoming(message)&&message?.private!==true&&contact(message));
     }
-    batch=batch.filter(message=>!memories.hasProcessed(conversationId,message.id));
-    if(!batch.length) return;
+    if(!batch.length&&webhookMessages.length){
+      batch=webhookMessages.filter(message=>incoming(message)&&message?.private!==true&&contact(message));
+    }
+    if(!batch.length){
+      for(let i=allMessages.length-1;i>=0;i--){
+        const message=allMessages[i];
+        if(message&&incoming(message)&&message?.private!==true&&contact(message)){batch=[message];break;}
+      }
+    }
+
+    // Deduplicar por ID y descartar únicamente mensajes ya enviados con éxito.
+    batch=[...new Map(batch.filter(message=>message?.id).map(message=>[String(message.id),message])).values()]
+      .filter(message=>!memories.hasProcessed(conversationId,message.id));
+    if(!batch.length){
+      for(const id of requestedIds) state.webhookMessages.delete(String(id));
+      return;
+    }
     batch.sort((a,b)=>Number(a.created_at||0)-Number(b.created_at||0));
+    const usedWebhookFallback=allMessages.length===0&&batch.some(message=>state.webhookMessages.has(String(message.id)));
+    if(usedWebhookFallback) console.log(`Respaldo webhook ${conversationId}: procesando ${batch.length} mensaje(s) entrante(s) sin consultar historial.`);
     const combinedText=batch.map(message=>String(message.content||"").trim()).filter(Boolean).join("\n");
     const messageIds=batch.map(message=>String(message.id));
 
@@ -293,13 +321,14 @@ async function processQueued(conversationId){
     memory.ventas=sales;
     memory.flujo={fase:planner.action==="solicitar_curp"?"cotizacion":planner.action==="transferir"?"transferencia":"diagnostico",siguiente_paso:planner.question_key};
     await memories.set(conversationId,memory);
-    await memories.markProcessedMany(conversationId,messageIds);
     memory=memories.get(conversationId);
 
     const reason=handoffReason(batch,combinedText);
     if(reason){
       await transfer(conversationId,conversation,reason,memory);
-      console.log(JSON.stringify({event:"handoff",version:"2.5.2",conversationId,messageIds,reason,sources,memory}));
+      await memories.markProcessedMany(conversationId,messageIds);
+      for(const id of messageIds) state.webhookMessages.delete(String(id));
+      console.log(JSON.stringify({event:"handoff",version:"2.5.3",conversationId,messageIds,reason,sources,memory}));
       return;
     }
 
@@ -333,7 +362,9 @@ async function processQueued(conversationId){
       const questions=decision.question_key?arrays(memory.preguntas_realizadas,[decision.question_key]):memory.preguntas_realizadas;
       await memories.merge(conversationId,{preguntas_realizadas:questions,ultima_pregunta:decision.question_key||null,ultima_respuesta_agente:decision.reply});
     }
-    console.log(JSON.stringify({event:"processed",version:"2.5.2",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
+    await memories.markProcessedMany(conversationId,messageIds);
+    for(const id of messageIds) state.webhookMessages.delete(String(id));
+    console.log(JSON.stringify({event:"processed",version:"2.5.3",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
   }catch(error){console.error(`Error en conversación ${conversationId}:`,error);}
   finally{
     state.processing=false;
@@ -366,14 +397,14 @@ async function processConversationUpdate(payload){
   }catch(error){console.error(`Error asignación ${id}:`,error);}
 }
 
-app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.2",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
-app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.2",timestamp:new Date().toISOString()}));
+app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.3",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
+app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.3",timestamp:new Date().toISOString()}));
 app.get("/memory/:conversationId",(req,res)=>{const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});res.json(memories.get(id));});
 app.delete("/memory/:conversationId",async(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});await memories.clear(id);res.json({deleted:true,conversationId:id});});
 app.post("/webhook/chatwoot",(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});res.status(200).json({received:true});const event=String(req.body?.event||"");if(event==="message_created")void processIncoming(req.body);else if(event==="conversation_updated")void processConversationUpdate(req.body);});
 
 app.listen(cfg.port,"0.0.0.0",()=>{
-  console.log(`AXEL IA V2.5.2 escuchando en puerto ${cfg.port}`);
+  console.log(`AXEL IA V2.5.3 escuchando en puerto ${cfg.port}`);
   console.log(`Buffer de mensajes: ${cfg.bufferMs} ms`);
   console.log(`Memoria persistente: ${cfg.memoryFile}`);
   console.log(`Rotación de presentación: ${cfg.introAgents.join(" -> ")} (${cfg.rotationFile})`);
