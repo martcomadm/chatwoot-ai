@@ -42,6 +42,7 @@ const memories=new MemoryStore(cfg.memoryFile);
 const agentRotation=new AgentRotationStore(cfg.rotationFile,cfg.introAgents);
 const app=express();
 const queue=new Map();
+const conversationCache=new Map();
 app.use(express.json({limit:"4mb"}));
 
 const arrays=(a=[],b=[],max=100)=>[...new Set([...(a||[]),...(b||[])])].slice(-max);
@@ -69,6 +70,24 @@ async function cw(path,options={}){
 const getConversation=id=>cw(`/api/v1/accounts/${cfg.account}/conversations/${id}`);
 async function getLabels(id){const data=await cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/labels`);return Array.isArray(data?.payload)?data.payload:[];}
 async function setLabels(id,labels){const clean=[...new Set(labels)].filter(label=>allowed.has(label));return cw(`/api/v1/accounts/${cfg.account}/conversations/${id}/labels`,{method:"POST",body:JSON.stringify({labels:clean})});}
+function labelsFromConversation(conversation){
+  const candidates=[conversation?.labels,conversation?.meta?.labels,conversation?.conversation?.labels];
+  for(const value of candidates){
+    if(Array.isArray(value)) return value.map(item=>typeof item==="string"?item:item?.title||item?.name).filter(Boolean);
+  }
+  return [];
+}
+async function mergeLabelsSafe(id,add=[],remove=[],conversation=null){
+  try{return await mergeLabels(id,add,remove);}
+  catch(error){
+    console.warn(`Aviso etiquetas ${id}: ${error.message}. La conversación continuará.`);
+    const current=labelsFromConversation(conversation);
+    const next=new Set(current.filter(label=>allowed.has(label)));
+    for(const label of remove) if(!protectedLabels.has(label)) next.delete(label);
+    for(const label of add) if(allowed.has(label)) next.add(label);
+    return [...next];
+  }
+}
 async function mergeLabels(id,add=[],remove=[]){
   const current=await getLabels(id),next=new Set(current.filter(label=>allowed.has(label)));
   for(const label of remove) if(!protectedLabels.has(label)) next.delete(label);
@@ -198,7 +217,7 @@ Si falta algo escribe “No informado”.`,
 }
 
 async function transfer(id,conversation,reason,memory){
-  await mergeLabels(id,[cfg.validation],[]);
+  await mergeLabelsSafe(id,[cfg.validation],[],conversation);
   await sendMessage(id,"Perfecto, ya recibí la información. Un asesor revisará personalmente su caso para darle una orientación precisa. En unos momentos continuará la atención.");
   let summary;
   try{summary=await handoffSummary(conversation,reason,memory);}catch{summary=`AXEL IA - RESUMEN\nMotivo de transferencia: ${reason}\nRevisar historial completo.`;}
@@ -206,11 +225,12 @@ async function transfer(id,conversation,reason,memory){
 }
 
 function queueState(id){
-  if(!queue.has(id)) queue.set(id,{ids:new Set(),sources:new Set(),timer:null,processing:false,dirty:false});
+  if(!queue.has(id)) queue.set(id,{ids:new Set(),sources:new Set(),timer:null,processing:false,dirty:false,payload:null});
   return queue.get(id);
 }
-function enqueue(id,messageId,source){
+function enqueue(id,messageId,source,payload=null){
   const state=queueState(id);
+  if(payload){state.payload=payload;conversationCache.set(id,payload);}
   if(messageId) state.ids.add(String(messageId));
   state.sources.add(source);
   if(state.processing){state.dirty=true;return;}
@@ -226,13 +246,23 @@ async function processQueued(conversationId){
   const sources=[...state.sources];state.sources.clear();state.dirty=false;
   try{
     if(!inSchedule()){console.log(`Fuera de horario. Conversación ${conversationId}`);return;}
-    const conversation=await getConversation(conversationId);
+    let conversation;
+    try{
+      conversation=await getConversation(conversationId);
+      conversationCache.set(conversationId,conversation);
+    }catch(error){
+      const cached=state.payload||conversationCache.get(conversationId);
+      const fallback=cached?.conversation||cached?.message?.conversation||cached;
+      if(!fallback) throw error;
+      conversation=fallback;
+      console.warn(`Aviso lectura ${conversationId}: ${error.message}. Se usará el contenido del webhook.`);
+    }
     const inbox=Number(conversation?.inbox_id||conversation?.inbox?.id);
     const agent=Number(conversation?.meta?.assignee?.id||conversation?.assignee?.id);
     const status=String(conversation?.status||"").toLowerCase();
     if(inbox!==cfg.inbox||agent!==cfg.agent||["resolved","closed"].includes(status)) return;
 
-    let labels=await mergeLabels(conversationId,[cfg.assigned],[cfg.unattended]);
+    let labels=await mergeLabelsSafe(conversationId,[cfg.assigned],[cfg.unattended],conversation);
     if(labels.some(label=>stop.has(label))) return;
 
     const allMessages=messagesOf(conversation);
@@ -269,7 +299,7 @@ async function processQueued(conversationId){
     const reason=handoffReason(batch,combinedText);
     if(reason){
       await transfer(conversationId,conversation,reason,memory);
-      console.log(JSON.stringify({event:"handoff",version:"2.5.1",conversationId,messageIds,reason,sources,memory}));
+      console.log(JSON.stringify({event:"handoff",version:"2.5.2",conversationId,messageIds,reason,sources,memory}));
       return;
     }
 
@@ -287,7 +317,7 @@ async function processQueued(conversationId){
     decision.reply=String(decision.reply||"").trim().slice(0,cfg.maxReply);
     decision.add_labels=Array.isArray(decision.add_labels)?decision.add_labels.filter(label=>allowed.has(label)&&!["cliente","venta","cerrado","no_contesta"].includes(label)):[];
     decision.remove_labels=Array.isArray(decision.remove_labels)?decision.remove_labels.filter(label=>allowed.has(label)&&!protectedLabels.has(label)):[];
-    labels=await mergeLabels(conversationId,decision.add_labels,decision.remove_labels);
+    labels=await mergeLabelsSafe(conversationId,decision.add_labels,decision.remove_labels,conversation);
 
     if(decision.handoff||planner.action==="transferir"){
       await transfer(conversationId,conversation,decision.handoff_reason||"El caso requiere revisión humana.",memory);
@@ -303,7 +333,7 @@ async function processQueued(conversationId){
       const questions=decision.question_key?arrays(memory.preguntas_realizadas,[decision.question_key]):memory.preguntas_realizadas;
       await memories.merge(conversationId,{preguntas_realizadas:questions,ultima_pregunta:decision.question_key||null,ultima_respuesta_agente:decision.reply});
     }
-    console.log(JSON.stringify({event:"processed",version:"2.5.1",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
+    console.log(JSON.stringify({event:"processed",version:"2.5.2",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
   }catch(error){console.error(`Error en conversación ${conversationId}:`,error);}
   finally{
     state.processing=false;
@@ -315,29 +345,35 @@ async function processIncoming(payload){
   const message=messageOf(payload),id=conversationIdOf(payload),inbox=inboxIdOf(payload);
   if(!message?.id||!id||inbox!==cfg.inbox) return;
   if(!incoming(message)||message?.private===true||!contact(message)) return;
-  enqueue(id,message.id,"message_created");
+  enqueue(id,message.id,"message_created",payload);
 }
 
 async function processConversationUpdate(payload){
   const id=conversationIdOf(payload);if(!id)return;
   try{
-    const conversation=await getConversation(id);
-    const inbox=Number(conversation?.inbox_id||conversation?.inbox?.id);
-    const agent=Number(conversation?.meta?.assignee?.id||conversation?.assignee?.id);
-    if(inbox!==cfg.inbox||agent!==cfg.agent)return;
+    const conversation=payload?.conversation||payload;
+    conversationCache.set(id,payload);
+    const inbox=Number(conversation?.inbox_id||conversation?.inbox?.id||inboxIdOf(payload));
+    const agent=Number(conversation?.meta?.assignee?.id||conversation?.assignee?.id||payload?.assignee?.id);
+    if(inbox&&inbox!==cfg.inbox)return;
+    if(agent&&agent!==cfg.agent)return;
     const messages=messagesOf(conversation);
-    for(let i=messages.length-1;i>=0;i--){const message=messages[i];if(message&&incoming(message)&&!message.private&&contact(message)){enqueue(id,message.id,"conversation_updated");break;}}
+    for(let i=messages.length-1;i>=0;i--){
+      const message=messages[i];
+      if(message&&incoming(message)&&!message.private&&contact(message)){enqueue(id,message.id,"conversation_updated",payload);return;}
+    }
+    console.log(`Actualización ${id} recibida sin mensaje entrante utilizable; no se consulta Chatwoot.`);
   }catch(error){console.error(`Error asignación ${id}:`,error);}
 }
 
-app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.1",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
-app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.1",timestamp:new Date().toISOString()}));
+app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.2",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
+app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.2",timestamp:new Date().toISOString()}));
 app.get("/memory/:conversationId",(req,res)=>{const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});res.json(memories.get(id));});
 app.delete("/memory/:conversationId",async(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});await memories.clear(id);res.json({deleted:true,conversationId:id});});
 app.post("/webhook/chatwoot",(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});res.status(200).json({received:true});const event=String(req.body?.event||"");if(event==="message_created")void processIncoming(req.body);else if(event==="conversation_updated")void processConversationUpdate(req.body);});
 
 app.listen(cfg.port,"0.0.0.0",()=>{
-  console.log(`AXEL IA V2.5.1 escuchando en puerto ${cfg.port}`);
+  console.log(`AXEL IA V2.5.2 escuchando en puerto ${cfg.port}`);
   console.log(`Buffer de mensajes: ${cfg.bufferMs} ms`);
   console.log(`Memoria persistente: ${cfg.memoryFile}`);
   console.log(`Rotación de presentación: ${cfg.introAgents.join(" -> ")} (${cfg.rotationFile})`);
