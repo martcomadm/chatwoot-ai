@@ -136,7 +136,7 @@ async function extractAmbiguous(memory,combinedText,conversation){
     model:cfg.model,
     instructions:`Extrae únicamente datos explícitos o claramente inferibles del cliente MARTCOM. No borres ni inventes datos. Devuelve solo JSON:
 {"nombre":null,"primer_nombre":null,"edad":null,"actividad":null,"tipo_trabajo":null,"tiene_imss":null,"ultima_cotizacion":null,"necesidad_principal":null,"necesidades":[],"afore_actual":null,"pregunta_cambio_afore":false,"curp_recibida":false,"nss_recibido":false,"contradicciones":[],"intereses":{},"contexto_laboral":{}}
-Reglas: CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse. “Contaba por empleo” significa que cotizó antes, no que tenga IMSS actualmente. “No me ponen seguro” significa tiene_imss=false y empleador_no_afilia=true. IMSS + INFONAVIT o AFORE apunta a plan_2. Conserva el dato previo si hay contradicción y agrega una descripción breve en contradicciones.`,
+Reglas: CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse. “Contaba por empleo” significa que cotizó antes, no que tenga IMSS actualmente. “No me ponen seguro” significa tiene_imss=false y empleador_no_afilia=true. IMSS + INFONAVIT o AFORE apunta a plan_2. “Altas con aportaciones AFORE”, “aportaciones constantes” o “sin cambios cada semana” indican intereses.afore=true, intereses.imss=true y contexto_laboral.busca_continuidad=true. Conserva el dato previo si hay contradicción y agrega una descripción breve en contradicciones.`,
     input:`MEMORIA PREVIA:\n${JSON.stringify(memory,null,2)}\n\nMENSAJES AGRUPADOS:\n${combinedText}\n\nHISTORIAL:\n${historyOf(conversation)}`
   });
   return jsonFrom(response.output_text);
@@ -171,7 +171,7 @@ ${JSON.stringify(planner,null,2)}
 Devuelve solo JSON:
 {"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}
 
-Obedece la acción del motor comercial. Máximo ${cfg.maxReply} caracteres. Haz una sola pregunta. El nombre de presentación asignado es ${memory.asesor_presentacion||"el asesor asignado"}; no uses otro nombre. No agregues cliente, venta, cerrado ni no_contesta. No repitas datos conocidos. Antes de responder, considera todos los mensajes agrupados como un solo turno.`,
+Obedece la acción del motor comercial. Si planner.rephrase=true, reconoce primero el contenido nuevo del cliente y reformula la pregunta pendiente con palabras diferentes; nunca ignores lo que acaba de decir. Máximo ${cfg.maxReply} caracteres. Haz una sola pregunta. El nombre de presentación asignado es ${memory.asesor_presentacion||"el asesor asignado"}; no uses otro nombre. No agregues cliente, venta, cerrado ni no_contesta. No repitas datos conocidos. Antes de responder, considera todos los mensajes agrupados como un solo turno.`,
     input:`MENSAJES NUEVOS AGRUPADOS:\n${combinedText}\n\nETIQUETAS:\n${labels.join(", ")||"ninguna"}\n\nHISTORIAL:\n${historyOf(conversation)}`
   });
   return jsonFrom(response.output_text);
@@ -190,6 +190,27 @@ Una sola pregunta, sin recitar la memoria y sin frases de formulario.`,
     input:`MENSAJES AGRUPADOS:\n${combinedText}\n\nRESPUESTA RECHAZADA:\n${JSON.stringify(decision)}\n\nHISTORIAL:\n${historyOf(conversation)}`
   });
   return jsonFrom(response.output_text);
+}
+
+function fallbackDecision(memory,planner,combinedText){
+  const name=memory?.primer_nombre?` ${memory.primer_nombre}`:"";
+  const hasAfore=Boolean(memory?.intereses?.afore)||/afor[eé]|aportaciones?/i.test(combinedText);
+  const continuity=Boolean(memory?.contexto_laboral?.busca_continuidad)||/constantes?|continuidad|sin cambios cada semana/i.test(combinedText);
+  const prefix=hasAfore
+    ? (continuity?"Entiendo: buscas que el alta y las aportaciones a tu AFORE tengan continuidad.":"Claro, podemos orientarte sobre una opción que contemple aportaciones a tu AFORE.")
+    : "Claro, te ayudo a revisar tu caso.";
+  const questions={
+    necesidad_principal:"¿Qué te interesa principalmente: servicio médico, semanas cotizadas, INFONAVIT o AFORE?",
+    tiene_imss:"Para revisar cuál opción corresponde, ¿actualmente tienes un alta activa ante el IMSS?",
+    nombre:"¿Me compartes tu nombre completo, por favor?",
+    edad:"¿Cuántos años tienes?",
+    actividad:"¿A qué te dedicas actualmente?",
+    curp:"Para revisar la cotización, ¿me compartes tu CURP, por favor?",
+    nss:"¿Me compartes tu Número de Seguridad Social, por favor?",
+    aclarar_contradiccion:"Para orientarte correctamente, ¿me confirmas cuál de los datos anteriores es el correcto?"
+  };
+  const question=questions[planner?.question_key]||"¿Me compartes un poco más sobre tu situación actual?";
+  return {reply:`${prefix}${name && planner?.question_key!=="nombre"?name:""} ${question}`.replace(/\s+/g," ").trim(),question_key:planner?.question_key||null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:""};
 }
 
 async function handoffSummary(conversation,reason,memory){
@@ -328,7 +349,7 @@ async function processQueued(conversationId){
       await transfer(conversationId,conversation,reason,memory);
       await memories.markProcessedMany(conversationId,messageIds);
       for(const id of messageIds) state.webhookMessages.delete(String(id));
-      console.log(JSON.stringify({event:"handoff",version:"2.5.3",conversationId,messageIds,reason,sources,memory}));
+      console.log(JSON.stringify({event:"handoff",version:"2.5.4",conversationId,messageIds,reason,sources,memory}));
       return;
     }
 
@@ -338,10 +359,22 @@ async function processQueued(conversationId){
     }
     let quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:cfg.maxReply});
     if(!quality.ok){
-      decision=await repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons);
-      quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:cfg.maxReply});
+      try{
+        decision=await repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons);
+        quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:cfg.maxReply});
+      }catch(repairError){
+        console.warn(`Aviso reparación ${conversationId}: ${repairError.message}`);
+      }
     }
-    if(!quality.ok) throw new Error(`Respuesta rechazada por calidad: ${quality.reasons.join(", ")}`);
+    if(!quality.ok){
+      console.warn(`Fallback calidad ${conversationId}: ${quality.reasons.join(", ")}`);
+      decision=fallbackDecision(memory,planner,combinedText);
+      quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:cfg.maxReply});
+      if(!quality.ok){
+        // Último respaldo: no hacer pregunta repetitiva; responder y pedir contexto abierto.
+        decision={reply:"Gracias por explicarlo. Revisaremos una opción que contemple continuidad en tu afiliación y aportaciones. ¿Me compartes un poco más sobre tu situación actual?",question_key:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:""};
+      }
+    }
 
     decision.reply=String(decision.reply||"").trim().slice(0,cfg.maxReply);
     decision.add_labels=Array.isArray(decision.add_labels)?decision.add_labels.filter(label=>allowed.has(label)&&!["cliente","venta","cerrado","no_contesta"].includes(label)):[];
@@ -364,7 +397,7 @@ async function processQueued(conversationId){
     }
     await memories.markProcessedMany(conversationId,messageIds);
     for(const id of messageIds) state.webhookMessages.delete(String(id));
-    console.log(JSON.stringify({event:"processed",version:"2.5.3",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
+    console.log(JSON.stringify({event:"processed",version:"2.5.4",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
   }catch(error){console.error(`Error en conversación ${conversationId}:`,error);}
   finally{
     state.processing=false;
@@ -397,14 +430,14 @@ async function processConversationUpdate(payload){
   }catch(error){console.error(`Error asignación ${id}:`,error);}
 }
 
-app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.3",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
-app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.3",timestamp:new Date().toISOString()}));
+app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.4",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
+app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.4",timestamp:new Date().toISOString()}));
 app.get("/memory/:conversationId",(req,res)=>{const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});res.json(memories.get(id));});
 app.delete("/memory/:conversationId",async(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});await memories.clear(id);res.json({deleted:true,conversationId:id});});
 app.post("/webhook/chatwoot",(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});res.status(200).json({received:true});const event=String(req.body?.event||"");if(event==="message_created")void processIncoming(req.body);else if(event==="conversation_updated")void processConversationUpdate(req.body);});
 
 app.listen(cfg.port,"0.0.0.0",()=>{
-  console.log(`AXEL IA V2.5.3 escuchando en puerto ${cfg.port}`);
+  console.log(`AXEL IA V2.5.4 escuchando en puerto ${cfg.port}`);
   console.log(`Buffer de mensajes: ${cfg.bufferMs} ms`);
   console.log(`Memoria persistente: ${cfg.memoryFile}`);
   console.log(`Rotación de presentación: ${cfg.introAgents.join(" -> ")} (${cfg.rotationFile})`);
