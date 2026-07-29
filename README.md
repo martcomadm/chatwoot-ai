@@ -1,62 +1,38 @@
-# MARTCOM Chatwoot AI V2.5.3
+# MARTCOM Chatwoot AI V2.5.4
 
-## Corrección principal
+## Correcciones principales
 
-Esta versión corrige el caso donde Chatwoot devuelve `403` al consultar una conversación y el bot recibe el webhook, pero no responde porque `conversation.messages` llega vacío.
+- Las preguntas pendientes pueden reformularse cuando el cliente no las respondió directamente.
+- El control de calidad ya no bloquea una respuesta solo porque comparte la misma `question_key`.
+- Bloquea únicamente respuestas prácticamente idénticas a la última enviada.
+- Si la reparación con OpenAI falla o sigue siendo rechazada, se genera una respuesta local de respaldo.
+- El cliente nunca queda sin contestación por un rechazo del quality checker.
+- Detección reforzada de:
+  - altas o afiliación al IMSS;
+  - aportaciones a AFORE;
+  - continuidad de aportaciones;
+  - “sin cambios cada semana”.
+- Los mensajes sobre alta + AFORE se clasifican como interés en Plan 2.
+- Conserva el buffer de mensajes, respaldo ante Chatwoot 403, memoria persistente y rotación de nombres.
 
-### Cambios
+## Caso corregido
 
-- Conserva dentro del buffer todos los mensajes `message_created` recibidos por webhook.
-- Si la API de Chatwoot devuelve `403`, procesa directamente esos mensajes en lugar de depender de `conversation.messages`.
-- Agrupa correctamente varios mensajes enviados durante los 3 segundos del buffer.
-- Deduplica los mensajes por ID.
-- Un mensaje se marca como procesado únicamente después de enviar correctamente la respuesta o completar la transferencia.
-- Si OpenAI, Chatwoot o el envío fallan, el mensaje no queda falsamente marcado como atendido.
-- Mantiene memoria persistente, motor comercial, control de calidad y rotación round robin:
-  - Susana Solis
-  - Carlos Ruiz
-  - Jozic Martinez
+Cliente:
 
-## Variables
+`Necesito altas con aportaciones AFORE y que sean constantes sin cambios cada semana.`
 
-No es necesario cambiar las variables actuales:
+Respuesta esperada:
 
-```env
-AI_TIMEZONE=America/Mexico_City
-AI_START_HOUR=0
-AI_END_HOUR=24
-AI_MESSAGE_BUFFER_MS=3000
-MEMORY_FILE=/app/data/conversation-memory.json
-AGENT_ROTATION_FILE=/app/data/agent-rotation.json
-AI_INTRO_AGENTS=Susana Solis,Carlos Ruiz,Jozic Martinez
-```
-
-El volumen persistente sigue siendo:
-
-```text
-/app/data
-```
-
-## Logs esperados
-
-Al iniciar:
-
-```text
-AXEL IA V2.5.3 escuchando en puerto 3000
-Buffer de mensajes: 3000 ms
-Memoria persistente: /app/data/conversation-memory.json
-Rotación de presentación: Susana Solis -> Carlos Ruiz -> Jozic Martinez
-```
-
-Cuando Chatwoot rechace la lectura, pero el webhook tenga el mensaje:
-
-```text
-Aviso lectura 6250: Chatwoot 403: null. Se usará el contenido del webhook.
-Respaldo webhook 6250: procesando 1 mensaje(s) entrante(s) sin consultar historial.
-```
-
-Después debe aparecer un evento `processed` o `handoff`.
+`Entiendo: buscas que el alta y las aportaciones a tu AFORE tengan continuidad. Para revisar cuál opción corresponde, ¿actualmente tienes un alta activa ante el IMSS?`
 
 ## Implementación
 
-Reemplaza todo el contenido del repositorio con los archivos de este paquete y vuelve a implementar el servicio en EasyPanel.
+Reemplaza los archivos del repositorio y vuelve a implementar en EasyPanel. No necesitas cambiar las variables de entorno.
+
+El log de inicio debe mostrar:
+
+`AXEL IA V2.5.4 escuchando en puerto 3000`
+
+Cuando se active el respaldo de calidad aparecerá:
+
+`Fallback calidad <conversationId>: ...`
