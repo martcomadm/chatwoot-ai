@@ -239,7 +239,7 @@ Si falta algo escribe “No informado”.`,
 
 async function transfer(id,conversation,reason,memory){
   await mergeLabelsSafe(id,[cfg.validation],[],conversation);
-  await sendMessage(id,"Perfecto, ya recibí la información. Un asesor revisará personalmente su caso para darle una orientación precisa. En unos momentos continuará la atención.");
+  await sendMessage(id,"Gracias, ya tengo la información necesaria. Voy a revisar tu caso para darte la orientación adecuada.");
   let summary;
   try{summary=await handoffSummary(conversation,reason,memory);}catch{summary=`AXEL IA - RESUMEN\nMotivo de transferencia: ${reason}\nRevisar historial completo.`;}
   await sendMessage(id,summary,true);
@@ -349,7 +349,7 @@ async function processQueued(conversationId){
       await transfer(conversationId,conversation,reason,memory);
       await memories.markProcessedMany(conversationId,messageIds);
       for(const id of messageIds) state.webhookMessages.delete(String(id));
-      console.log(JSON.stringify({event:"handoff",version:"2.5.4",conversationId,messageIds,reason,sources,memory}));
+      console.log(JSON.stringify({event:"handoff",version:"2.5.5",conversationId,messageIds,reason,sources,memory}));
       return;
     }
 
@@ -397,7 +397,7 @@ async function processQueued(conversationId){
     }
     await memories.markProcessedMany(conversationId,messageIds);
     for(const id of messageIds) state.webhookMessages.delete(String(id));
-    console.log(JSON.stringify({event:"processed",version:"2.5.4",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
+    console.log(JSON.stringify({event:"processed",version:"2.5.5",conversationId,messageIds,sources,planner,labels,memory:memories.get(conversationId)}));
   }catch(error){console.error(`Error en conversación ${conversationId}:`,error);}
   finally{
     state.processing=false;
@@ -430,14 +430,14 @@ async function processConversationUpdate(payload){
   }catch(error){console.error(`Error asignación ${id}:`,error);}
 }
 
-app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.4",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
-app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.4",timestamp:new Date().toISOString()}));
+app.get("/",(_req,res)=>res.json({service:"martcom-chatwoot-ai",version:"2.5.5",status:"ok",memory_file:cfg.memoryFile,rotation_file:cfg.rotationFile,intro_agents:cfg.introAgents,message_buffer_ms:cfg.bufferMs,schedule:`${cfg.start}:00-${cfg.end}:00 ${cfg.timezone}`,inbox_id:cfg.inbox,agent_id:cfg.agent}));
+app.get("/health",(_req,res)=>res.json({status:"ok",version:"2.5.5",timestamp:new Date().toISOString()}));
 app.get("/memory/:conversationId",(req,res)=>{const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});res.json(memories.get(id));});
 app.delete("/memory/:conversationId",async(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});const id=Number(req.params.conversationId);if(!id)return res.status(400).json({error:"conversation_id inválido"});await memories.clear(id);res.json({deleted:true,conversationId:id});});
 app.post("/webhook/chatwoot",(req,res)=>{if(cfg.secret&&req.query.secret!==cfg.secret)return res.status(401).json({error:"unauthorized"});res.status(200).json({received:true});const event=String(req.body?.event||"");if(event==="message_created")void processIncoming(req.body);else if(event==="conversation_updated")void processConversationUpdate(req.body);});
 
 app.listen(cfg.port,"0.0.0.0",()=>{
-  console.log(`AXEL IA V2.5.4 escuchando en puerto ${cfg.port}`);
+  console.log(`AXEL IA V2.5.5 escuchando en puerto ${cfg.port}`);
   console.log(`Buffer de mensajes: ${cfg.bufferMs} ms`);
   console.log(`Memoria persistente: ${cfg.memoryFile}`);
   console.log(`Rotación de presentación: ${cfg.introAgents.join(" -> ")} (${cfg.rotationFile})`);
