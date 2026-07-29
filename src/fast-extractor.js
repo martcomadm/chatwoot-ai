@@ -90,8 +90,14 @@ export function extractFast(text,memory={}){
   if(/infonavit|puntos? (?:de )?infonavit|cr[eé]dito (?:de )?vivienda/i.test(raw)){
     patch.intereses.infonavit=true;patch.necesidades.push("infonavit");
   }
-  if(/\bafor[eé]\b/i.test(raw)){
+  if(/\bafor[eé]\b|aportaciones?\s+(?:a\s+)?(?:mi\s+)?afor[eé]|aportes?\s+(?:a\s+)?(?:mi\s+)?afor[eé]/i.test(raw)){
     patch.intereses.afore=true;patch.necesidades.push("afore");
+  }
+  if(/\baltas?\b|darme de alta|dado de alta|afiliarme|afiliaci[oó]n/i.test(raw)){
+    patch.intereses.imss=true;patch.necesidades.push("imss");
+  }
+  if(/constantes?|continuidad|sin cambios cada semana|sin bajas?|aportaciones? continuas?/i.test(raw)){
+    patch.contexto_laboral.busca_continuidad=true;
   }
   if(/semanas? cotizadas?|seguir cotizando|cotizar semanas/i.test(raw)){
     patch.intereses.semanas_cotizadas=true;patch.necesidades.push("semanas_cotizadas");
@@ -110,6 +116,7 @@ export function extractFast(text,memory={}){
 
   if(patch.intereses.infonavit || patch.intereses.afore) patch.necesidad_principal="plan_2";
   else if(patch.intereses.servicio_medico) patch.necesidad_principal="servicio_medico";
+  else if(patch.intereses.imss) patch.necesidad_principal="afiliacion_imss";
 
   patch.necesidades=[...new Set(patch.necesidades)];
   return patch;
