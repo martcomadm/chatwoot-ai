@@ -40,13 +40,14 @@ function batchFrom(conversation, snapshot, memories, conversationId) {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents }) {
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
     this.memories = memories;
     this.agentRotation = agentRotation;
     this.ai = ai;
+    this.inspectorEvents = inspectorEvents;
     this.conversationCache = new Map();
   }
 
@@ -65,8 +66,14 @@ export class ConversationProcessor {
     await this.chatwoot.sendMessage(id, summary, true);
   }
 
+  async record(conversationId, type, details = {}) {
+    try { await this.inspectorEvents?.record(conversationId, type, details); }
+    catch (error) { console.warn(`Inspector no pudo registrar ${type}: ${error.message}`); }
+  }
+
   async process(conversationId, snapshot) {
-    if (!this.inSchedule()) { console.log(`Fuera de horario. Conversación ${conversationId}`); return; }
+    await this.record(conversationId, "buffer_flush", { messageIds: snapshot.ids, sources: snapshot.sources });
+    if (!this.inSchedule()) { console.log(`Fuera de horario. Conversación ${conversationId}`); await this.record(conversationId, "ignored_out_of_schedule"); return; }
 
     let conversation;
     try {
@@ -78,6 +85,7 @@ export class ConversationProcessor {
       if (!fallback) throw error;
       conversation = fallback;
       console.warn(`Aviso lectura ${conversationId}: ${error.message}. Se usará el contenido del webhook.`);
+      await this.record(conversationId, "chatwoot_read_fallback", { error: error.message });
     }
 
     const inbox = Number(conversation?.inbox_id || conversation?.inbox?.id);
@@ -89,7 +97,7 @@ export class ConversationProcessor {
     if (currentLabels.some(label => stopLabels.has(label))) return;
 
     const batch = batchFrom(conversation, snapshot, this.memories, conversationId);
-    if (!batch.length) return;
+    if (!batch.length) { await this.record(conversationId, "ignored_no_usable_messages"); return; }
 
     const combinedText = batch.map(message => String(message.content || "").trim()).filter(Boolean).join("\n");
     const messageIds = batch.map(message => String(message.id));
@@ -109,6 +117,7 @@ export class ConversationProcessor {
 
     const sales = analyzeSales(memory);
     const planner = planNext({ ...memory, ventas: sales });
+    await this.record(conversationId, "decision_state", { sales, planner, memorySnapshot: memory });
     memory.ventas = sales;
     memory.flujo = { fase: planner.action === "solicitar_curp" ? "cotizacion" : planner.action === "transferir" ? "transferencia" : "diagnostico", siguiente_paso: planner.question_key };
     await this.memories.set(conversationId, memory);
@@ -118,7 +127,8 @@ export class ConversationProcessor {
     if (reason) {
       await this.transfer(conversationId, conversation, reason, memory);
       await this.memories.markProcessedMany(conversationId, messageIds);
-      console.log(JSON.stringify({ event: "handoff", version: "3.0.0", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
+      await this.record(conversationId, "handoff", { reason, messageIds, advisor: memory.asesor_presentacion });
+      console.log(JSON.stringify({ event: "handoff", version: "3.0.1", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
       return;
     }
 
@@ -147,11 +157,12 @@ export class ConversationProcessor {
         await this.memories.merge(conversationId, { asesor_presentacion: memory.asesor_presentacion, presentacion_realizada: true });
       }
       await this.chatwoot.sendMessage(conversationId, decision.reply);
+      await this.record(conversationId, "ai_reply_sent", { reply: decision.reply, questionKey: decision.question_key, planner, quality });
       const questions = decision.question_key ? arrays(memory.preguntas_realizadas, [decision.question_key]) : memory.preguntas_realizadas;
       await this.memories.merge(conversationId, { preguntas_realizadas: questions, ultima_pregunta: decision.question_key || null, ultima_respuesta_agente: decision.reply });
     }
 
     await this.memories.markProcessedMany(conversationId, messageIds);
-    console.log(JSON.stringify({ event: "processed", version: "3.0.0", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
+    console.log(JSON.stringify({ event: "processed", version: "3.0.1", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
   }
 }
