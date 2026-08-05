@@ -34,7 +34,12 @@ export function loadConfig() {
     storage: {
       memoryFile: process.env.MEMORY_FILE || "/app/data/conversation-memory.json",
       rotationFile: process.env.AGENT_ROTATION_FILE || "/app/data/agent-rotation.json",
+      inspectorEventsFile: process.env.INSPECTOR_EVENTS_FILE || "/app/data/inspector-events.json",
     },
     webhookSecret: process.env.WEBHOOK_SECRET || "",
+    inspector: {
+      token: process.env.INSPECTOR_TOKEN || "",
+      maxEventsPerConversation: Number(process.env.INSPECTOR_MAX_EVENTS_PER_CONVERSATION || 200),
+    },
   };
 }
