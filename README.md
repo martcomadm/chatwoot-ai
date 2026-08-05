@@ -1,77 +1,38 @@
-# MARTCOM AI Sales Intelligence V3.0.0
+# MARTCOM AI V3.0.1 — Inspector Base
 
-Primera fase de la V3: nueva arquitectura modular.
+Conserva el motor V3.0.0 y agrega un Inspector de solo lectura.
 
-## Objetivo
+## Nuevas rutas
 
-Conservar el comportamiento estable de la V2.5.5, pero separar las responsabilidades para poder añadir después:
+- `/inspector` — interfaz web.
+- `/inspector/api/health` — salud del sistema.
+- `/inspector/api/conversations` — conversaciones en memoria.
+- `/inspector/api/conversations/:id` — expediente, memoria y timeline.
 
-- Intent Engine.
-- Emotion Engine.
-- Objection Engine.
-- Biblioteca de casos exitosos.
-- Seguimientos inteligentes.
-- Métricas comerciales.
+## Variables nuevas
 
-## Estructura
-
-```text
-src/
-├── server.js
-├── config.js
-├── routes.js
-├── ai/
-│   ├── json.js
-│   ├── quality-checker.js
-│   └── services.js
-├── chatwoot/
-│   ├── api.js
-│   └── labels.js
-├── core/
-│   ├── conversation-processor.js
-│   ├── fallback.js
-│   └── message-buffer.js
-├── knowledge/
-│   └── martcom.js
-├── memory/
-│   ├── agent-rotation-store.js
-│   ├── fast-extractor.js
-│   └── memory-store.js
-├── sales/
-│   └── sales-engine.js
-└── utils/
-    └── conversation.js
+```env
+INSPECTOR_EVENTS_FILE=/app/data/inspector-events.json
+INSPECTOR_TOKEN=UNA_CLAVE_PRIVADA_LARGA
+INSPECTOR_MAX_EVENTS_PER_CONVERSATION=200
 ```
 
-## Funciones conservadas
-
-- Solo atiende el inbox y usuario configurados.
-- Buffer para agrupar mensajes consecutivos.
-- Respaldo desde webhook cuando Chatwoot devuelve 403.
-- Memoria persistente por conversación.
-- Rotación Susana Solis → Carlos Ruiz → Jozic Martinez.
-- Extracción híbrida de datos.
-- Planner comercial.
-- Verificación de calidad y fallback.
-- Transferencia orgánica con nota privada.
-- Etiquetas de detención.
+El Inspector usa el mismo volumen persistente `/app/data`. No modifica conversaciones ni memoria.
 
 ## Implementación
 
-Esta versión utiliza las mismas variables y el mismo volumen `/app/data` que la V2.5.5.
-
-1. Sustituye el contenido del repositorio por este paquete.
-2. Conserva las variables actuales.
-3. Conserva el volumen persistente montado en `/app/data`.
+1. Sustituye el repositorio por este paquete.
+2. Conserva todas las variables actuales.
+3. Agrega las tres variables del Inspector.
 4. Implementa en EasyPanel.
+5. Abre `https://TU-DOMINIO/inspector`.
+6. Introduce el valor de `INSPECTOR_TOKEN`.
 
-El log correcto es:
+## Datos disponibles
 
-```text
-MARTCOM AI V3.0.0 escuchando en puerto 3000
-Arquitectura modular activa
-```
-
-## Siguiente fase
-
-La V3.0.1 añadirá un Intent Engine separado, sin modificar el núcleo de Chatwoot, memoria o buffer.
+- Perfil del cliente.
+- Fase y siguiente paso.
+- Plan recomendado y temperatura.
+- Última pregunta y estado de documentos.
+- Memoria JSON.
+- Timeline de buffer, fallback, decisión, respuesta y transferencia.
