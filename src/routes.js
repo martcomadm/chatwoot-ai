@@ -1,12 +1,44 @@
 import express from "express";
+import { inspectorPage } from "./inspector/page.js";
 import { conversationIdOf, inboxIdOf, isContact, isIncoming, messageOf, messagesOf } from "./utils/conversation.js";
 
-export function createRouter({ config, memories, buffer }) {
+export function createRouter({ config, memories, buffer, inspectorEvents }) {
   const router = express.Router();
+
+
+  function inspectorAuthorized(req) {
+    if (!config.inspector.token) return false;
+    return req.get("x-inspector-token") === config.inspector.token || req.query.token === config.inspector.token;
+  }
+
+  router.get("/inspector", (_req, res) => res.type("html").send(inspectorPage()));
+  router.get("/inspector/api/health", (req, res) => {
+    if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
+    res.json({ status: "ok", version: "3.0.1", architecture: "modular", memoryFile: config.storage.memoryFile, eventsFile: config.storage.inspectorEventsFile });
+  });
+  router.get("/inspector/api/conversations", (req, res) => {
+    if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
+    const items = memories.list().map(memory => ({
+      id: memory.id,
+      nombre: memory.nombre,
+      necesidad: memory.necesidad_principal,
+      fase: memory.flujo?.fase,
+      plan: memory.ventas?.plan_recomendado,
+      asesor: memory.asesor_presentacion,
+      actualizado_en: memory.actualizado_en,
+    }));
+    res.json({ items });
+  });
+  router.get("/inspector/api/conversations/:conversationId", (req, res) => {
+    if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
+    const id = Number(req.params.conversationId);
+    if (!id) return res.status(400).json({ error: "conversation_id inválido" });
+    res.json({ conversationId: id, memory: memories.get(id), timeline: inspectorEvents.get(id) });
+  });
 
   router.get("/", (_req, res) => res.json({
     service: "martcom-ai-sales-intelligence",
-    version: "3.0.0",
+    version: "3.0.1",
     status: "ok",
     architecture: "modular",
     memory_file: config.storage.memoryFile,
@@ -18,7 +50,7 @@ export function createRouter({ config, memories, buffer }) {
     agent_id: config.chatwoot.agentId,
   }));
 
-  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.0.0", timestamp: new Date().toISOString() }));
+  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.0.1", timestamp: new Date().toISOString() }));
   router.get("/memory/:conversationId", (req, res) => {
     const id = Number(req.params.conversationId);
     if (!id) return res.status(400).json({ error: "conversation_id inválido" });
