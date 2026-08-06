@@ -9,6 +9,25 @@ import { stopLabels } from "../chatwoot/labels.js";
 const allowedLabels = new Set(["asignado","cerrado","chat_basura","cliente","embarazo","no_contesta","no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado","seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"]);
 const protectedLabels = new Set(["asignado","predictivo","reasignado","cliente","venta"]);
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function removeAdvisorSignature(reply, advisor) {
+  let text = String(reply || "").trim();
+  const name = String(advisor || "").trim();
+  if (!text || !name) return text;
+
+  const escaped = escapeRegExp(name);
+  const trailingSignature = new RegExp(
+    `(?:\\n|^)[ \t]*(?:atentamente[,.:;-]?[ \t]*|saludos[,.:;-]?[ \t]*|[-–—][ \t]*)?${escaped}[ \t]*[.!]?$`,
+    "i"
+  );
+
+  text = text.replace(trailingSignature, "").trim();
+  return text;
+}
+
 function handoffReason(messages, combinedText) {
   if (messages.some(hasAttachments)) return "El cliente envió uno o más archivos o documentos.";
   if (containsCurp(combinedText)) return "El cliente proporcionó una CURP.";
@@ -128,22 +147,25 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "handoff", { reason, messageIds, advisor: memory.asesor_presentacion });
-      console.log(JSON.stringify({ event: "handoff", version: "3.0.1", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
+      console.log(JSON.stringify({ event: "handoff", version: "3.0.1.1", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
       return;
     }
 
     let decision = await this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText);
+    decision.reply = removeAdvisorSignature(decision.reply, memory.asesor_presentacion);
     if (decision.question_key && answered(memory, decision.question_key)) decision = { ...decision, question_key: planner.question_key };
 
     let quality = checkReply(decision.reply, { memory, questionKey: decision.question_key, maxChars: this.config.ai.maxReplyChars });
     if (!quality.ok) {
       try {
         decision = await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, quality.reasons);
+        decision.reply = removeAdvisorSignature(decision.reply, memory.asesor_presentacion);
         quality = checkReply(decision.reply, { memory, questionKey: decision.question_key, maxChars: this.config.ai.maxReplyChars });
       } catch (error) { console.warn(`Aviso reparación ${conversationId}: ${error.message}`); }
     }
     if (!quality.ok) decision = fallbackDecision(memory, planner, combinedText);
 
+    decision.reply = removeAdvisorSignature(decision.reply, memory.asesor_presentacion);
     decision.reply = String(decision.reply || "").trim().slice(0, this.config.ai.maxReplyChars);
     decision.add_labels = Array.isArray(decision.add_labels) ? decision.add_labels.filter(label => allowedLabels.has(label) && !["cliente","venta","cerrado","no_contesta"].includes(label)) : [];
     decision.remove_labels = Array.isArray(decision.remove_labels) ? decision.remove_labels.filter(label => allowedLabels.has(label) && !protectedLabels.has(label)) : [];
@@ -163,6 +185,6 @@ export class ConversationProcessor {
     }
 
     await this.memories.markProcessedMany(conversationId, messageIds);
-    console.log(JSON.stringify({ event: "processed", version: "3.0.1", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
+    console.log(JSON.stringify({ event: "processed", version: "3.0.1.1", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
   }
 }
