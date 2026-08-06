@@ -8,6 +8,19 @@ function normalize(value){
     .replace(/[^a-z0-9áéíóúüñ¿? ]/gi," ").replace(/\s+/g," ").trim();
 }
 
+
+function escapeRegExp(value){
+  return String(value||"").replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+}
+
+function endsWithAdvisorSignature(text, advisor){
+  const name=String(advisor||"").trim();
+  if(!name) return false;
+  const escaped=escapeRegExp(name);
+  const pattern=new RegExp(`(?:^|\\n)\\s*(?:atentamente[,.:;-]?\\s*|saludos[,.:;-]?\\s*|[-–—]\\s*)?${escaped}\\s*[.!]?$`,"i");
+  return pattern.test(String(text||"").trim());
+}
+
 function similarity(a,b){
   const aa=new Set(normalize(a).split(" ").filter(word=>word.length>2));
   const bb=new Set(normalize(b).split(" ").filter(word=>word.length>2));
