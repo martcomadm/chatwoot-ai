@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 3.0.1.2
+
+### Corregido
+- Se agrega `MemoryStore.list()` al paquete de actualización.
+- El endpoint `/inspector/api/conversations` incluye respaldo compatible si `list()` no existe.
+- El Inspector ya no genera `TypeError: memories.list is not a function`.
+- Se mantiene la corrección de firmas de la V3.0.1.1.
+
+
 ## 3.0.1.1
 
 ### Corregido
