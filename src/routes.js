@@ -14,7 +14,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents }) {
   router.get("/inspector", (_req, res) => res.type("html").send(inspectorPage()));
   router.get("/inspector/api/health", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
-    res.json({ status: "ok", version: "3.0.1", architecture: "modular", memoryFile: config.storage.memoryFile, eventsFile: config.storage.inspectorEventsFile });
+    res.json({ status: "ok", version: "3.0.1.1", architecture: "modular", memoryFile: config.storage.memoryFile, eventsFile: config.storage.inspectorEventsFile });
   });
   router.get("/inspector/api/conversations", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
@@ -38,7 +38,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents }) {
 
   router.get("/", (_req, res) => res.json({
     service: "martcom-ai-sales-intelligence",
-    version: "3.0.1",
+    version: "3.0.1.1",
     status: "ok",
     architecture: "modular",
     memory_file: config.storage.memoryFile,
@@ -50,7 +50,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents }) {
     agent_id: config.chatwoot.agentId,
   }));
 
-  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.0.1", timestamp: new Date().toISOString() }));
+  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.0.1.1", timestamp: new Date().toISOString() }));
   router.get("/memory/:conversationId", (req, res) => {
     const id = Number(req.params.conversationId);
     if (!id) return res.status(400).json({ error: "conversation_id inválido" });
