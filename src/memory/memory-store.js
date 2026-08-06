@@ -50,4 +50,11 @@ export class MemoryStore {
     return this.merge(id,{mensajes_procesados:ids});
   }
   async clear(id){delete this.data[String(id)];await this.persist();}
+
+  list(){
+    return Object.entries(this.data)
+      .map(([id,memory])=>({id:Number(id),...this.get(id),raw_actualizado_en:memory?.actualizado_en||null}))
+      .filter(item=>Number.isFinite(item.id))
+      .sort((a,b)=>String(b.actualizado_en||'').localeCompare(String(a.actualizado_en||'')));
+  }
 }
