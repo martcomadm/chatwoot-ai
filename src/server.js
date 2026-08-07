@@ -29,7 +29,7 @@ try {
   app.use(createRouter({ config, memories, buffer, inspectorEvents }));
 
   app.listen(config.port, "0.0.0.0", () => {
-    console.log(`MARTCOM AI V3.1.1 escuchando en puerto ${config.port}`);
+    console.log(`MARTCOM AI V3.1.1.1.1 escuchando en puerto ${config.port}`);
     console.log(`Arquitectura modular activa`);
     console.log(`Buffer de mensajes: ${config.ai.bufferMs} ms`);
     console.log(`Memoria persistente: ${config.storage.memoryFile}`);
@@ -37,6 +37,6 @@ try {
     console.log(`Rotación: ${config.ai.introAgents.join(" -> ")}`);
   });
 } catch (error) {
-  console.error("No se pudo iniciar MARTCOM AI V3.1.1:", error);
+  console.error("No se pudo iniciar MARTCOM AI V3.1.1.1.1:", error);
   process.exit(1);
 }
