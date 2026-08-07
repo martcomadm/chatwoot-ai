@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 3.1.1
+
+### Inspector 1.1
+- Dashboard con KPIs operativos.
+- Búsqueda y filtros por intención, asesor, fase y temperatura.
+- Expediente por pestañas.
+- Vista auditable “¿Por qué?”.
+- Timeline enriquecido.
+- Alertas de calidad.
+- Centro de diagnóstico del sistema.
+- Eventos `memory_updated`, `quality_checked`, `quality_repair` y `quality_fallback`.
+- Pruebas del servicio del Inspector.
+
+### Compatibilidad
+- Conserva Intent Engine V3.1.0.
+- No requiere variables nuevas.
+- Inspector continúa en modo solo lectura.
+
 ## 3.1.0
 
 ### Nuevo
