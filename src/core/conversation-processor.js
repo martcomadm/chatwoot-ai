@@ -149,6 +149,7 @@ export class ConversationProcessor {
     memory.ventas = sales;
     memory.flujo = { fase: planner.specialized ? "orientacion_especializada" : planner.action === "solicitar_curp" ? "cotizacion" : planner.action === "transferir" ? "transferencia" : "diagnostico", siguiente_paso: planner.question_key };
     await this.memories.set(conversationId, memory);
+    await this.record(conversationId, "memory_updated", { fase: memory.flujo?.fase, siguientePaso: memory.flujo?.siguiente_paso, intent: memory.intent?.id });
     memory = this.memories.get(conversationId);
 
     const reason = handoffReason(batch, combinedText);
@@ -156,7 +157,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "handoff", { reason, messageIds, advisor: memory.asesor_presentacion });
-      console.log(JSON.stringify({ event: "handoff", version: "3.1.0", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
+      console.log(JSON.stringify({ event: "handoff", version: "3.1.1", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
       return;
     }
 
@@ -165,14 +166,20 @@ export class ConversationProcessor {
     if (decision.question_key && answered(memory, decision.question_key)) decision = { ...decision, question_key: planner.question_key };
 
     let quality = checkReply(decision.reply, { memory, questionKey: decision.question_key, maxChars: this.config.ai.maxReplyChars });
+    await this.record(conversationId, "quality_checked", { ok: quality.ok, reasons: quality.reasons || [], questionKey: decision.question_key });
     if (!quality.ok) {
       try {
+        await this.record(conversationId, "quality_repair", { reasons: quality.reasons || [] });
         decision = await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, quality.reasons);
         decision.reply = removeAdvisorSignature(decision.reply, memory.asesor_presentacion);
         quality = checkReply(decision.reply, { memory, questionKey: decision.question_key, maxChars: this.config.ai.maxReplyChars });
-      } catch (error) { console.warn(`Aviso reparación ${conversationId}: ${error.message}`); }
+        await this.record(conversationId, "quality_checked", { ok: quality.ok, reasons: quality.reasons || [], questionKey: decision.question_key, afterRepair: true });
+      } catch (error) { console.warn(`Aviso reparación ${conversationId}: ${error.message}`); await this.record(conversationId, "openai_error", { stage: "repairDecision", error: error.message }); }
     }
-    if (!quality.ok) decision = fallbackDecision(memory, planner, combinedText);
+    if (!quality.ok) {
+      await this.record(conversationId, "quality_fallback", { reasons: quality.reasons || [], planner });
+      decision = fallbackDecision(memory, planner, combinedText);
+    }
 
     decision.reply = removeAdvisorSignature(decision.reply, memory.asesor_presentacion);
     decision.reply = String(decision.reply || "").trim().slice(0, this.config.ai.maxReplyChars);
@@ -194,6 +201,6 @@ export class ConversationProcessor {
     }
 
     await this.memories.markProcessedMany(conversationId, messageIds);
-    console.log(JSON.stringify({ event: "processed", version: "3.1.0", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
+    console.log(JSON.stringify({ event: "processed", version: "3.1.1", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
   }
 }
