@@ -60,6 +60,18 @@ export class InspectorEventStore {
       : [];
   }
 
+  listAll() {
+    return Object.entries(this.data)
+      .flatMap(([conversationId, events]) => (Array.isArray(events) ? events : []).map(event => ({ conversationId: Number(conversationId), ...structuredClone(event) })))
+      .filter(event => Number.isFinite(event.conversationId))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  stats() {
+    const events = this.listAll();
+    return { conversations: this.listConversationIds().length, events: events.length, lastEventAt: events.at(-1)?.timestamp || null };
+  }
+
   listConversationIds() {
     return Object.keys(this.data)
       .map(Number)
