@@ -1,4 +1,5 @@
 import express from "express";
+import { fileURLToPath } from "node:url";
 import { inspectorPage } from "./inspector/page.js";
 import { buildAlerts, dashboardStats, explainDecision, filterConversations, summarizeConversation, uniqueFilterOptions } from "./inspector/inspector-service.js";
 import { buildDiagnostics } from "./inspector/diagnostics-service.js";
@@ -6,6 +7,12 @@ import { conversationIdOf, inboxIdOf, isContact, isIncoming, messageOf, messages
 
 export function createRouter({ config, memories, buffer, inspectorEvents }) {
   const router = express.Router();
+  const inspectorPublicPath = fileURLToPath(new URL("./inspector/public/", import.meta.url));
+  router.use("/inspector/assets", express.static(inspectorPublicPath, {
+    fallthrough: false,
+    maxAge: "5m",
+    etag: true,
+  }));
 
 
   function inspectorAuthorized(req) {
@@ -17,7 +24,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents }) {
   router.get("/inspector/api/health", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
     const diagnostics = buildDiagnostics({ config, memories, inspectorEvents });
-    res.json({ status: "ok", overall: diagnostics.overall, version: "3.1.1", inspectorVersion: "1.1.0", architecture: "modular", diagnostics });
+    res.json({ status: "ok", overall: diagnostics.overall, version: "3.1.1.1", inspectorVersion: "1.1.0", architecture: "modular", diagnostics });
   });
   router.get("/inspector/api/dashboard", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
@@ -59,7 +66,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents }) {
 
   router.get("/", (_req, res) => res.json({
     service: "martcom-ai-sales-intelligence",
-    version: "3.1.1",
+    version: "3.1.1.1",
     status: "ok",
     architecture: "modular",
     memory_file: config.storage.memoryFile,
@@ -71,7 +78,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents }) {
     agent_id: config.chatwoot.agentId,
   }));
 
-  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.1.1", timestamp: new Date().toISOString() }));
+  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.1.1.1", timestamp: new Date().toISOString() }));
   router.get("/memory/:conversationId", (req, res) => {
     const id = Number(req.params.conversationId);
     if (!id) return res.status(400).json({ error: "conversation_id inválido" });
@@ -116,3 +123,4 @@ export function createRouter({ config, memories, buffer, inspectorEvents }) {
 
   return router;
 }
+
