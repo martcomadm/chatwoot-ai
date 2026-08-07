@@ -1,4 +1,4 @@
-# MARTCOM AI V3.1.0 — Intent Engine
+# MARTCOM AI V3.1.1 — Intent Engine
 
 Esta versión incorpora el primer motor formal de intenciones de MARTCOM AI.
 
@@ -65,7 +65,7 @@ No se requieren variables nuevas. Conserva la configuración actual y el volumen
 El log correcto debe mostrar:
 
 ```text
-MARTCOM AI V3.1.0 escuchando en puerto 3000
+MARTCOM AI V3.1.1 escuchando en puerto 3000
 Arquitectura modular activa
 Inspector: /inspector
 ```
@@ -95,3 +95,8 @@ Fase: orientación especializada
 ```
 
 La primera pregunta deberá relacionarse con la situación del fallecido, no con una cotización de afiliación.
+
+
+## Inspector V1.1
+
+La ruta `/inspector` ahora incluye dashboard, filtros, expediente por pestañas, explicación auditable de decisiones, alertas de calidad y diagnóstico del sistema. Continúa siendo de solo lectura.
