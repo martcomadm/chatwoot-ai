@@ -1,0 +1,288 @@
+/* MARTCOM Inspector 1.4.2 - Agent Assignment Manager */
+var active=null,current=null,alertsOnly=false,dashboardData=null;
+var TOKEN_KEY='martcom_ai_inspector_token';
+function el(id){return document.getElementById(id)}
+function esc(v){return String(v==null?'No informado':v).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function token(){var v=el('token').value.trim();if(v)sessionStorage.setItem(TOKEN_KEY,v);return v}
+function restoreToken(){var v=sessionStorage.getItem(TOKEN_KEY)||'';if(v)el('token').value=v}
+function pct(v){return v==null?'No informado':Math.round(Number(v)*100)+'%'}
+function fmtDate(v){if(!v)return 'No informado';try{return new Date(v).toLocaleString()}catch(_){return v}}
+async function api(path){var r=await fetch(path,{headers:{'x-inspector-token':token()}});if(!r.ok){var d=await r.json().catch(function(){return {}});throw new Error(d.error||('HTTP '+r.status))}return r.json()}
+function row(k,v){return '<div class="row"><div class="key">'+esc(k)+'</div><div>'+esc(v)+'</div></div>'}
+function metric(label,value,sub){return '<div class="metric"><small>'+esc(label)+'</small><b>'+esc(value)+'</b>'+(sub?'<em>'+esc(sub)+'</em>':'')+'</div>'}
+function fillSelect(id,items){var s=el(id),v=s.value;s.innerHTML='<option value="">'+({intent:'Todas las intenciones',advisor:'Todos los asesores',phase:'Todas las fases',temperature:'Todas las temperaturas'}[id]||'Todos')+'</option>'+items.map(function(x){return '<option value="'+esc(x)+'">'+esc(x)+'</option>'}).join('');s.value=v}
+function queryString(){var p=new URLSearchParams();if(el('search').value.trim())p.set('search',el('search').value.trim());['intent','advisor','phase','temperature'].forEach(function(k){if(el(k).value)p.set(k,el(k).value)});if(alertsOnly)p.set('alerts','1');if(el('fromDate').value)p.set('from',el('fromDate').value);if(el('toDate').value)p.set('to',el('toDate').value);if(el('sort').value)p.set('sort',el('sort').value);return p.toString()}
+async function loadHealth(){try{var d=await api('/inspector/api/health');var age=d.lastEventAt?Math.max(0,Math.round((Date.now()-new Date(d.lastEventAt).getTime())/1000)):null;el('health').innerHTML='<span class="'+(d.overall==='ok'?'ok':d.overall==='warning'?'warn':'bad')+'">● '+esc(d.overall==='ok'?'Sistema activo':d.overall==='warning'?'Con avisos':'Requiere atención')+'</span> · Core '+esc(d.version)+' · Inspector '+esc(d.inspectorVersion)+(age!=null?' · último evento '+age+' s':'')}catch(e){el('health').innerHTML='<span class="bad">● Sin acceso</span>'}}
+function rotationStrip(rotations){if(!rotations||!rotations.length)return '';return '<div class="rotation-board">'+rotations.map(function(r){var names=(r.agents||[]).map(function(a,idx){var cls=idx===r.nextIndex?'next-agent':'';return '<span class="rotation-agent '+cls+'">'+esc(a.name)+' <small>#'+esc(a.id)+'</small></span>'}).join('<span class="arrow">→</span>');return '<div class="rotation-line"><b>'+esc(r.group)+'</b><div>'+names+'</div><small>Último: '+esc(r.lastAgentName||'—')+' · Siguiente: '+esc(r.nextAgent?r.nextAgent.name:'—')+' · Asignaciones: '+esc(r.completedAssignments)+'</small></div>'}).join('')+'</div>'}
+function advisorMetrics(h){if(!h||!h.byAgent||!h.byAgent.length)return '<div class="empty compact">Sin handoffs completados todavía.</div>';return '<div class="advisor-grid">'+h.byAgent.map(function(a){return '<div class="advisor-metric"><b>'+esc(a.name)+'</b><span>'+esc(a.count)+' casos</span><small>'+esc(a.percentage)+'%</small></div>'}).join('')+'</div>'}
+async function loadDashboard(){try{var d=await api('/inspector/api/dashboard?'+queryString());dashboardData=d;el('dashboard').innerHTML=metric('Memorias',d.stats.total)+metric('Activas 24 h',d.stats.recent24h)+metric('Handoffs',d.stats.handoffsCompleted,'completados')+metric('Handoff pendiente',d.stats.handoffsPending)+metric('Con alertas',d.stats.withAlerts)+metric('Errores 24 h',d.stats.errors24h)+'<div class="ops-wide"><h3>Rotación automática</h3>'+rotationStrip(d.rotations)+'</div><div class="ops-wide"><h3>Distribución por asesor</h3>'+advisorMetrics(d.handoffs)+'</div>';fillSelect('intent',d.filters.intents);fillSelect('advisor',d.filters.advisors);fillSelect('phase',d.filters.phases);fillSelect('temperature',d.filters.temperatures)}catch(e){el('dashboard').innerHTML=metric('Inspector',e.message)}}
+async function loadList(){try{var d=await api('/inspector/api/conversations?'+queryString());el('count').textContent=d.items.length+' resultado(s)';if(!d.items.length){el('list').innerHTML='<div class="empty">Sin resultados.</div>';return}el('list').innerHTML=d.items.map(function(x){var badges='<div class="badges">'+(x.intent?'<span class="badge">'+esc(x.intent)+'</span>':'')+(x.handoffStatus==="completed"?'<span class="badge success">→ '+esc(x.handoffAgent)+'</span>':'')+(x.handoffStatus==="pending"?'<span class="badge error">handoff pendiente</span>':'')+(x.alertCount?'<span class="badge '+(x.hasErrorAlert?'error':'warn')+'">'+x.alertCount+' alerta(s)</span>':'')+'</div>';return '<div class="item '+(x.id===active?'active':'')+'" data-conversation-id="'+x.id+'"><strong>#'+x.id+' · '+esc(x.nombre||'Sin nombre')+'</strong><small>'+esc(x.fase||'Sin fase')+' · '+esc(fmtDate(x.actualizado_en))+'</small>'+badges+'</div>'}).join('')}catch(e){el('list').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}}
+function eventClass(e){if(['openai_error','processor_error','chatwoot_write_error','handoff_assignment_failed'].includes(e.type))return 'error';if(['chatwoot_read_fallback','quality_fallback','quality_repair','handoff_assignment_skipped','frustration_detected'].includes(e.type))return 'warning';if(['handoff_assignment_completed','question_resolved','answer_resolved'].includes(e.type))return 'success';return ''}
+function eventLabel(t){var m={buffer_flush:'BUFFER · procesado',chatwoot_read_fallback:'CHATWOOT · fallback',intent_classified:'INTENT · clasificado',decision_state:'PLANNER · decisión',memory_updated:'MEMORIA · actualizada',quality_checked:'QUALITY · validado',quality_repair:'QUALITY · reparado',quality_fallback:'QUALITY · fallback',ai_reply_sent:'MARTCOM AI · respuesta',handoff:'HANDOFF · transferencia',handoff_summary_created:'HANDOFF · resumen',handoff_assignment_started:'HANDOFF · asignación iniciada',handoff_assignment_completed:'HANDOFF · asignación completada',handoff_assignment_failed:'HANDOFF · asignación fallida',handoff_assignment_skipped:'HANDOFF · omitida',semantic_normalized:'SEMANTIC · normalizado',answer_resolved:'SEMANTIC · respuesta resuelta',question_resolved:'MEMORIA · pregunta resuelta',resolved_question_blocked:'PLANNER · pregunta bloqueada',frustration_detected:'QUALITY · frustración',ignored_out_of_schedule:'CORE · fuera de horario',ignored_no_usable_messages:'CORE · sin mensaje utilizable'};return m[t]||t}
+function timelineHtml(events){if(!events.length)return '<div class="empty">Sin eventos registrados.</div>';return events.slice().reverse().map(function(e){return '<div class="event '+eventClass(e)+'"><time>'+esc(fmtDate(e.timestamp))+'</time><strong>'+esc(eventLabel(e.type))+'</strong><code>'+esc(JSON.stringify(e.details||{}))+'</code></div>'}).join('')}
+function alertsHtml(alerts){if(!alerts.length)return '<div class="empty">No se detectaron alertas de calidad.</div>';return alerts.map(function(a){return '<div class="alert '+(a.level==='error'?'error':'')+'"><b>'+esc(a.code)+'</b><br>'+esc(a.message)+'</div>'}).join('')}
+function diagnosticsHtml(d){return '<div class="panel"><h3>Estado del sistema</h3><div class="inner">'+d.components.map(function(c){return '<div class="diagnostic"><b>'+esc(c.name)+'</b><span class="status '+esc(c.status)+'">'+esc(c.status.toUpperCase())+'</span><span>'+esc(c.detail)+'</span></div>'}).join('')+'</div></div>'}
+function tabButton(id,label){return '<button type="button" class="tab '+(id==='summary'?'active':'')+'" data-tab="'+id+'">'+label+'</button>'}
+function progressHtml(items){return '<div class="progress-flow">'+(items||[]).map(function(x){return '<div class="progress-step '+(x.done?'done':'')+'"><span>'+(x.done?'✓':'○')+'</span><b>'+esc(x.label)+'</b></div>'}).join('<div class="progress-link">→</div>')+'</div>'}
+function slotHtml(slots){return '<div class="slot-grid">'+(slots||[]).map(function(s){return '<div class="slot"><b>'+esc(s.key)+'</b><span>'+esc(s.value)+'</span><small class="slot-status '+esc(s.status)+'">'+esc(s.status.replace('_',' '))+'</small></div>'}).join('')+'</div>'}
+function orchestratorHtml(m,d){var o=m.orchestration||{},f=m.flujo||{};return '<div class="cols"><div class="panel"><h3>Conversation Orchestrator</h3><div class="inner">'+row('Solicitud directa',o.direct_request&&o.direct_request.type)+row('Respuesta directa',o.direct_answer&&o.direct_answer.type||o.direct_answer)+row('Intención',m.intent&&(m.intent.label||m.intent.id))+row('Acción',d.explanation.action)+row('Siguiente paso',f.siguiente_paso)+row('Última pregunta',m.ultima_pregunta)+row('Preguntas de precio',m.judgment&&m.judgment.price_requests)+row('Señales de confianza',m.judgment&&m.judgment.trust_signals)+row('Última objeción',m.judgment&&m.judgment.last_objection)+row('Prefiere humano',m.judgment&&m.judgment.human_preference?'Sí':'No')+'</div></div><div class="panel"><h3>Protecciones de memoria</h3><div class="inner">'+row('Preguntas resueltas',(m.resolved_questions||[]).join(' · '))+row('Preguntas bloqueadas',(m.blocked_questions||[]).join(' · '))+row('CURP disponible',m.slots&&m.slots.curp_disponible===false?'No':m.slots&&m.slots.curp_disponible===true?'Sí':'Sin definir')+row('NSS disponible',m.slots&&m.slots.nss_disponible===false?'No':m.slots&&m.slots.nss_disponible===true?'Sí':'Sin definir')+row('Frustración',m.experiencia&&m.experiencia.frustration_score||0)+row('Contradicciones',(m.contradicciones||[]).length)+'</div></div></div>'}
+function renderConversation(){var d=current,m=d.memory||{},f=m.flujo||{},s=m.ventas||{},i=m.intent||{},h=m.handoff||{};el('conversationTitle').textContent='#'+d.conversationId;var tabs='<div class="tabs">'+tabButton('summary','Resumen')+tabButton('orchestrator','Orchestrator')+tabButton('handoff','Handoff')+tabButton('intentTab','Intención')+tabButton('planner','Planner / ¿Por qué?')+tabButton('timeline','Timeline')+tabButton('alerts','Alertas')+tabButton('memory','Memoria')+tabButton('diagnostics','Sistema')+'</div>';
+var summary='<div id="tab-summary" class="tabpane"><h3 class="section-title">Embudo de conversación</h3>'+progressHtml(d.progress)+'<div class="stats">'+[['Intención',i.label||i.id],['Confianza',pct(i.confidence)],['Fase',f.fase],['Siguiente paso',f.siguiente_paso],['Asesor reservado',(m.advisor_affinity&&m.advisor_affinity.agent_name)||m.asesor_presentacion],['Handoff',h.status||'No iniciado']].map(function(a){return '<div class="stat"><small>'+esc(a[0])+'</small><b>'+esc(a[1])+'</b></div>'}).join('')+'</div><div class="panel"><h3>Datos y estado de slots</h3><div class="inner">'+slotHtml(d.slots)+'</div></div><div class="cols topgap"><div class="panel"><h3>Perfil del cliente</h3><div class="inner">'+row('Nombre',m.nombre)+row('Edad',m.edad)+row('Actividad',m.actividad)+row('IMSS actual',m.tiene_imss===true?'Sí':m.tiene_imss===false?'No':'No informado')+row('Necesidad',m.necesidad_principal)+row('Última cotización',m.ultima_cotizacion)+row('AFORE',m.afore_actual)+'</div></div><div class="panel"><h3>Estado comercial</h3><div class="inner">'+row('Plan recomendado',s.plan_recomendado)+row('Temperatura',s.temperatura)+row('Problema',s.problema)+row('Caso de tercero',m.caso_sujeto&&m.caso_sujeto.tipo)+row('Relación',m.caso_sujeto&&m.caso_sujeto.relacion)+'</div></div></div></div>';
+var orchestrator='<div id="tab-orchestrator" class="tabpane" style="display:none">'+orchestratorHtml(m,d)+'</div>';
+var handoff='<div id="tab-handoff" class="tabpane" style="display:none"><div class="cols"><div class="panel"><h3>Handoff automático</h3><div class="inner">'+row('Estado',h.status)+row('Asesor reservado',m.advisor_affinity&&m.advisor_affinity.agent_name)+row('ID reservado',m.advisor_affinity&&m.advisor_affinity.agent_id)+row('Presentación IA',m.asesor_presentacion)+row('Asesor handoff',h.agent_name)+row('ID handoff',h.agent_id)+row('Coincidencia',(!h.agent_id||!m.advisor_affinity||Number(h.agent_id)===Number(m.advisor_affinity.agent_id))?'✓':'⚠ NO COINCIDE')+row('Turno',(m.advisor_affinity&&m.advisor_affinity.group)||h.group)+row('Posición',(m.advisor_affinity&&m.advisor_affinity.rotation_position&&m.advisor_affinity.total_agents)?(m.advisor_affinity.rotation_position+' / '+m.advisor_affinity.total_agents):(h.rotation_position&&h.total_agents?(h.rotation_position+' / '+h.total_agents):h.rotation_position))+row('Reservado',fmtDate(m.advisor_affinity&&m.advisor_affinity.reserved_at))+row('Motivo',h.reason)+row('Asignado',fmtDate(h.assigned_at))+row('Último intento',fmtDate(h.last_attempt_at))+row('Último error',h.last_error)+'</div></div><div class="panel"><h3>Rotación actual</h3><div class="inner">'+rotationStrip(d.rotations)+'</div></div></div></div>';
+var intent='<div id="tab-intentTab" class="tabpane" style="display:none"><div class="cols"><div class="panel"><h3>Clasificación</h3><div class="inner">'+row('ID',i.id)+row('Etiqueta',i.label)+row('Familia',i.family)+row('Prioridad',i.priority)+row('Confianza',pct(i.confidence))+row('Fuente',i.source)+row('Evidencia',(i.evidence||[]).join(' · '))+row('Alternativas',(i.alternatives||[]).map(function(a){return typeof a==='string'?a:(a.id||a.label||JSON.stringify(a))}).join(' · '))+'</div></div><div class="panel"><h3>Flujo seleccionado</h3><div class="inner">'+row('Fase',f.fase)+row('Siguiente paso',f.siguiente_paso)+row('Última pregunta',m.ultima_pregunta)+row('Preguntas realizadas',(m.preguntas_realizadas||[]).join(' → '))+'</div></div></div></div>';
+var why='<div id="tab-planner" class="tabpane" style="display:none"><div class="why"><b>Explicación auditable de la decisión</b><ul>'+d.explanation.reasons.map(function(r){return '<li>'+esc(r)+'</li>'}).join('')+'</ul><div><b>Acción:</b> '+esc(d.explanation.action)+' &nbsp; <b>Dato objetivo:</b> '+esc(d.explanation.questionKey)+'</div></div></div>';
+var timeline='<div id="tab-timeline" class="tabpane" style="display:none"><div class="timeline">'+timelineHtml(d.timeline)+'</div></div>';
+var alerts='<div id="tab-alerts" class="tabpane" style="display:none">'+alertsHtml(d.alerts)+'</div>';
+var memory='<div id="tab-memory" class="tabpane" style="display:none"><pre>'+esc(JSON.stringify(m,null,2))+'</pre></div>';
+var diagnostics='<div id="tab-diagnostics" class="tabpane" style="display:none">'+diagnosticsHtml(d.diagnostics)+'</div>';
+el('content').innerHTML=tabs+summary+orchestrator+handoff+intent+why+timeline+alerts+memory+diagnostics}
+function switchTab(id){document.querySelectorAll('.tabpane').forEach(function(p){p.style.display='none'});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active')});el('tab-'+id).style.display='block';document.querySelector('[data-tab="'+id+'"]').classList.add('active')}
+async function show(id){active=id;await loadList();el('content').innerHTML='<div class="empty">Cargando…</div>';try{current=await api('/inspector/api/conversations/'+id);renderConversation()}catch(e){el('content').innerHTML='<div class="empty bad">'+esc(e.message)+'</div>'}}
+function toggleAlerts(){alertsOnly=!alertsOnly;el('alertBtn').textContent='Solo alertas: '+(alertsOnly?'SÍ':'NO');loadList()}
+async function refreshAll(){await loadHealth();await loadDashboard();await loadList();if(active)await show(active)}
+function setTokenStatus(text,kind){el('health').innerHTML='<span class="'+(kind||'warn')+'">● '+esc(text)+'</span>'}
+
+var ADMIN_KEY='martcom_ai_inspector_admin_token';
+function adminToken(){var v=el('adminToken').value.trim();if(v)sessionStorage.setItem(ADMIN_KEY,v);return v}
+async function adminApi(path,options){
+  options=options||{};options.headers=Object.assign({'content-type':'application/json','x-inspector-admin-token':adminToken()},options.headers||{});
+  var r=await fetch(path,options);var d=await r.json().catch(function(){return {}});
+  if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d;
+}
+function dateISO(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day}
+function setRange(kind){
+  var now=new Date(),from='',to='';
+  if(kind==='today'){from=to=dateISO(now)}
+  else if(kind==='yesterday'){var y=new Date(now);y.setDate(y.getDate()-1);from=to=dateISO(y)}
+  else if(kind==='7'){var s=new Date(now);s.setDate(s.getDate()-6);from=dateISO(s);to=dateISO(now)}
+  else if(kind==='30'){var s2=new Date(now);s2.setDate(s2.getDate()-29);from=dateISO(s2);to=dateISO(now)}
+  el('fromDate').value=from;el('toDate').value=to;
+  document.querySelectorAll('[data-range]').forEach(function(b){b.classList.toggle('active',b.dataset.range===kind)});
+  if(token())refreshAll();
+}
+function agentEditor(group,agents){
+  return '<div class="control-group" data-group="'+group+'"><div class="control-group-head"><b>'+esc(group.toUpperCase())+'</b><button data-save-group="'+group+'">Guardar</button></div><div class="agent-editor">'+
+    (agents||[]).map(function(a,i){
+      var destinations=['weekday','saturday','sunday'].filter(function(g){return g!==group});
+      return '<div class="agent-edit" data-agent-id="'+a.id+'">'+
+        '<span class="drag-index">'+(i+1)+'</span>'+
+        '<div class="agent-name-wrap"><b>'+esc(a.name)+'</b><small>#'+a.id+'</small></div>'+
+        '<label class="switch-label"><input type="checkbox" '+(a.enabled!==false?'checked':'')+'> Activo</label>'+
+        '<div class="move-buttons"><button data-move="up">↑</button><button data-move="down">↓</button></div>'+
+        '<div class="cross-actions">'+
+          '<select data-target-group>'+destinations.map(function(g){return '<option value="'+g+'">'+g.toUpperCase()+'</option>'}).join('')+'</select>'+
+          '<button data-agent-move title="Mover a otra lista">Mover</button>'+
+          '<button data-agent-copy title="Copiar a otra lista">Copiar</button>'+
+        '</div>'+
+      '</div>';
+    }).join('')+
+    '</div></div>';
+}
+function agentsFromEditor(group){
+  return Array.from(document.querySelectorAll('.control-group[data-group="'+group+'"] .agent-edit')).map(function(row){
+    return {id:Number(row.dataset.agentId),name:row.querySelector('b').textContent,enabled:row.querySelector('input[type=checkbox]').checked};
+  });
+}
+function renderControl(d){
+  var groups=d.groups||{}, exceptions=d.exceptions||{}, audit=d.audit||[], agents=d.agents||[];
+  el('controlBody').innerHTML=
+    '<div class="master-agents">'+
+      '<div class="master-head"><div><h3>Lista maestra de asesores</h3><small>Agrega cualquier asesor existente a un turno sin quitarlo de otros.</small></div></div>'+
+      '<div class="master-grid">'+agents.map(function(a){
+        return '<div class="master-agent"><div><b>'+esc(a.name)+'</b><small>#'+a.id+'</small></div>'+
+          '<select data-master-target><option value="weekday">WEEKDAY</option><option value="saturday">SATURDAY</option><option value="sunday">SUNDAY</option></select>'+
+          '<button data-master-copy="'+a.id+'">Agregar</button></div>';
+      }).join('')+'</div>'+
+    '</div>'+
+    '<div class="control-grid">'+agentEditor('weekday',groups.weekday)+agentEditor('saturday',groups.saturday)+agentEditor('sunday',groups.sunday)+'</div>'+
+    '<div class="exception-panel"><h3>Excepción por fecha</h3><div class="exception-form"><input id="exceptionDate" type="date"><select id="exceptionBase"><option value="weekday">Copiar weekday</option><option value="saturday">Copiar saturday</option><option value="sunday">Copiar sunday</option></select><button id="createException">Crear / reemplazar</button></div>'+
+    '<div class="exception-list">'+Object.keys(exceptions).sort().map(function(date){return '<div><b>'+date+'</b> · '+exceptions[date].filter(function(a){return a.enabled!==false}).map(function(a){return esc(a.name)}).join(' → ')+' <button data-delete-exception="'+date+'" class="danger-small">Eliminar</button></div>'}).join('')+'</div></div>'+
+    '<div class="audit-panel"><h3>Historial de cambios</h3>'+(audit.length?audit.slice(0,40).map(function(a){return '<div class="audit-row"><time>'+fmtDate(a.timestamp)+'</time><b>'+esc(a.type)+'</b><span>'+esc(a.details?.group||a.details?.targetGroup||a.details?.date||'')+'</span></div>'}).join(''):'<div class="empty compact">Sin cambios registrados.</div>')+'</div>';
+}
+async function loadControl(){
+  try{
+    var saved=sessionStorage.getItem(ADMIN_KEY)||'';if(saved&&!el('adminToken').value)el('adminToken').value=saved;
+    if(!adminToken())throw new Error('Introduce INSPECTOR_ADMIN_TOKEN');
+    var d=await api('/inspector/api/control/rotations');renderControl(d);
+  }catch(e){el('controlBody').innerHTML='<div class="alert error">'+esc(e.message)+'</div>'}
+}
+async function saveGroup(group){
+  try{
+    await adminApi('/inspector/api/control/rotations/'+group,{method:'PUT',body:JSON.stringify({agents:agentsFromEditor(group)})});
+    await loadControl();await refreshAll();
+  }catch(e){alert(e.message)}
+}
+
+
+async function moveAgentBetweenGroups(row){
+  var sourceGroup=row.closest('.control-group').dataset.group;
+  var targetGroup=row.querySelector('[data-target-group]').value;
+  var agentId=Number(row.dataset.agentId);
+  if(sourceGroup===targetGroup)return;
+  if(!confirm('¿Mover este asesor de '+sourceGroup.toUpperCase()+' a '+targetGroup.toUpperCase()+'?'))return;
+  await adminApi('/inspector/api/control/agents/move',{
+    method:'POST',
+    body:JSON.stringify({sourceGroup:sourceGroup,targetGroup:targetGroup,agentId:agentId})
+  });
+  await loadControl();await refreshAll();
+}
+async function copyAgentBetweenGroups(row){
+  var sourceGroup=row.closest('.control-group').dataset.group;
+  var targetGroup=row.querySelector('[data-target-group]').value;
+  var agentId=Number(row.dataset.agentId);
+  await adminApi('/inspector/api/control/agents/copy',{
+    method:'POST',
+    body:JSON.stringify({sourceGroup:sourceGroup,targetGroup:targetGroup,agentId:agentId})
+  });
+  await loadControl();await refreshAll();
+}
+async function copyMasterAgent(button){
+  var agentId=Number(button.dataset.masterCopy);
+  var targetGroup=button.closest('.master-agent').querySelector('[data-master-target]').value;
+  await adminApi('/inspector/api/control/agents/copy',{
+    method:'POST',
+    body:JSON.stringify({targetGroup:targetGroup,agentId:agentId})
+  });
+  await loadControl();await refreshAll();
+}
+
+function bindUi(){
+  restoreToken();
+
+  el('refreshBtn').addEventListener('click',function(){
+    if(!token()){setTokenStatus('Introduce el token','warn');return}
+    refreshAll();
+  });
+
+  el('alertBtn').addEventListener('click',toggleAlerts);
+
+  el('token').addEventListener('keydown',function(event){
+    if(event.key==='Enter'){
+      event.preventDefault();
+      if(!token()){setTokenStatus('Introduce el token','warn');return}
+      refreshAll();
+    }
+  });
+
+  el('token').addEventListener('input',function(){
+    var value=el('token').value.trim();
+    if(value)sessionStorage.setItem(TOKEN_KEY,value);
+  });
+
+  var debounce;
+  ['search','intent','advisor','phase','temperature'].forEach(function(id){
+    el(id).addEventListener(id==='search'?'input':'change',function(){
+      if(!token())return;
+      clearTimeout(debounce);
+      debounce=setTimeout(loadList,180);
+    });
+  });
+
+  ['fromDate','toDate','sort'].forEach(function(id){
+    el(id).addEventListener('change',function(){
+      document.querySelectorAll('[data-range]').forEach(function(b){b.classList.remove('active')});
+      if(token())refreshAll();
+    });
+  });
+
+  document.querySelectorAll('[data-range]').forEach(function(btn){
+    btn.addEventListener('click',function(){setRange(btn.dataset.range)});
+  });
+
+  el('list').addEventListener('click',function(event){
+    var item=event.target.closest('[data-conversation-id]');
+    if(item)show(Number(item.dataset.conversationId));
+  });
+
+  el('content').addEventListener('click',function(event){
+    var tab=event.target.closest('[data-tab]');
+    if(tab)switchTab(tab.dataset.tab);
+  });
+
+  // Operations Control Center
+  el('controlBtn').addEventListener('click',function(){
+    el('controlModal').classList.remove('hidden');
+    var saved=sessionStorage.getItem(ADMIN_KEY)||'';
+    if(saved)el('adminToken').value=saved;
+    if(saved)loadControl();
+  });
+
+  el('closeControl').addEventListener('click',function(){
+    el('controlModal').classList.add('hidden');
+  });
+
+  el('controlModal').addEventListener('click',function(event){
+    if(event.target===el('controlModal'))el('controlModal').classList.add('hidden');
+  });
+
+  el('adminToken').addEventListener('keydown',function(event){
+    if(event.key==='Enter'){
+      event.preventDefault();
+      loadControl();
+    }
+  });
+
+  el('loadControl').addEventListener('click',loadControl);
+
+  el('controlBody').addEventListener('click',async function(event){
+    var move=event.target.closest('[data-move]');
+    if(move){
+      var row=move.closest('.agent-edit'),parent=row.parentNode;
+      if(move.dataset.move==='up'&&row.previousElementSibling)parent.insertBefore(row,row.previousElementSibling);
+      if(move.dataset.move==='down'&&row.nextElementSibling)parent.insertBefore(row.nextElementSibling,row);
+      Array.from(parent.children).forEach(function(r,i){r.querySelector('.drag-index').textContent=i+1});
+      return;
+    }
+
+    var agentMove=event.target.closest('[data-agent-move]');
+    if(agentMove){
+      try{await moveAgentBetweenGroups(agentMove.closest('.agent-edit'))}catch(e){alert(e.message)}
+      return;
+    }
+
+    var agentCopy=event.target.closest('[data-agent-copy]');
+    if(agentCopy){
+      try{await copyAgentBetweenGroups(agentCopy.closest('.agent-edit'))}catch(e){alert(e.message)}
+      return;
+    }
+
+    var masterCopy=event.target.closest('[data-master-copy]');
+    if(masterCopy){
+      try{await copyMasterAgent(masterCopy)}catch(e){alert(e.message)}
+      return;
+    }
+
+    var save=event.target.closest('[data-save-group]');
+    if(save){
+      await saveGroup(save.dataset.saveGroup);
+      return;
+    }
+
+    var del=event.target.closest('[data-delete-exception]');
+    if(del&&confirm('¿Eliminar excepción '+del.dataset.deleteException+'?')){
+      try{
+        await adminApi('/inspector/api/control/exceptions/'+del.dataset.deleteException,{method:'DELETE'});
+        await loadControl();
+        await refreshAll();
+      }catch(e){alert(e.message)}
+      return;
+    }
+
+    if(event.target.id==='createException'){
+      var date=el('exceptionDate').value,base=el('exceptionBase').value;
+      if(!date)return alert('Selecciona una fecha');
+      try{
+        await adminApi('/inspector/api/control/exceptions/'+date,{
+          method:'PUT',
+          body:JSON.stringify({agents:agentsFromEditor(base)})
+        });
+        await loadControl();
+        await refreshAll();
+      }catch(e){alert(e.message)}
+    }
+  });
+
+  if(token())refreshAll();
+}
+document.addEventListener('DOMContentLoaded',bindUi);
