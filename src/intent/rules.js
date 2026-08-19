@@ -8,6 +8,12 @@ export const INTENT_RULES = [
   { intent: INTENTS.ORFANDAD, weight: 7, any: [/orfandad/i, /pensi[oó]n.*(hijo|hija|menor)/i], evidence: "Orfandad" },
   { intent: INTENTS.EMBARAZO, weight: 7, any: [/embarazad[ao]/i, /embarazo/i, /parto/i, /maternidad/i], evidence: "Embarazo o maternidad" },
   { intent: INTENTS.INCAPACIDAD, weight: 6, any: [/incapacidad/i, /subsidio.*maternidad/i], evidence: "Incapacidad" },
+  { intent: INTENTS.COTIZACION_SEMANAS, weight: 10, any: [
+    /(?:cotizar|cotizaci[oó]n|costo|precio).{0,35}(?:completar|acompletar|juntar|sumar|semanas)/i,
+    /(?:completar|acompletar|juntar|sumar).{0,35}semanas/i,
+    /seguir.{0,20}(?:cotizando|sumando).{0,20}semanas/i,
+    /cotizar.{0,20}semanas/i
+  ], evidence: "Cotización orientada a completar semanas" },
   { intent: INTENTS.CONSULTA_SEMANAS, weight: 6, any: [/cu[aá]ntas semanas/i, /semanas cotizadas/i, /consultar.*semanas/i, /revisar.*semanas/i], evidence: "Consulta de semanas cotizadas" },
   { intent: INTENTS.LEY_73, weight: 7, any: [/ley\s*73/i, /r[eé]gimen\s*73/i], evidence: "Ley 73" },
   { intent: INTENTS.LEY_97, weight: 7, any: [/ley\s*97/i, /r[eé]gimen\s*97/i], evidence: "Ley 97" },

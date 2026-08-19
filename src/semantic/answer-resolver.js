@@ -56,13 +56,23 @@ export function resolveAnswer(text, memory = {}) {
   }
 
   if (["tiene_imss","afiliado_imss_al_fallecer","afore_contactada"].includes(key)) {
-    const answer = shortYesNo(text);
+    let answer = shortYesNo(text);
+    let rule = "short_yes_no_bound_to_last_question";
+    const low = normalized(text);
+    if (key === "tiene_imss" && answer === null) {
+      if (/(?:si|sí)?\s*(?:tengo|cuento con|tengo el|tengo la).{0,22}(?:imss|seguro|servicio)|(?:estoy|sigo)\s+(?:dado de alta|afiliado)/.test(low)
+          && !/(?:no tengo|no cuento|sin imss|sin seguro|dado de baja)/.test(low)) {
+        answer = true; rule = "natural_imss_positive_bound_to_last_question";
+      } else if (/(?:no tengo|no cuento con|sin)\s+(?:imss|seguro)|(?:estoy|me encuentro)\s+(?:dado de baja|sin alta)/.test(low)) {
+        answer = false; rule = "natural_imss_negative_bound_to_last_question";
+      }
+    }
     if (answer !== null) {
       if (key === "tiene_imss") patch.tiene_imss = answer;
       if (key === "afiliado_imss_al_fallecer") patch.caso_fallecimiento = { afiliado_imss_al_fallecer: answer };
       if (key === "afore_contactada") patch.caso_fallecimiento = { afore_contactada: answer };
       resolved.push(key);
-      events.push({ field: key, value: answer, rule: "short_yes_no_bound_to_last_question" });
+      events.push({ field: key, value: answer, rule });
     }
   }
 

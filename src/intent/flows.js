@@ -1,6 +1,19 @@
 import { INTENTS } from "./catalog.js";
 const asked = (memory, key) => (memory.preguntas_realizadas || []).includes(key);
 const resolved = (memory, key) => (memory.resolved_questions || []).includes(key);
+function quoteWeeksFlow(memory) {
+  if ((memory.tiene_imss === null || memory.tiene_imss === undefined) && !resolved(memory, "tiene_imss")) {
+    return { action: "preguntar_imss", question_key: "tiene_imss", rephrase: asked(memory, "tiene_imss"), interruptible: true };
+  }
+  if ((memory.edad === null || memory.edad === undefined || memory.edad === "") && !resolved(memory, "edad")) {
+    return { action: "preguntar_edad", question_key: "edad", rephrase: asked(memory, "edad"), interruptible: true };
+  }
+  if (!memory.nombre && !resolved(memory, "nombre")) {
+    return { action: "preguntar_nombre", question_key: "nombre", rephrase: asked(memory, "nombre"), interruptible: true };
+  }
+  return null;
+}
+
 function retirementByDeathFlow(memory) {
   const data = memory.caso_fallecimiento || {};
   if (data.afiliado_imss_al_fallecer == null && !resolved(memory, "afiliado_imss_al_fallecer")) return { action: "preguntar_afiliacion_fallecido", question_key: "afiliado_imss_al_fallecer", rephrase: asked(memory, "afiliado_imss_al_fallecer"), specialized: true };
@@ -11,6 +24,7 @@ function retirementByDeathFlow(memory) {
 }
 export function planIntentFlow(memory) {
   switch (memory.intent?.id) {
+    case INTENTS.COTIZACION_SEMANAS: return quoteWeeksFlow(memory);
     case INTENTS.RETIRO_AFORE_FALLECIMIENTO: return retirementByDeathFlow(memory);
     case INTENTS.RETIRO_AFORE: return { action: "orientar_retiro_afore", question_key: "detalle_retiro_afore", rephrase: asked(memory, "detalle_retiro_afore"), specialized: true };
     case INTENTS.VIUDEZ:

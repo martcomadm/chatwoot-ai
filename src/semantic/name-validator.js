@@ -2,7 +2,8 @@ const STOP_WORD_ONLY = new Set(["mil","gracias","claro","bueno","perfecto","hola
 const STOP_PATTERNS = [
   /\b(estoy|tengo|quiero|quisiera|necesito|trabajo|trabajando|desemplead[oa]|empleo|imss|afore|infonavit|curp|nss|seguro)\b/i,
   /\b(ya\s+(?:te|le)?\s*(?:habia|había|he)?\s*dicho|ya\s+(?:te|le)?\s*dije|no\s+tengo|me\s+interesa|requiero\s+asesor[ií]a)\b/i,
-  /\b(manejo|cotizar|pension|pensión|informaci[oó]n|precio|servicio)\b/i,
+  /\b(manejo|cotizar|cotizaci[oó]n|pension|pensión|informaci[oó]n|precio|costo|cu[aá]nto|cuanto|tendr[ií]a|sale|mensualidad|servicio)\b/i,
+  /^(?:s[ií]\s+)?pero\b|\b(?:que|qu[eé])\s+costo\b|\bnecesito\s+(?:el\s+)?costo\b/i,
 ];
 
 export function validateNameCandidate(value) {

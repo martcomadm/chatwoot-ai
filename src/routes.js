@@ -29,7 +29,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
   router.get("/inspector/api/health", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
     const diagnostics = buildDiagnostics({ config, memories, inspectorEvents });
-    res.json({ status: "ok", overall: diagnostics.overall, version: "3.3.0", inspectorVersion: "1.5.2", architecture: "modular", lastEventAt: inspectorEvents.stats?.().lastEventAt || null, autoHandoff: config.handoff.enabled, diagnostics });
+    res.json({ status: "ok", overall: diagnostics.overall, version: "3.3.1", inspectorVersion: "1.5.2", architecture: "modular", lastEventAt: inspectorEvents.stats?.().lastEventAt || null, autoHandoff: config.handoff.enabled, diagnostics });
   });
   router.get("/inspector/api/dashboard", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });

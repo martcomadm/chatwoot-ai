@@ -1,3 +1,10 @@
+## Core V3.3.1 — Interrupt & Slot Discipline
+- Nueva intención Cotización para completar semanas.
+- Interrupt Layer y precio 3-strikes.
+- IMSS natural confirmado bloquea repetición.
+- Name Guard reforzado.
+- Edad antes que nombre en cotización de semanas.
+
 ## Inspector V1.5.2 — Interaction Wiring Fix
 - Reconecta todos los listeners del Control Center.
 - Corrige X/cierre del modal secundario.

@@ -270,7 +270,7 @@ export class ConversationProcessor {
         pendingHandoffMemory
       );
       if (retryResult.status === "completed") {
-        console.log(JSON.stringify({ event: "handoff_retry_completed", version: "3.3.0", conversationId }));
+        console.log(JSON.stringify({ event: "handoff_retry_completed", version: "3.3.1", conversationId }));
         return;
       }
     }
@@ -339,6 +339,15 @@ export class ConversationProcessor {
 
     // V3.3.0: la preferencia humana, la insistencia de precio y las preguntas operativas sensibles
     // tienen prioridad sobre la recopilación de slots.
+    if (judgment.interrupt?.active) {
+      await this.record(conversationId, "interrupt_layer", {
+        interrupt: judgment.interrupt,
+        question: judgment.question,
+        objection: judgment.objection,
+        priceRequests: judgment.patch?.judgment?.price_requests || 0
+      });
+    }
+
     if (judgment.shouldHandoff) {
       await this.memories.set(conversationId, memory);
       const message = judgment.humanPreference
@@ -349,7 +358,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, judgment.handoffReason, memory, message);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "judgment_handoff", { reason: judgment.handoffReason, question: judgment.question, objection: judgment.objection });
-      console.log(JSON.stringify({ event: "judgment_handoff", version: "3.3.0", conversationId, messageIds, reason: judgment.handoffReason }));
+      console.log(JSON.stringify({ event: "judgment_handoff", version: "3.3.1", conversationId, messageIds, reason: judgment.handoffReason }));
       return;
     }
 
@@ -361,7 +370,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory, message);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "frustration_handoff", { score: memory.experiencia.frustration_score, evidence: memory.experiencia.frustration_events });
-      console.log(JSON.stringify({ event: "frustration_handoff", version: "3.3.0", conversationId, messageIds }));
+      console.log(JSON.stringify({ event: "frustration_handoff", version: "3.3.1", conversationId, messageIds }));
       return;
     }
 
@@ -373,7 +382,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory, message);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "b2b_handoff", { reason, messageIds });
-      console.log(JSON.stringify({ event: "b2b_handoff", version: "3.3.0", conversationId, messageIds }));
+      console.log(JSON.stringify({ event: "b2b_handoff", version: "3.3.1", conversationId, messageIds }));
       return;
     }
 
@@ -383,7 +392,14 @@ export class ConversationProcessor {
     if ((directRequest?.type === "trust" || judgment.objection?.type === "trust") && ["curp","nss"].includes(planner?.question_key)) {
       planner = { action: "responder_confianza", question_key: null, specialized: true, direct_answer_first: true };
     }
-    if (directRequest) planner = { ...planner, direct_answer_first: true, direct_request: directRequest.type, customer_question_priority: true };
+    if (directRequest) planner = {
+      ...planner,
+      direct_answer_first: true,
+      direct_request: directRequest.type,
+      customer_question_priority: true,
+      interrupt_layer: judgment.interrupt || null,
+      resume_after_answer: judgment.interrupt?.resume_planner !== false
+    };
     await this.record(conversationId, "decision_state", { sales, planner, memorySnapshot: memory });
     memory.ventas = sales;
     memory.flujo = { fase: planner.specialized ? "orientacion_especializada" : planner.action === "solicitar_curp" ? "cotizacion" : ["transferir","transferir_datos_no_disponibles"].includes(planner.action) ? "transferencia" : "diagnostico", siguiente_paso: planner.question_key };
@@ -396,7 +412,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "handoff", { reason, messageIds, advisor: memory.asesor_presentacion });
-      console.log(JSON.stringify({ event: "handoff", version: "3.3.0", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
+      console.log(JSON.stringify({ event: "handoff", version: "3.3.1", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
       return;
     }
 
@@ -443,6 +459,6 @@ export class ConversationProcessor {
     }
 
     await this.memories.markProcessedMany(conversationId, messageIds);
-    console.log(JSON.stringify({ event: "processed", version: "3.3.0", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
+    console.log(JSON.stringify({ event: "processed", version: "3.3.1", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
   }
 }

@@ -11,13 +11,18 @@ test('human preference stops questionnaire',()=>{
   assert.equal(j.shouldHandoff,true);
 });
 
-test('second explicit price request escalates to human',()=>{
+test('third explicit price request escalates to human',()=>{
   const first=analyzeJudgment('Quiero saber el costo',{});
   assert.equal(first.patch.judgment.price_requests,1);
   assert.equal(first.shouldHandoff,false);
-  const second=analyzeJudgment('Pero antes quiero saber el costo',{judgment:first.patch.judgment});
+
+  const second=analyzeJudgment('Pero quiero saber el costo',{judgment:first.patch.judgment});
   assert.equal(second.patch.judgment.price_requests,2);
-  assert.equal(second.shouldHandoff,true);
+  assert.equal(second.shouldHandoff,false);
+
+  const third=analyzeJudgment('Necesito el costo por favor',{judgment:second.patch.judgment});
+  assert.equal(third.patch.judgment.price_requests,3);
+  assert.equal(third.shouldHandoff,true);
 });
 
 test('clarification question is detected before slots',()=>{

@@ -1,5 +1,5 @@
 export const INTENTS = Object.freeze({
-  AFILIACION_IMSS: "AFILIACION_IMSS", SERVICIO_MEDICO: "SERVICIO_MEDICO", COTIZACION: "COTIZACION",
+  AFILIACION_IMSS: "AFILIACION_IMSS", SERVICIO_MEDICO: "SERVICIO_MEDICO", COTIZACION: "COTIZACION", COTIZACION_SEMANAS: "COTIZACION_SEMANAS",
   REACTIVACION_IMSS: "REACTIVACION_IMSS", BAJA_IMSS: "BAJA_IMSS", CONSULTA_SEMANAS: "CONSULTA_SEMANAS",
   PENSION: "PENSION", LEY_73: "LEY_73", LEY_97: "LEY_97", AFORE_GENERAL: "AFORE_GENERAL",
   CAMBIO_AFORE: "CAMBIO_AFORE", RETIRO_AFORE: "RETIRO_AFORE", RETIRO_AFORE_FALLECIMIENTO: "RETIRO_AFORE_FALLECIMIENTO",
@@ -13,6 +13,7 @@ export const INTENT_META = Object.freeze({
   [INTENTS.AFILIACION_IMSS]: { label: "Afiliación al IMSS", family: "comercial", priority: "normal" },
   [INTENTS.SERVICIO_MEDICO]: { label: "Servicio médico", family: "comercial", priority: "normal" },
   [INTENTS.COTIZACION]: { label: "Cotización", family: "comercial", priority: "normal" },
+  [INTENTS.COTIZACION_SEMANAS]: { label: "Cotización para completar semanas", family: "pension", priority: "alta" },
   [INTENTS.REACTIVACION_IMSS]: { label: "Reactivación IMSS", family: "comercial", priority: "normal" },
   [INTENTS.BAJA_IMSS]: { label: "Baja del IMSS", family: "orientacion", priority: "normal" },
   [INTENTS.CONSULTA_SEMANAS]: { label: "Consulta de semanas", family: "pension", priority: "normal" },
