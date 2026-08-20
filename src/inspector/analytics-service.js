@@ -1,0 +1,119 @@
+
+function arr(v){return Array.isArray(v)?v:[]}
+function safeDate(v){const d=new Date(v);return Number.isNaN(d.getTime())?null:d}
+function pct(a,b){return b?Math.round(a/b*1000)/10:0}
+function avg(v){return v.length?v.reduce((a,b)=>a+b,0)/v.length:0}
+function sd(v){if(v.length<2)return 0;const m=avg(v);return Math.sqrt(v.reduce((s,x)=>s+(x-m)**2,0)/v.length)}
+function dateKey(d,tz){
+  if(!d)return null;
+  const p=new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:tz}).formatToParts(d);
+  const g=t=>p.find(x=>x.type===t)?.value;
+  return `${g("year")}-${g("month")}-${g("day")}`;
+}
+function hourKey(d,tz){return Number(new Intl.DateTimeFormat("en-US",{hour:"2-digit",hourCycle:"h23",timeZone:tz}).format(d))}
+function updated(m){return safeDate(m?.actualizado_en||m?.updated_at||m?.created_at)}
+function advisor(m){return m?.advisor_affinity?.agent_name||m?.handoff?.agent_name||m?.asesor_presentacion||"Sin asesor"}
+function intent(m){return m?.intent?.label||m?.intent?.id||m?.necesidad_principal||"Sin clasificar"}
+function version(m){return m?.version||m?.core_version||m?.decision_state?.version||"Sin versión"}
+function handed(m){return m?.handoff?.status==="completed"||m?.advisor_affinity?.status==="assigned"}
+function alerts(m){
+  let n=arr(m?.contradicciones).length+Number(m?.alert_count||0)+Number(m?.quality?.alerts||0);
+  if(m?.judgment?.frustration)n++;
+  if(m?.judgment?.ambiguous_negation)n++;
+  return n;
+}
+function inRange(d,from,to){return d&&(!from||d>=from)&&(!to||d<=to)}
+function dayStart(s){const d=new Date(`${s}T00:00:00`);d.setHours(0,0,0,0);return d}
+function dayEnd(s){const d=new Date(`${s}T23:59:59`);d.setHours(23,59,59,999);return d}
+
+export function buildAnalytics({memories=[],events=[],from=null,to=null,timezone="America/Mexico_City",now=new Date()}){
+  const f=from?dayStart(from):null,t=to?dayEnd(to):null;
+  const all=arr(memories), selected=all.filter(m=>inRange(updated(m),f,t));
+  const handoffs=selected.filter(handed).length;
+  const alertTotal=selected.reduce((s,m)=>s+alerts(m),0);
+
+  const dailyMap=new Map(), hourly=Array.from({length:24},(_,hour)=>({hour,count:0}));
+  const advisorMap=new Map(), intentMap=new Map(), versionMap=new Map();
+
+  for(const m of selected){
+    const d=updated(m);
+    if(d){
+      const k=dateKey(d,timezone);dailyMap.set(k,(dailyMap.get(k)||0)+1);
+      hourly[hourKey(d,timezone)].count++;
+    }
+    const a=advisor(m);
+    if(!advisorMap.has(a))advisorMap.set(a,{advisor:a,conversations:0,handoffs:0,alerts:0,price_objections:0});
+    const av=advisorMap.get(a);av.conversations++;if(handed(m))av.handoffs++;av.alerts+=alerts(m);if(Number(m?.judgment?.price_requests||0)>0)av.price_objections++;
+
+    const i=intent(m);intentMap.set(i,(intentMap.get(i)||0)+1);
+
+    const v=version(m);
+    if(!versionMap.has(v))versionMap.set(v,{version:v,conversations:0,handoffs:0,alerts:0});
+    const vv=versionMap.get(v);vv.conversations++;if(handed(m))vv.handoffs++;vv.alerts+=alerts(m);
+  }
+
+  const daily=[...dailyMap].sort((a,b)=>a[0].localeCompare(b[0])).map(([date,count])=>({date,count}));
+  const advisors=[...advisorMap.values()].map(x=>({...x,handoff_rate:pct(x.handoffs,x.conversations)})).sort((a,b)=>b.conversations-a.conversations);
+  const intents=[...intentMap].map(([name,count])=>({intent:name,count,share:pct(count,selected.length)})).sort((a,b)=>b.count-a.count);
+  const versions=[...versionMap.values()].map(x=>({...x,alert_rate:pct(x.alerts,x.conversations),handoff_rate:pct(x.handoffs,x.conversations)})).sort((a,b)=>String(b.version).localeCompare(String(a.version)));
+
+  const diagnostic=selected.filter(m=>m?.flujo?.fase&&m.flujo.fase!=="inicio").length;
+  const captured=selected.filter(m=>m?.nombre||m?.edad||m?.actividad||m?.tiene_imss!==null&&m?.tiene_imss!==undefined).length;
+  const validation=selected.filter(m=>m?.curp_recibida||m?.nss_recibido||arr(m?.documentos_recibidos).length).length;
+
+  let comparison=null;
+  if(f&&t){
+    const days=Math.max(1,Math.round((t-f)/86400000)+1);
+    const prevTo=new Date(f.getTime()-1),prevFrom=new Date(prevTo.getTime()-(days-1)*86400000);prevFrom.setHours(0,0,0,0);
+    const prev=all.filter(m=>inRange(updated(m),prevFrom,prevTo));
+    const ph=prev.filter(handed).length,pa=prev.reduce((s,m)=>s+alerts(m),0);
+    const delta=(c,p)=>p?Math.round((c-p)/p*1000)/10:null;
+    comparison={
+      conversations:{current:selected.length,previous:prev.length,delta_pct:delta(selected.length,prev.length)},
+      handoffs:{current:handoffs,previous:ph,delta_pct:delta(handoffs,ph)},
+      alerts:{current:alertTotal,previous:pa,delta_pct:delta(alertTotal,pa)}
+    };
+  }
+
+  const y=Number(new Intl.DateTimeFormat("en-US",{year:"numeric",timeZone:timezone}).format(now));
+  const mo=Number(new Intl.DateTimeFormat("en-US",{month:"2-digit",timeZone:timezone}).format(now));
+  const today=Number(dateKey(now,timezone).slice(-2)),daysInMonth=new Date(y,mo,0).getDate(),remaining=Math.max(0,daysInMonth-today);
+  const vals=[];
+  for(let d=1;d<=today;d++){
+    const k=`${y}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    vals.push(all.filter(m=>dateKey(updated(m),timezone)===k).length);
+  }
+  const current=vals.reduce((a,b)=>a+b,0),recent=vals.slice(-7),weighted=avg(vals)*.45+avg(recent)*.55,variability=sd(vals);
+  const base=current+Math.round(weighted*remaining),low=current+Math.max(0,Math.round((weighted-variability*.6)*remaining)),high=current+Math.max(0,Math.round((weighted+variability*.6)*remaining));
+  const monthPrefix=`${y}-${String(mo).padStart(2,"0")}-`;
+  const monthMem=all.filter(m=>dateKey(updated(m),timezone)?.startsWith(monthPrefix));
+  const hr=monthMem.length?monthMem.filter(handed).length/monthMem.length:0;
+
+  return {
+    generated_at:new Date().toISOString(),
+    kpis:{
+      conversations:selected.length,handoffs,handoff_rate:pct(handoffs,selected.length),
+      alerts:alertTotal,alerts_per_100:selected.length?Math.round(alertTotal/selected.length*1000)/10:0,
+      price_objections:selected.filter(m=>Number(m?.judgment?.price_requests||0)>0).length,
+      human_requests:selected.filter(m=>m?.judgment?.human_preference===true).length,
+      curp_received:selected.filter(m=>m?.curp_recibida===true).length,
+      nss_received:selected.filter(m=>m?.nss_recibido===true).length
+    },
+    daily,hourly,advisors,intents,versions,
+    funnel:[
+      {stage:"Conversaciones",count:selected.length,rate:100},
+      {stage:"Diagnóstico iniciado",count:diagnostic,rate:pct(diagnostic,selected.length)},
+      {stage:"Datos capturados",count:captured,rate:pct(captured,selected.length)},
+      {stage:"Validación / documentos",count:validation,rate:pct(validation,selected.length)},
+      {stage:"Handoff completado",count:handoffs,rate:pct(handoffs,selected.length)}
+    ],
+    comparison,
+    projection:{
+      month:`${y}-${String(mo).padStart(2,"0")}`,current,remaining_days:remaining,
+      daily_average:Math.round(weighted*10)/10,variability:Math.round(variability*10)/10,
+      conservative:low,base,high,
+      projected_handoffs:{conservative:Math.round(low*hr),base:Math.round(base*hr),high:Math.round(high*hr)},
+      methodology:"Promedio ponderado del mes + últimos 7 días, con banda basada en variabilidad observada."
+    }
+  };
+}
