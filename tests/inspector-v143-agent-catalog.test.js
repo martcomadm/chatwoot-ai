@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";import os from "node:os";import path from "node:path";
+import { OperationsConfigStore } from "../src/handoff/operations-config-store.js";
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),"martcom-v143-"));
+const store=new OperationsConfigStore(path.join(dir,"config.json"),{weekday:[{id:25,name:"Elizabeth"}],saturday:[{id:26,name:"Pamela"}],sunday:[{id:20,name:"Jonathan"}]});
+await store.addMasterAgent({id:31,name:"Tonatiuh Ramirez"});
+assert.ok(store.allAgents().some(a=>a.id===31&&a.name==="Tonatiuh Ramirez"));
+await store.copyAgent({targetGroup:"sunday",agentId:31});
+assert.ok(store.agentsFor("sunday").some(a=>a.id===31));
+console.log("Inspector V1.4.3 agent catalog tests OK");
