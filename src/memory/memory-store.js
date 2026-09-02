@@ -7,6 +7,7 @@ const EMPTY = {
   contexto_laboral:{},afore_actual:null,pregunta_cambio_afore:false,
   curp_recibida:false,curp_valor:null,nss_recibido:false,documentos_recibidos:[],contradicciones:[],
   ventas:{plan_recomendado:null,temperatura:"frio",problema:null},
+  sales_cycle:{stage:"exploring",qualified:false,plan_id:null,plan_name:null,authorized:false,authorization_at:null,last_event:null,last_event_at:null},
   intent:{id:null,label:null,family:null,priority:"normal",confidence:0,evidence:[],alternatives:[],classified_at:null,source:null},
   caso_fallecimiento:{afiliado_imss_al_fallecer:null,afore_contactada:null,pension_negada:false,motivo_negativa:null,beneficiarios:[],menor_beneficiario:null},
   flujo:{fase:"inicio",siguiente_paso:null},
@@ -26,7 +27,7 @@ const EMPTY = {
 
 function deepMerge(base,patch){
   const out={...base,...patch};
-  for(const key of ["intereses","contexto_laboral","ventas","intent","caso_fallecimiento","caso_sujeto","pension_data","orchestration","judgment","handoff","flujo","slots","data_collection","experiencia"]){out[key]={...(base[key]||{}),...(patch[key]||{})};}
+  for(const key of ["intereses","contexto_laboral","ventas","sales_cycle","intent","caso_fallecimiento","caso_sujeto","pension_data","orchestration","judgment","handoff","flujo","slots","data_collection","experiencia"]){out[key]={...(base[key]||{}),...(patch[key]||{})};}
   return out;
 }
 
