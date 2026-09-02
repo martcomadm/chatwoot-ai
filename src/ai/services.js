@@ -2,6 +2,7 @@ import { jsonFrom } from "./json.js";
 import { historyOf, arrays } from "../utils/conversation.js";
 import { MARTCOM_KNOWLEDGE } from "../knowledge/martcom.js";
 import { validateNameCandidate } from "../semantic/name-validator.js";
+import { salesInstruction } from "../sales/autonomous-sales-engine.js";
 
 export class AiServices {
   constructor(openai, config) { this.openai = openai; this.config = config; }
@@ -20,12 +21,7 @@ CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse
   async generateDecision(conversation, labels, memory, planner, combinedText) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `${MARTCOM_KNOWLEDGE}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. JERARQUÍA V3.3.2:
-- Negation Scope: no interpretes automáticamente “No quiero información por favor gracias” como rechazo; puede ser “No, quiero información”. Si hay ambigüedad, confirma una sola vez.
-- Una frase ambigua nunca debe activar no_quiere_el_servicio.
-- Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. 1) preferencia humana/handoff, 2) pregunta explícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente slot. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda de forma natural y después, solo si planner.question_key existe, formula esa única pregunta. No ignores preguntas explícitas del cliente. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Si el cliente pregunta precio, responde primero la duda y explica qué dato mínimo falta para cotizar. No ignores la pregunta para pedir nombre. Una primera o segunda pregunta por costo no obliga a transferir; una tercera insistencia puede escalar. Si el planner corresponde a COTIZACION_SEMANAS, prioriza edad antes que nombre cuando la edad aún falta. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado; presenta esos puntos como sujetos a revisión. Si el planner es especializado, no conviertas el caso en cotización o afiliación.
-Para RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Expresa empatía una sola vez y pregunta únicamente el dato indicado por el planner.
-Acciones especializadas: preguntar_afiliacion_fallecido = preguntar si el fallecido tenía IMSS; preguntar_gestion_afore = preguntar si ya acudieron a la AFORE; preguntar_motivo_negativa = preguntar el motivo comunicado; preguntar_beneficiarios = preguntar quiénes son beneficiarios. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Usa únicamente el asesor ${memory.asesor_presentacion || "asignado"}. No agregues cliente, venta, cerrado ni no_contesta.`,
+      instructions: `${MARTCOM_KNOWLEDGE}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nMODO COMERCIAL V3.4.0:\n${salesInstruction(memory)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nJERARQUÍA: 1) preferencia humana, 2) pregunta explícita, 3) objeción, 4) corrección, 5) datos nuevos, 6) venta consultiva, 7) siguiente slot. La meta ya no es obtener CURP/NSS: es entender la necesidad, recomendar el plan correcto, explicar beneficios, resolver objeciones y obtener autorización explícita para iniciar. CURP/NSS no son requisito para explicar o recomendar un plan y no deben usarse como fallback. Si el cliente pregunta precio, responde lo autorizado: el costo depende del plan y salario registrado; no inventes cifras. Si el cliente expresa intención clara de contratar/iniciar, confirma y deja que el Core haga el handoff. Si necesita pensarlo, respeta su decisión y no presiones.\nNegation Scope: una frase ambigua nunca activa no_quiere_el_servicio; solo rechazos claros. No vuelvas a pedir slots unavailable/refused/ask_later/promised_later/searching/declined ni blocked_questions. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente autorizadas. RETIRO_AFORE_FALLECIMIENTO sigue siendo flujo especializado y no se convierte en venta de afiliación. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Usa únicamente el asesor ${memory.asesor_presentacion || "asignado"}. No agregues cliente, venta, cerrado ni no_contesta.`,
       input: `MENSAJES NUEVOS:\n${combinedText}\n\nETIQUETAS:\n${labels.join(", ") || "ninguna"}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
     return jsonFrom(response.output_text);
@@ -34,7 +30,7 @@ Acciones especializadas: preguntar_afiliacion_fallecido = preguntar si el fallec
   async repairDecision(conversation, memory, planner, combinedText, decision, reasons) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `${MARTCOM_KNOWLEDGE}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria.`,
+      instructions: `${MARTCOM_KNOWLEDGE}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Modo comercial: ${salesInstruction(memory)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria.`,
       input: `MEMORIA:\n${JSON.stringify(memory)}\n\nMENSAJES:\n${combinedText}\n\nRESPUESTA RECHAZADA:\n${JSON.stringify(decision)}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
     return jsonFrom(response.output_text);
@@ -43,7 +39,7 @@ Acciones especializadas: preguntar_afiliacion_fallecido = preguntar si el fallec
   async handoffSummary(conversation, reason, memory) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `Genera una nota privada breve. No inventes. Formato:\nAXEL IA - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nPlan probable:\nIMSS actual:\nSituación laboral:\nAFORE actual:\nCURP recibida:\nNSS recibido:\nDocumentos:\nContradicciones:\nMotivo de transferencia:\nSi falta algo escribe “No informado”.`,
+      instructions: `Genera una nota privada breve. No inventes. Formato:\nAXEL IA - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nPlan recomendado:\nEtapa comercial:\nTrámite autorizado:\nIMSS actual:\nSituación laboral:\nAFORE actual:\nCURP recibida:\nNSS recibido:\nDocumentos:\nContradicciones:\nMotivo de transferencia:\nSi falta algo escribe “No informado”.`,
       input: `MOTIVO:\n${reason}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
     return response.output_text.trim().slice(0, 1800);
@@ -54,40 +50,15 @@ export function mergeMemory(current, ...patches) {
   const next = structuredClone(current);
   for (const patch of patches) {
     if (!patch) continue;
-
     for (const key of ["edad","actividad","tipo_trabajo","tiene_imss","ultima_cotizacion","necesidad_principal","afore_actual","asesor_presentacion","curp_valor"]) {
-      const value = patch[key];
-      if (value !== null && value !== undefined && value !== "") next[key] = value;
+      const value = patch[key]; if (value !== null && value !== undefined && value !== "") next[key] = value;
     }
-
-    if (patch.nombre !== null && patch.nombre !== undefined && patch.nombre !== "") {
-      if (validateNameCandidate(patch.nombre).ok) {
-        next.nombre = patch.nombre;
-        next.primer_nombre = String(patch.nombre).trim().split(/\s+/)[0];
-      }
-    }
-
-    for (const key of ["pregunta_cambio_afore","curp_recibida","nss_recibido"]) {
-      if (typeof patch[key] === "boolean") next[key] = Boolean(next[key] || patch[key]);
-    }
-
-    next.necesidades = arrays(next.necesidades, patch.necesidades);
-    next.documentos_recibidos = arrays(next.documentos_recibidos, patch.documentos_recibidos);
-    next.contradicciones = arrays(next.contradicciones, patch.contradicciones);
-    next.resolved_questions = arrays(next.resolved_questions, patch.resolved_questions);
-    next.blocked_questions = arrays(next.blocked_questions, patch.blocked_questions);
-    next.conflictos_resueltos = arrays(next.conflictos_resueltos, patch.conflictos_resueltos);
-    next.intereses = { ...(next.intereses || {}), ...(patch.intereses || {}) };
-    next.contexto_laboral = { ...(next.contexto_laboral || {}), ...(patch.contexto_laboral || {}) };
-    next.slots = { ...(next.slots || {}), ...(patch.slots || {}) };
-    next.experiencia = { ...(next.experiencia || {}), ...(patch.experiencia || {}) };
-    next.caso_fallecimiento = { ...(next.caso_fallecimiento || {}), ...(patch.caso_fallecimiento || {}) };
-    next.caso_sujeto = { ...(next.caso_sujeto || {}), ...(patch.caso_sujeto || {}) };
-    next.pension_data = { ...(next.pension_data || {}), ...(patch.pension_data || {}) };
-    next.orchestration = { ...(next.orchestration || {}), ...(patch.orchestration || {}) };
-    next.judgment = { ...(next.judgment || {}), ...(patch.judgment || {}) };
-    if (Array.isArray(patch.caso_fallecimiento?.beneficiarios)) next.caso_fallecimiento.beneficiarios = arrays(next.caso_fallecimiento?.beneficiarios, patch.caso_fallecimiento.beneficiarios);
+    if (patch.nombre !== null && patch.nombre !== undefined && patch.nombre !== "" && validateNameCandidate(patch.nombre).ok) { next.nombre=patch.nombre; next.primer_nombre=String(patch.nombre).trim().split(/\s+/)[0]; }
+    for (const key of ["pregunta_cambio_afore","curp_recibida","nss_recibido"]) if (typeof patch[key] === "boolean") next[key]=Boolean(next[key]||patch[key]);
+    next.necesidades=arrays(next.necesidades,patch.necesidades); next.documentos_recibidos=arrays(next.documentos_recibidos,patch.documentos_recibidos); next.contradicciones=arrays(next.contradicciones,patch.contradicciones); next.resolved_questions=arrays(next.resolved_questions,patch.resolved_questions); next.blocked_questions=arrays(next.blocked_questions,patch.blocked_questions); next.conflictos_resueltos=arrays(next.conflictos_resueltos,patch.conflictos_resueltos);
+    for(const key of ["intereses","contexto_laboral","slots","data_collection","experiencia","caso_fallecimiento","caso_sujeto","pension_data","orchestration","judgment","sales_cycle"]) next[key]={...(next[key]||{}),...(patch[key]||{})};
+    if(Array.isArray(patch.caso_fallecimiento?.beneficiarios)) next.caso_fallecimiento.beneficiarios=arrays(next.caso_fallecimiento?.beneficiarios,patch.caso_fallecimiento.beneficiarios);
   }
-  if (next.nombre && !next.primer_nombre) next.primer_nombre = String(next.nombre).split(/\s+/)[0];
+  if(next.nombre&&!next.primer_nombre)next.primer_nombre=String(next.nombre).split(/\s+/)[0];
   return next;
 }
