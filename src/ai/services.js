@@ -2,12 +2,17 @@ import { jsonFrom } from "./json.js";
 import { historyOf, arrays } from "../utils/conversation.js";
 import { MARTCOM_KNOWLEDGE } from "../knowledge/martcom.js";
 import { validateNameCandidate } from "../semantic/name-validator.js";
-import { salesInstruction } from "../sales/autonomous-sales-engine.js";
+import { analyzeAutonomousSale, salesInstruction } from "../sales/autonomous-sales-engine.js";
+
+export function buildCommercialExtractionPatch(memory, combinedText) {
+  return analyzeAutonomousSale(combinedText, memory).patch;
+}
 
 export class AiServices {
   constructor(openai, config) { this.openai = openai; this.config = config; }
 
   async extractAmbiguous(memory, combinedText, conversation) {
+    const commercialPatch = buildCommercialExtractionPatch(memory, combinedText);
     const response = await this.openai.responses.create({
       model: this.config.model,
       instructions: `Extrae únicamente datos explícitos o claramente inferibles del cliente MARTCOM. No borres ni inventes datos. Devuelve solo JSON:
@@ -15,7 +20,7 @@ export class AiServices {
 CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse. Para casos de fallecimiento, extrae únicamente hechos expresos. Si la intención es RETIRO_AFORE_FALLECIMIENTO y la pregunta fue sobre el fallecido, un “sí” o “no” corresponde a caso_fallecimiento.afiliado_imss_al_fallecer, no a tiene_imss del cliente. Datos: si el fallecido tenía IMSS, si ya acudieron a la AFORE, si negaron pensión, el motivo comunicado, quiénes son beneficiarios y si hay un menor. “Contaba por empleo” significa que cotizó antes. “No me ponen seguro” significa tiene_imss=false y empleador_no_afilia=true. IMSS + INFONAVIT o AFORE apunta a plan_2. Conserva el dato previo si hay contradicción.`,
       input: `MEMORIA PREVIA:\n${JSON.stringify(memory, null, 2)}\n\nMENSAJES AGRUPADOS:\n${combinedText}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
-    return jsonFrom(response.output_text);
+    return { ...jsonFrom(response.output_text), ...commercialPatch };
   }
 
   async generateDecision(conversation, labels, memory, planner, combinedText) {
