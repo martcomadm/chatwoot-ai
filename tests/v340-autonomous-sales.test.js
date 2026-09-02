@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { analyzeAutonomousSale, recommendPlan, salesInstruction } from "../src/sales/autonomous-sales-engine.js";
+import { buildCommercialExtractionPatch, mergeMemory } from "../src/ai/services.js";
+import { buildAnalytics } from "../src/inspector/analytics-service.js";
 const base={tiene_imss:false,edad:50,necesidad_principal:"afiliacion_imss",intereses:{imss:true,semanas_cotizadas:true},necesidades:["semanas_cotizadas"],sales_cycle:{stage:"qualified",authorized:false}};
 test("recomienda plan base para IMSS y semanas",()=>assert.equal(recommendPlan(base).id,"plan_base"));
 test("recomienda Plan 2 cuando busca AFORE",()=>assert.equal(recommendPlan({...base,intereses:{afore:true}}).id,"plan_2"));
@@ -9,3 +11,6 @@ test("pensarlo no activa handoff",()=>assert.equal(analyzeAutonomousSale("Déjam
 test("objeción de precio entra a objection_handling",()=>assert.equal(analyzeAutonomousSale("¿Cuánto cuesta?",base).stage,"objection_handling"));
 test("instrucción comercial bloquea CURP como requisito",()=>assert.match(salesInstruction(base),/CURP\/NSS/));
 test("instrucción comercial ordena handoff en autorización persistida",()=>assert.match(salesInstruction({...base,sales_cycle:{stage:"authorized",authorized:true}}),/handoff=true/));
+test("pipeline de extracción integra sales_cycle determinista",()=>{const patch=buildCommercialExtractionPatch(base,"Sí, quiero iniciar el trámite");const memory=mergeMemory(base,patch);assert.equal(memory.sales_cycle.authorized,true);assert.equal(memory.sales_cycle.stage,"authorized")});
+test("analytics expone embudo compatible y autorización",()=>{const now=new Date();const memory={...base,actualizado_en:now.toISOString(),sales_cycle:{stage:"authorized",authorized:true,plan_name:"Plan base"},handoff:{status:"completed",agent_name:"Elizabeth"}};const a=buildAnalytics({memories:[memory],now});assert.equal(a.kpis.authorized,1);assert.equal(a.funnel,a.commercial_funnel);assert.equal(a.funnel.find(x=>x.stage==="Trámite autorizado").count,1);assert.equal(a.advisors[0].authorized,1)});
+test("analytics no reclasifica memorias históricas como 3.4.0",()=>{const now=new Date();const a=buildAnalytics({memories:[{actualizado_en:now.toISOString()}],now});assert.equal(a.versions[0].version,"Sin versión")});
