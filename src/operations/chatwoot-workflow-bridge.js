@@ -1,3 +1,5 @@
+import { onboardingStateFromSale } from "./onboarding-service.js";
+
 const CUSTOMER_MESSAGES = Object.freeze({
   "capture.completed": "Gracias. Tu alta ya fue procesada y ahora pasará a revisión. Te avisaré en cuanto el área de validación confirme que todo está correcto.",
   "validation.approved": "Tu proceso de validación fue aprobado correctamente. Ahora estamos esperando la confirmación de vigencia ante el IMSS; en cuanto quede confirmada te aviso por aquí.",
@@ -26,6 +28,7 @@ export class ChatwootWorkflowBridge {
     const sale = event?.sale;
     const conversationId = Number(sale?.conversation_id || 0);
     if (!conversationId) return;
+    const onboarding = onboardingStateFromSale(sale);
 
     await this.memories.merge(conversationId, {
       sale_id: sale.sale_id,
@@ -38,10 +41,11 @@ export class ChatwootWorkflowBridge {
         payment_requested: Boolean(sale.payment?.requested),
         payment_received: Boolean(sale.payment?.received),
         payment_validated: Boolean(sale.payment?.validated),
+        ...onboarding,
         updated_at: sale.updated_at,
       },
     });
-    await this.record(conversationId, "operations_state_changed", { sale_id: sale.sale_id, event: event.type, status: sale.status, queue: sale.queue });
+    await this.record(conversationId, "operations_state_changed", { sale_id: sale.sale_id, event: event.type, status: sale.status, queue: sale.queue, ...onboarding });
 
     const content = CUSTOMER_MESSAGES[event.type];
     if (!content) return;
