@@ -5,6 +5,7 @@ import { documentPackageStatus, mergeAttachmentFiles } from "./document-service.
 
 function clone(value) { return structuredClone(value); }
 function now() { return new Date().toISOString(); }
+function definedPatch(input = {}) { return Object.fromEntries(Object.entries(input).filter(([,value]) => value !== null && value !== undefined)); }
 
 export class SaleStore extends EventEmitter {
   constructor(file) { super(); this.file = file; this.data = { sequence: 0, sales: {} }; this.load(); }
@@ -36,7 +37,7 @@ export class SaleStore extends EventEmitter {
       queue: input.queue || "capture",
       capture: { assigned_to: null, assigned_name: null, started_at: null, completed_at: null, notes: "" },
       validation: { datos: false, alta: false, documentos: false, revision_final: false, approved: false, approved_at: null, notes: "" },
-      validity: { confirmed: false, document_url: null, document_name: null, confirmed_at: null, notes: "" },
+      validity: { confirmed: false, document_url: null, document_name: null, confirmed_at: null, confirmed_by: null, issue: null, notes: "" },
       payment: { requested: false, requested_at: null, received: false, received_at: null, validated: false, validated_at: null, notes: "" },
       events: [], created_at: timestamp, updated_at: timestamp,
     };
@@ -50,7 +51,7 @@ export class SaleStore extends EventEmitter {
   syncDocuments(id, input = {}) {
     const sale = this.data.sales[id];
     if (!sale) throw new Error("Expediente no encontrado");
-    sale.customer = { ...sale.customer, ...(input.customer || {}) };
+    sale.customer = { ...sale.customer, ...definedPatch(input.customer || {}) };
     const files = mergeAttachmentFiles(sale.documents?.files || [], input.files || []);
     const next = { ...sale, documents: { ...(sale.documents || {}), files } };
     const checklist = documentPackageStatus(next);
