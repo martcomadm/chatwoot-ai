@@ -15,6 +15,7 @@ import { HandoffRotationStore, HandoffRouter, OperationsConfigStore } from "./ha
 import { SaleStore } from "./operations/sale-store.js";
 import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
 import { createOperationsRouter } from "./operations/operations-router.js";
+import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
 
 try {
   const config = loadConfig();
@@ -33,8 +34,10 @@ try {
   const handoffRouter = new HandoffRouter({ config, store: handoffRotation, chatwoot, operationsConfig });
   const saleStore = new SaleStore(config.storage.salesFile);
   const workflow = new SaleWorkflowEngine(saleStore);
+  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, memories, inspectorEvents });
+  workflowBridge.start();
   const ai = new AiServices(openai, { ...config.openai, ...config.ai });
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter });
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot));
 
   const app = express();
@@ -48,6 +51,7 @@ try {
     console.log(`Memoria persistente: ${config.storage.memoryFile}`);
     console.log(`Expedientes de venta: ${config.storage.salesFile}`);
     console.log(`Operations: /operations · realtime SSE`);
+    console.log(`Chatwoot Workflow Bridge: activo`);
     console.log(`Inspector: /inspector`);
   });
 } catch (error) {
