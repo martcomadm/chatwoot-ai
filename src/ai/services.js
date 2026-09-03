@@ -2,11 +2,13 @@ import { jsonFrom } from "./json.js";
 import { historyOf, arrays } from "../utils/conversation.js";
 import { MARTCOM_KNOWLEDGE } from "../knowledge/martcom.js";
 import { validateNameCandidate } from "../semantic/name-validator.js";
+import { analyzeNextSale, commercialInstruction, enforceAuthorizedHandoff } from "../sales/next-sales-engine.js";
 
 export class AiServices {
   constructor(openai, config) { this.openai = openai; this.config = config; }
 
   async extractAmbiguous(memory, combinedText, conversation) {
+    const commercialPatch = analyzeNextSale(combinedText, memory).patch;
     const response = await this.openai.responses.create({
       model: this.config.model,
       instructions: `Extrae únicamente datos explícitos o claramente inferibles del cliente MARTCOM. No borres ni inventes datos. Devuelve solo JSON:
@@ -14,36 +16,32 @@ export class AiServices {
 CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse. Para casos de fallecimiento, extrae únicamente hechos expresos. Si la intención es RETIRO_AFORE_FALLECIMIENTO y la pregunta fue sobre el fallecido, un “sí” o “no” corresponde a caso_fallecimiento.afiliado_imss_al_fallecer, no a tiene_imss del cliente. Datos: si el fallecido tenía IMSS, si ya acudieron a la AFORE, si negaron pensión, el motivo comunicado, quiénes son beneficiarios y si hay un menor. “Contaba por empleo” significa que cotizó antes. “No me ponen seguro” significa tiene_imss=false y empleador_no_afilia=true. IMSS + INFONAVIT o AFORE apunta a plan_2. Conserva el dato previo si hay contradicción.`,
       input: `MEMORIA PREVIA:\n${JSON.stringify(memory, null, 2)}\n\nMENSAJES AGRUPADOS:\n${combinedText}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
-    return jsonFrom(response.output_text);
+    return { ...jsonFrom(response.output_text), ...commercialPatch };
   }
 
   async generateDecision(conversation, labels, memory, planner, combinedText) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `${MARTCOM_KNOWLEDGE}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. JERARQUÍA V3.3.2:
-- Negation Scope: no interpretes automáticamente “No quiero información por favor gracias” como rechazo; puede ser “No, quiero información”. Si hay ambigüedad, confirma una sola vez.
-- Una frase ambigua nunca debe activar no_quiere_el_servicio.
-- Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. 1) preferencia humana/handoff, 2) pregunta explícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente slot. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda de forma natural y después, solo si planner.question_key existe, formula esa única pregunta. No ignores preguntas explícitas del cliente. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Si el cliente pregunta precio, responde primero la duda y explica qué dato mínimo falta para cotizar. No ignores la pregunta para pedir nombre. Una primera o segunda pregunta por costo no obliga a transferir; una tercera insistencia puede escalar. Si el planner corresponde a COTIZACION_SEMANAS, prioriza edad antes que nombre cuando la edad aún falta. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado; presenta esos puntos como sujetos a revisión. Si el planner es especializado, no conviertas el caso en cotización o afiliación.
-Para RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Expresa empatía una sola vez y pregunta únicamente el dato indicado por el planner.
-Acciones especializadas: preguntar_afiliacion_fallecido = preguntar si el fallecido tenía IMSS; preguntar_gestion_afore = preguntar si ya acudieron a la AFORE; preguntar_motivo_negativa = preguntar el motivo comunicado; preguntar_beneficiarios = preguntar quiénes son beneficiarios. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Usa únicamente el asesor ${memory.asesor_presentacion || "asignado"}. No agregues cliente, venta, cerrado ni no_contesta.`,
+      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. JERARQUÍA NEXT: 1) preferencia humana/handoff, 2) pregunta explícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente paso comercial. No interpretes automáticamente una negación ambigua como rechazo. Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Para Plan 1 y Plan 2 usa los precios oficiales configurados. Antes de autorización, CURP/NSS no son el objetivo del flujo comercial: vende y resuelve dudas primero. Si sales_cycle.authorized=true, no hagas más preguntas y entrega el caso a humano. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado. Si el planner es especializado, no conviertas el caso en cotización o afiliación.
+Para RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Usa únicamente el asesor ${memory.asesor_presentacion || "asignado"}. No agregues cliente, venta, cerrado ni no_contesta.`,
       input: `MENSAJES NUEVOS:\n${combinedText}\n\nETIQUETAS:\n${labels.join(", ") || "ninguna"}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
-    return jsonFrom(response.output_text);
+    return enforceAuthorizedHandoff(jsonFrom(response.output_text), memory);
   }
 
   async repairDecision(conversation, memory, planner, combinedText, decision, reasons) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `${MARTCOM_KNOWLEDGE}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria.`,
+      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria.`,
       input: `MEMORIA:\n${JSON.stringify(memory)}\n\nMENSAJES:\n${combinedText}\n\nRESPUESTA RECHAZADA:\n${JSON.stringify(decision)}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
-    return jsonFrom(response.output_text);
+    return enforceAuthorizedHandoff(jsonFrom(response.output_text), memory);
   }
 
   async handoffSummary(conversation, reason, memory) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `Genera una nota privada breve. No inventes. Formato:\nAXEL IA - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nPlan probable:\nIMSS actual:\nSituación laboral:\nAFORE actual:\nCURP recibida:\nNSS recibido:\nDocumentos:\nContradicciones:\nMotivo de transferencia:\nSi falta algo escribe “No informado”.`,
+      instructions: `Genera una nota privada breve. No inventes. Formato:\nAXEL IA - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nPlan recomendado/seleccionado:\nEtapa comercial:\nAutorización para iniciar:\nIMSS actual:\nSituación laboral:\nAFORE actual:\nCURP recibida:\nNSS recibido:\nDocumentos:\nContradicciones:\nMotivo de transferencia:\nSi falta algo escribe “No informado”.`,
       input: `MOTIVO:\n${reason}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
     return response.output_text.trim().slice(0, 1800);
@@ -86,8 +84,15 @@ export function mergeMemory(current, ...patches) {
     next.pension_data = { ...(next.pension_data || {}), ...(patch.pension_data || {}) };
     next.orchestration = { ...(next.orchestration || {}), ...(patch.orchestration || {}) };
     next.judgment = { ...(next.judgment || {}), ...(patch.judgment || {}) };
+    next.sales_cycle = { ...(next.sales_cycle || {}), ...(patch.sales_cycle || {}) };
     if (Array.isArray(patch.caso_fallecimiento?.beneficiarios)) next.caso_fallecimiento.beneficiarios = arrays(next.caso_fallecimiento?.beneficiarios, patch.caso_fallecimiento.beneficiarios);
   }
   if (next.nombre && !next.primer_nombre) next.primer_nombre = String(next.nombre).split(/\s+/)[0];
   return next;
 }
+
+export function buildNextCommercialPatch(memory, combinedText) {
+  return analyzeNextSale(combinedText, memory).patch;
+}
+
+export { enforceAuthorizedHandoff };
