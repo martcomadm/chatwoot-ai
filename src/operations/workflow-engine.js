@@ -1,0 +1,120 @@
+export const SALE_STATUSES = Object.freeze({
+  AUTHORIZED: "authorized",
+  WAITING_CAPTURE: "waiting_capture",
+  CAPTURE_IN_PROGRESS: "capture_in_progress",
+  ALTA_PROCESSED: "alta_processed",
+  WAITING_VALIDATION: "waiting_validation",
+  VALIDATION_IN_PROGRESS: "validation_in_progress",
+  VALIDATION_APPROVED: "validation_approved",
+  VALIDATION_REJECTED: "validation_rejected",
+  WAITING_VALIDITY: "waiting_validity",
+  VALIDITY_CONFIRMED: "validity_confirmed",
+  PAYMENT_REQUESTED: "payment_requested",
+  PAYMENT_RECEIVED: "payment_received",
+  PAYMENT_VALIDATED: "payment_validated",
+  COMPLETED: "completed",
+  ALTA_ISSUE: "alta_issue",
+  VALIDITY_ISSUE: "validity_issue",
+  PAYMENT_ISSUE: "payment_issue",
+  CANCELLED: "cancelled",
+});
+
+const VALIDATION_KEYS = ["datos", "alta", "documentos", "revision_final"];
+
+function requireStatus(sale, allowed, action) {
+  if (!allowed.includes(sale.status)) {
+    throw new Error(`${action} no permitido desde estado ${sale.status}`);
+  }
+}
+
+export class SaleWorkflowEngine {
+  constructor(store) {
+    this.store = store;
+  }
+
+  openAuthorizedSale(input) {
+    const existing = input.conversation_id ? this.store.findByConversationId(input.conversation_id) : null;
+    if (existing) return existing;
+    return this.store.create({ ...input, status: SALE_STATUSES.WAITING_CAPTURE, queue: "capture" });
+  }
+
+  startCapture(id, operator = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE], "Iniciar captura");
+    return this.store.update(id, {
+      status: SALE_STATUSES.CAPTURE_IN_PROGRESS,
+      queue: "capture",
+      capture: { ...sale.capture, assigned_to: operator.id || null, assigned_name: operator.name || null, started_at: new Date().toISOString() },
+    }, "capture.started", operator);
+  }
+
+  completeCapture(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.CAPTURE_IN_PROGRESS, SALE_STATUSES.WAITING_CAPTURE], "Completar alta");
+    const timestamp = new Date().toISOString();
+    return this.store.update(id, {
+      status: SALE_STATUSES.WAITING_VALIDATION,
+      queue: "validation",
+      capture: { ...sale.capture, completed_at: timestamp, notes: payload.notes ?? sale.capture.notes },
+    }, "capture.completed", { notes: payload.notes || "" });
+  }
+
+  setValidationCheck(id, key, checked, payload = {}) {
+    if (!VALIDATION_KEYS.includes(key)) throw new Error("Check de validación inválido");
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDATION, SALE_STATUSES.VALIDATION_IN_PROGRESS], "Validar expediente");
+    const validation = { ...sale.validation, [key]: Boolean(checked), notes: payload.notes ?? sale.validation.notes };
+    const allChecked = VALIDATION_KEYS.every(item => validation[item] === true);
+    if (allChecked) {
+      validation.approved = true;
+      validation.approved_at = new Date().toISOString();
+      return this.store.update(id, { status: SALE_STATUSES.WAITING_VALIDITY, queue: "validity", validation }, "validation.approved", { by: payload.by || null });
+    }
+    validation.approved = false;
+    validation.approved_at = null;
+    return this.store.update(id, { status: SALE_STATUSES.VALIDATION_IN_PROGRESS, queue: "validation", validation }, "validation.check.updated", { key, checked: Boolean(checked), by: payload.by || null });
+  }
+
+  rejectValidation(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDATION, SALE_STATUSES.VALIDATION_IN_PROGRESS], "Rechazar validación");
+    return this.store.update(id, { status: SALE_STATUSES.VALIDATION_REJECTED, queue: "validation", validation: { ...sale.validation, approved: false, notes: payload.notes || sale.validation.notes } }, "validation.rejected", payload);
+  }
+
+  confirmValidity(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDITY], "Confirmar vigencia");
+    if (!payload.document_url && !payload.document_name) throw new Error("Se requiere referencia al documento de vigencia");
+    const timestamp = new Date().toISOString();
+    return this.store.update(id, {
+      status: SALE_STATUSES.VALIDITY_CONFIRMED,
+      queue: "payment",
+      validity: { confirmed: true, document_url: payload.document_url || null, document_name: payload.document_name || null, confirmed_at: timestamp, notes: payload.notes || "" },
+    }, "validity.confirmed", { document_name: payload.document_name || null });
+  }
+
+  requestPayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.VALIDITY_CONFIRMED], "Solicitar pago");
+    const timestamp = new Date().toISOString();
+    return this.store.update(id, { status: SALE_STATUSES.PAYMENT_REQUESTED, queue: "payment", payment: { ...sale.payment, requested: true, requested_at: timestamp, notes: payload.notes || sale.payment.notes } }, "payment.requested", payload);
+  }
+
+  receivePayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.PAYMENT_REQUESTED], "Registrar pago");
+    return this.store.update(id, { status: SALE_STATUSES.PAYMENT_RECEIVED, queue: "payment", payment: { ...sale.payment, received: true, received_at: new Date().toISOString(), notes: payload.notes || sale.payment.notes } }, "payment.received", payload);
+  }
+
+  validatePayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.PAYMENT_RECEIVED], "Validar pago");
+    return this.store.update(id, { status: SALE_STATUSES.COMPLETED, queue: "completed", payment: { ...sale.payment, validated: true, validated_at: new Date().toISOString(), notes: payload.notes || sale.payment.notes } }, "payment.validated", payload);
+  }
+
+  mustGet(id) {
+    const sale = this.store.get(id);
+    if (!sale) throw new Error("Expediente no encontrado");
+    return sale;
+  }
+}
