@@ -21,6 +21,8 @@ export function createOperationsRouter({config,saleStore,workflow}){
   router.post("/operations/api/sales/:id/validation/reject",guard,action(req=>workflow.rejectValidation(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/validation/reopen",guard,action(req=>workflow.reopenRejected(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/validity/confirm",guard,action(req=>workflow.confirmValidity(req.params.id,req.body||{})));
+  router.post("/operations/api/sales/:id/validity/issue",guard,action(req=>workflow.reportValidityIssue(req.params.id,req.body||{})));
+  router.post("/operations/api/sales/:id/validity/reopen",guard,action(req=>workflow.reopenValidity(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/payment/request",guard,action(req=>workflow.requestPayment(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/payment/receive",guard,action(req=>workflow.receivePayment(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/payment/validate",guard,action(req=>workflow.validatePayment(req.params.id,req.body||{})));
