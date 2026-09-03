@@ -1,4 +1,5 @@
 import { extractConversationAttachments } from "./document-service.js";
+import { onboardingStateFromSale } from "./onboarding-service.js";
 
 function planPrice(plan) {
   if (plan === "plan_1") return 1100;
@@ -37,11 +38,12 @@ export async function ensureAuthorizedSale({ workflow, memories, inspectorEvents
   const input = saleInputFromMemory({ conversationId, conversation, memory });
   let sale = workflow.openAuthorizedSale(input);
   sale = workflow.syncDocuments(sale.sale_id, { customer: input.customer, files: input.documents.files });
+  const onboarding = onboardingStateFromSale(sale);
   await memories.merge(conversationId, {
     sale_id: sale.sale_id,
-    operations: { sale_id: sale.sale_id, status: sale.status, queue: sale.queue, documents_complete: sale.documents?.complete, missing_documents: sale.documents?.missing || [], updated_at: sale.updated_at },
+    operations: { sale_id: sale.sale_id, status: sale.status, queue: sale.queue, ...onboarding, updated_at: sale.updated_at },
     sales_cycle: { ...memory.sales_cycle, stage: "authorized" },
   });
-  try { await inspectorEvents?.record(conversationId, "operations_sale_ready", { sale_id: sale.sale_id, status: sale.status, queue: sale.queue, documents_complete: sale.documents?.complete, missing_documents: sale.documents?.missing || [] }); } catch {}
+  try { await inspectorEvents?.record(conversationId, "operations_sale_ready", { sale_id: sale.sale_id, status: sale.status, queue: sale.queue, ...onboarding }); } catch {}
   return { created: true, sale };
 }
