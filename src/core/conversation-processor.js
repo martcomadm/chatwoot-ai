@@ -38,8 +38,11 @@ export class ConversationProcessor {
     const summary = await this.ai.handoffSummary(conversation, reason, memory);
     await this.chatwoot.sendMessage(conversationId, summary, true);
     await this.chatwoot.sendMessage(conversationId,"Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");
-    const routed = await this.handoffRouter?.handoff(conversationId,{ reason, memory });
+    let routed = null;
+    if (typeof this.handoffRouter?.handoff === "function") routed = await this.handoffRouter.handoff(conversationId,{ reason, memory });
+    else if (typeof this.handoffRouter?.route === "function") routed = await this.handoffRouter.route({ conversationId, reason, reservedAdvisor: memory?.advisor_affinity || null });
     await this.record(conversationId,"handoff",{ reason, routed });
+    return routed;
   }
 
   async process(conversationId, snapshot) {
@@ -75,7 +78,12 @@ export class ConversationProcessor {
     for (const message of batch) if (hasAttachments(message)) memory.documentos_recibidos=arrays(memory.documentos_recibidos,message.attachments.map(a=>a?.file_type||a?.extension||"archivo"));
     await this.memories.set(conversationId,memory);
 
-    if (patience.shouldPause) { await this.chatwoot.sendMessage(conversationId,patience.reply); await this.memories.markProcessedMany(conversationId,messageIds); return; }
+    if (patience.shouldPause) {
+      await this.record(conversationId,"conversation_patience_pause",{ sensitive_state:patience.state||null, reply:patience.reply });
+      await this.chatwoot.sendMessage(conversationId,patience.reply);
+      await this.memories.markProcessedMany(conversationId,messageIds);
+      return;
+    }
     const b2b=orchestration.shouldHandoffB2B||memory.intent?.id==="PROVEEDOR";
     const frustrated=Number(memory.experiencia?.frustration_score||0)>=2||judgment.shouldHandoff;
     if (explicitHumanRequest(combinedText)||b2b||frustrated) {
@@ -93,6 +101,8 @@ export class ConversationProcessor {
     const sales=analyzeSales(memory); let planner=planNext({...memory,ventas:sales});
     const directRequest=judgment.question||orchestration.directRequest;
     if(directRequest) planner={...planner,direct_answer_first:true,direct_request:directRequest.type,customer_question_priority:true};
+    // Una pregunta directa nunca debe terminar inmediatamente en una solicitud de CURP/NSS.
+    if(directRequest && ["curp","nss"].includes(planner?.question_key)) planner={...planner,question_key:null,customer_question_priority:true};
     if(!memory.sales_cycle?.authorized&&["curp","nss"].includes(planner?.question_key)) planner={...planner,action:"continuar_venta",question_key:null,specialized:true};
     if(["curp","nss"].includes(planner?.question_key)&&sensitiveSlotSuppressed(memory,planner.question_key)) planner={action:"esperar_o_continuar_sin_dato_sensible",question_key:null,specialized:true};
     if(memory.sales_cycle?.authorized) planner={action:"expediente_onboarding",question_key:memory.operations?.onboarding_next||null,specialized:true,operations:memory.operations};
@@ -103,6 +113,7 @@ export class ConversationProcessor {
     if(memory.sales_cycle?.authorized&&onboardingDecision&&!directRequest) decision=onboardingDecision;
     else decision=await this.ai.generateDecision(conversation,currentLabels,memory,planner,combinedText);
     if(memory.sales_cycle?.authorized){decision.handoff=false;if(onboardingDecision&&!directRequest)decision.question_key=onboardingDecision.question_key;}
+    if(directRequest && ["curp","nss"].includes(decision.question_key)) decision.question_key=null;
     if(decision.question_key&&answered(memory,decision.question_key)&&!memory.sales_cycle?.authorized)decision=fallbackDecision(memory,planner,combinedText);
 
     let quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:this.config.ai.maxReplyChars});
