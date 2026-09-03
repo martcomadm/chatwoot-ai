@@ -12,6 +12,9 @@ import { MessageBuffer } from "./core/message-buffer.js";
 import { createRouter } from "./routes.js";
 import { InspectorEventStore } from "./inspector/event-store.js";
 import { HandoffRotationStore, HandoffRouter, OperationsConfigStore } from "./handoff/index.js";
+import { SaleStore } from "./operations/sale-store.js";
+import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
+import { createOperationsRouter } from "./operations/operations-router.js";
 
 try {
   const config = loadConfig();
@@ -28,28 +31,26 @@ try {
     sunday: config.handoff.sundayAgents,
   });
   const handoffRouter = new HandoffRouter({ config, store: handoffRotation, chatwoot, operationsConfig });
+  const saleStore = new SaleStore(config.storage.salesFile);
+  const workflow = new SaleWorkflowEngine(saleStore);
   const ai = new AiServices(openai, { ...config.openai, ...config.ai });
   const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot));
 
   const app = express();
   app.use(express.json({ limit: "4mb" }));
+  app.use(createOperationsRouter({ config, saleStore, workflow }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }));
 
   app.listen(config.port, "0.0.0.0", () => {
-    console.log(`MARTCOM AI V3.3.3 escuchando en puerto ${config.port}`);
-    console.log(`Arquitectura modular activa`);
-    console.log(`Buffer de mensajes: ${config.ai.bufferMs} ms`);
+    console.log(`MARTCOM AI NEXT escuchando en puerto ${config.port}`);
+    console.log(`Identidad pública: ${config.ai.publicName}`);
     console.log(`Memoria persistente: ${config.storage.memoryFile}`);
-    console.log(`Inspector: /inspector · versión 1.6`);
-    console.log(`Advisor Affinity: activo`);
-    console.log(`Conversational Judgment Engine: activo`);
-    console.log(`Auto handoff: ${config.handoff.enabled ? "activo" : "desactivado"}`);
-    console.log(`Operations Control Center: ${config.inspector.adminToken ? "activo" : "solo lectura (sin INSPECTOR_ADMIN_TOKEN)"}`);
-    console.log(`Domingo: ${config.handoff.sundayAgents.map(a => `${a.name}(${a.id})`).join(" -> ") || "sin agentes"}`);
-    console.log(`Sábado: ${config.handoff.saturdayAgents.map(a => `${a.name}(${a.id})`).join(" -> ") || "sin agentes"}`);
+    console.log(`Expedientes de venta: ${config.storage.salesFile}`);
+    console.log(`Operations: /operations · realtime SSE`);
+    console.log(`Inspector: /inspector`);
   });
 } catch (error) {
-  console.error("No se pudo iniciar MARTCOM AI V3.3.3:", error);
+  console.error("No se pudo iniciar MARTCOM AI NEXT:", error);
   process.exit(1);
 }
