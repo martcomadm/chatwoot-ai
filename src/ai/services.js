@@ -2,7 +2,7 @@ import { jsonFrom } from "./json.js";
 import { historyOf, arrays } from "../utils/conversation.js";
 import { MARTCOM_KNOWLEDGE } from "../knowledge/martcom.js";
 import { validateNameCandidate } from "../semantic/name-validator.js";
-import { analyzeNextSale, commercialInstruction, enforceAuthorizedHandoff } from "../sales/next-sales-engine.js";
+import { analyzeNextSale, commercialInstruction } from "../sales/next-sales-engine.js";
 
 export class AiServices {
   constructor(openai, config) { this.openai = openai; this.config = config; }
@@ -22,26 +22,26 @@ CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse
   async generateDecision(conversation, labels, memory, planner, combinedText) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. JERARQUÍA NEXT: 1) preferencia humana/handoff, 2) pregunta explícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente paso comercial. No interpretes automáticamente una negación ambigua como rechazo. Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Para Plan 1 y Plan 2 usa los precios oficiales configurados. Antes de autorización, CURP/NSS no son el objetivo del flujo comercial: vende y resuelve dudas primero. Si sales_cycle.authorized=true, no hagas más preguntas y entrega el caso a humano. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado. Si el planner es especializado, no conviertas el caso en cotización o afiliación.
-Para RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Usa únicamente el asesor ${memory.asesor_presentacion || "asignado"}. No agregues cliente, venta, cerrado ni no_contesta.`,
+      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. JERARQUÍA NEXT: 1) preferencia humana/handoff, 2) pregunta explícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente paso comercial. No interpretes automáticamente una negación ambigua como rechazo. Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Para Plan 1 y Plan 2 usa los precios oficiales configurados. Antes de autorización, CURP/NSS no son el objetivo del flujo comercial: vende y resuelve dudas primero. Si sales_cycle.authorized=true, NO hagas handoff por autorización: confirma brevemente que iniciaremos el proceso y deja question_key=null; el Workflow Engine de NEXT abrirá el expediente. Handoff queda reservado para solicitud humana, proveedor/B2B, frustración o casos especiales. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado. Si el planner es especializado, no conviertas el caso en cotización o afiliación.
+Para RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Preséntate únicamente como ${this.config.publicName || "Mia de MARTCOM"}; no uses nombres de asesores humanos. No agregues cliente, venta, cerrado ni no_contesta.`,
       input: `MENSAJES NUEVOS:\n${combinedText}\n\nETIQUETAS:\n${labels.join(", ") || "ninguna"}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
-    return enforceAuthorizedHandoff(jsonFrom(response.output_text), memory);
+    return jsonFrom(response.output_text);
   }
 
   async repairDecision(conversation, memory, planner, combinedText, decision, reasons) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria.`,
+      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria. Si sales_cycle.authorized=true, no fuerces handoff: NEXT abrirá un expediente operativo.`,
       input: `MEMORIA:\n${JSON.stringify(memory)}\n\nMENSAJES:\n${combinedText}\n\nRESPUESTA RECHAZADA:\n${JSON.stringify(decision)}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
-    return enforceAuthorizedHandoff(jsonFrom(response.output_text), memory);
+    return jsonFrom(response.output_text);
   }
 
   async handoffSummary(conversation, reason, memory) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `Genera una nota privada breve. No inventes. Formato:\nAXEL IA - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nPlan recomendado/seleccionado:\nEtapa comercial:\nAutorización para iniciar:\nIMSS actual:\nSituación laboral:\nAFORE actual:\nCURP recibida:\nNSS recibido:\nDocumentos:\nContradicciones:\nMotivo de transferencia:\nSi falta algo escribe “No informado”.`,
+      instructions: `Genera una nota privada breve. No inventes. Formato:\nMARTCOM NEXT - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nPlan recomendado/seleccionado:\nEtapa comercial:\nAutorización para iniciar:\nIMSS actual:\nSituación laboral:\nAFORE actual:\nCURP recibida:\nNSS recibido:\nDocumentos:\nContradicciones:\nMotivo de transferencia:\nSi falta algo escribe “No informado”.`,
       input: `MOTIVO:\n${reason}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
     return response.output_text.trim().slice(0, 1800);
@@ -52,23 +52,14 @@ export function mergeMemory(current, ...patches) {
   const next = structuredClone(current);
   for (const patch of patches) {
     if (!patch) continue;
-
-    for (const key of ["edad","actividad","tipo_trabajo","tiene_imss","ultima_cotizacion","necesidad_principal","afore_actual","asesor_presentacion","curp_valor"]) {
+    for (const key of ["edad","actividad","tipo_trabajo","tiene_imss","ultima_cotizacion","necesidad_principal","afore_actual","asesor_presentacion","curp_valor","sale_id"]) {
       const value = patch[key];
       if (value !== null && value !== undefined && value !== "") next[key] = value;
     }
-
     if (patch.nombre !== null && patch.nombre !== undefined && patch.nombre !== "") {
-      if (validateNameCandidate(patch.nombre).ok) {
-        next.nombre = patch.nombre;
-        next.primer_nombre = String(patch.nombre).trim().split(/\s+/)[0];
-      }
+      if (validateNameCandidate(patch.nombre).ok) { next.nombre = patch.nombre; next.primer_nombre = String(patch.nombre).trim().split(/\s+/)[0]; }
     }
-
-    for (const key of ["pregunta_cambio_afore","curp_recibida","nss_recibido"]) {
-      if (typeof patch[key] === "boolean") next[key] = Boolean(next[key] || patch[key]);
-    }
-
+    for (const key of ["pregunta_cambio_afore","curp_recibida","nss_recibido"]) if (typeof patch[key] === "boolean") next[key] = Boolean(next[key] || patch[key]);
     next.necesidades = arrays(next.necesidades, patch.necesidades);
     next.documentos_recibidos = arrays(next.documentos_recibidos, patch.documentos_recibidos);
     next.contradicciones = arrays(next.contradicciones, patch.contradicciones);
@@ -85,14 +76,11 @@ export function mergeMemory(current, ...patches) {
     next.orchestration = { ...(next.orchestration || {}), ...(patch.orchestration || {}) };
     next.judgment = { ...(next.judgment || {}), ...(patch.judgment || {}) };
     next.sales_cycle = { ...(next.sales_cycle || {}), ...(patch.sales_cycle || {}) };
+    next.operations = { ...(next.operations || {}), ...(patch.operations || {}) };
     if (Array.isArray(patch.caso_fallecimiento?.beneficiarios)) next.caso_fallecimiento.beneficiarios = arrays(next.caso_fallecimiento?.beneficiarios, patch.caso_fallecimiento.beneficiarios);
   }
   if (next.nombre && !next.primer_nombre) next.primer_nombre = String(next.nombre).split(/\s+/)[0];
   return next;
 }
 
-export function buildNextCommercialPatch(memory, combinedText) {
-  return analyzeNextSale(combinedText, memory).patch;
-}
-
-export { enforceAuthorizedHandoff };
+export function buildNextCommercialPatch(memory, combinedText) { return analyzeNextSale(combinedText, memory).patch; }
