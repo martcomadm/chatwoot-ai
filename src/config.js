@@ -48,7 +48,8 @@ export function loadConfig() {
       assignedLabel: process.env.AI_ASSIGNED_LABEL || "asignado",
       unattendedLabel: process.env.AI_UNATTENDED_LABEL || "sin_atender",
       validationLabel: process.env.AI_VALIDATION_LABEL || "validacion",
-      introAgents: String(process.env.AI_INTRO_AGENTS || "Susana Solis,Carlos Ruiz,Jozic Martinez")
+      publicName: process.env.AI_PUBLIC_NAME || "Mia de MARTCOM",
+      introAgents: String(process.env.AI_INTRO_AGENTS || "Mia de MARTCOM")
         .split(",").map(v => v.trim()).filter(Boolean),
     },
     storage: {
@@ -57,6 +58,7 @@ export function loadConfig() {
       handoffRotationFile: process.env.HANDOFF_ROTATION_FILE || "/app/data/handoff-rotation.json",
       inspectorEventsFile: process.env.INSPECTOR_EVENTS_FILE || "/app/data/inspector-events.json",
       handoffConfigFile: process.env.HANDOFF_CONFIG_FILE || "/app/data/handoff-config.json",
+      salesFile: process.env.SALES_FILE || "/app/data/sales.json",
     },
     handoff: {
       enabled: parseBool(process.env.AUTO_HANDOFF, true),
@@ -69,6 +71,9 @@ export function loadConfig() {
       token: process.env.INSPECTOR_TOKEN || "",
       maxEventsPerConversation: Number(process.env.INSPECTOR_MAX_EVENTS_PER_CONVERSATION || 200),
       adminToken: process.env.INSPECTOR_ADMIN_TOKEN || "",
+    },
+    operations: {
+      token: process.env.OPERATIONS_TOKEN || process.env.INSPECTOR_ADMIN_TOKEN || "",
     },
   };
 }
