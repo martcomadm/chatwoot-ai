@@ -6,13 +6,28 @@ const REQUIRED = Object.freeze([
 ]);
 
 function norm(value) {
-  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function messageTimestamp(value) {
+  if (value == null || value === "") return new Date().toISOString();
+  const numeric = Number(value);
+  const date = Number.isFinite(numeric)
+    ? new Date(numeric > 1e12 ? numeric : numeric * 1000)
+    : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
 }
 
 export function classifyAttachment(attachment = {}) {
   const text = norm([attachment.file_name, attachment.filename, attachment.name, attachment.extension, attachment.file_type].filter(Boolean).join(" "));
-  if (/\b(ine|credencial|identificacion|identificación)\b/.test(text)) return "ine";
-  if (/\b(constancia|situacion fiscal|situación fiscal|csf|rfc)\b/.test(text)) return "csf";
+  if (/\b(ine|credencial|identificacion)\b/.test(text)) return "ine";
+  if (/\b(constancia|situacion fiscal|csf|rfc)\b/.test(text)) return "csf";
   if (/\bcurp\b/.test(text)) return "curp";
   if (/\b(nss|seguro social)\b/.test(text)) return "nss";
   return "other";
@@ -26,7 +41,7 @@ export function attachmentReference(attachment = {}, message = {}) {
     content_type: attachment.content_type || attachment.file_type || null,
     url: attachment.data_url || attachment.file_url || attachment.download_url || null,
     message_id: message.id ? String(message.id) : null,
-    received_at: message.created_at ? new Date(Number(message.created_at) * 1000).toISOString() : new Date().toISOString(),
+    received_at: messageTimestamp(message.created_at),
     source: "chatwoot",
   };
 }
