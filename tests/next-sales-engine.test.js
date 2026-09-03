@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   analyzeNextSale,
   detectAuthorization,
+  detectExplicitPlanSelection,
   detectPlanPreference,
   enforceAuthorizedHandoff,
 } from "../src/sales/next-sales-engine.js";
@@ -22,14 +23,28 @@ test("recommends Plan 2 when INFONAVIT is needed", () => {
   assert.equal(detectPlanPreference("Quiero juntar puntos de Infonavit"), "plan_2");
 });
 
-test("explicit authorization is detected", () => {
+test("explicit process authorization is detected", () => {
   assert.equal(detectAuthorization("Sí, quiero iniciar el trámite"), true);
-  assert.equal(detectAuthorization("Me quedo con el plan 2"), true);
+  assert.equal(detectAuthorization("Adelante con el proceso"), true);
+});
+
+test("choosing a plan is interest/selection, not process authorization", () => {
+  assert.equal(detectExplicitPlanSelection("Me quedo con el plan 2"), "plan_2");
+  assert.equal(detectAuthorization("Me quedo con el plan 2"), false);
+  assert.equal(detectAuthorization("Quiero el plan 2 pero primero explícame bien"), false);
 });
 
 test("thinking about it is not authorization", () => {
   assert.equal(detectAuthorization("Déjame pensarlo y te aviso más tarde"), false);
   assert.equal(detectAuthorization("Solo estoy preguntando"), false);
+});
+
+test("comparing both plans does not invent a recommendation", () => {
+  assert.equal(detectPlanPreference("¿Qué diferencia hay entre plan 1 y plan 2?"), null);
+});
+
+test("rejecting AFORE does not recommend Plan 2", () => {
+  assert.equal(detectPlanPreference("No me interesa AFORE, solo servicio médico"), "plan_1");
 });
 
 test("commercial state persists recommendation", () => {
@@ -58,7 +73,14 @@ test("interest is different from authorization", () => {
   assert.equal(result.patch.sales_cycle.stage, "interested");
 });
 
-test("authorization persists selected plan", () => {
+test("plan selection persists while authorization remains false", () => {
+  const memory = apply({}, "Me quedo con el Plan 2");
+  assert.equal(memory.sales_cycle.selected_plan, "plan_2");
+  assert.equal(memory.sales_cycle.interested, true);
+  assert.equal(memory.sales_cycle.authorized, false);
+});
+
+test("authorization persists previously selected/recommended plan", () => {
   let memory = apply({}, "Me interesa AFORE e Infonavit");
   memory = apply(memory, "Sí, quiero iniciar el trámite");
   assert.equal(memory.sales_cycle.authorized, true);
