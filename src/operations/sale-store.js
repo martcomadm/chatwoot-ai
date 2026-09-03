@@ -38,7 +38,8 @@ export class SaleStore extends EventEmitter {
       capture: { assigned_to: null, assigned_name: null, started_at: null, completed_at: null, notes: "" },
       validation: { datos: false, alta: false, documentos: false, revision_final: false, approved: false, approved_at: null, notes: "" },
       validity: { confirmed: false, document_url: null, document_name: null, confirmed_at: null, confirmed_by: null, issue: null, notes: "" },
-      payment: { requested: false, requested_at: null, received: false, received_at: null, validated: false, validated_at: null, notes: "" },
+      payment: { requested: false, requested_at: null, requested_by: null, method: null, amount: null, received: false, received_at: null, received_by: null, reference: null, proof_url: null, proof_name: null, validated: false, validated_at: null, validated_by: null, issue: null, notes: "" },
+      completed_at: null,
       events: [], created_at: timestamp, updated_at: timestamp,
     };
     const checklist = documentPackageStatus(sale);
