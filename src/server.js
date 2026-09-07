@@ -16,6 +16,7 @@ import { SaleStore } from "./operations/sale-store.js";
 import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
 import { createOperationsRouter } from "./operations/operations-router.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
+import { webhookEventAllowedForAgent } from "./utils/webhook-isolation.js";
 
 try {
   const config = loadConfig();
@@ -42,6 +43,20 @@ try {
 
   const app = express();
   app.use(express.json({ limit: "4mb" }));
+
+  // Segunda barrera de aislamiento para Inbox compartido.
+  // En message_created, NEXT solo deja pasar eventos cuyo assignee sea
+  // explícitamente el usuario LAB configurado. Assignee ausente/desconocido = rechazo.
+  app.use((req, res, next) => {
+    if (req.method !== "POST" || req.path !== "/webhook/chatwoot") return next();
+    if (String(req.body?.event || "") !== "message_created") return next();
+    if (!webhookEventAllowedForAgent(req.body, config.chatwoot.agentId)) {
+      console.log("NEXT ignoró message_created: conversación no asignada explícitamente al usuario LAB.");
+      return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
+    }
+    return next();
+  });
+
   app.use(createOperationsRouter({ config, saleStore, workflow }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }));
 
