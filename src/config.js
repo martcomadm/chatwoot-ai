@@ -1,3 +1,4 @@
+import path from "node:path";
 
 function parseBool(value, fallback = false) {
   if (value == null || value === "") return fallback;
@@ -18,17 +19,55 @@ function parseAgents(value) {
     .filter(Boolean);
 }
 
+function parseIds(value) {
+  return String(value || "")
+    .split(",")
+    .map(v => Number(v.trim()))
+    .filter(v => Number.isFinite(v) && v > 0);
+}
+
 const required = [
   "CHATWOOT_BASE_URL", "CHATWOOT_ACCOUNT_ID", "CHATWOOT_INBOX_ID",
-  "CHATWOOT_AI_AGENT_ID", "CHATWOOT_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL"
+  "CHATWOOT_AI_AGENT_ID", "CHATWOOT_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_MODEL",
+  "APP_ENV", "ALLOWED_INBOX_IDS"
 ];
+
+export function validateNextIsolation(config) {
+  if (String(config.appEnv || "").toLowerCase() !== "next") {
+    throw new Error("MARTCOM AI Next requiere APP_ENV=next");
+  }
+  if (!Array.isArray(config.allowedInboxIds) || !config.allowedInboxIds.length) {
+    throw new Error("ALLOWED_INBOX_IDS debe contener al menos un inbox de laboratorio");
+  }
+  if (config.allowedInboxIds.includes(6) || Number(config.chatwoot?.inboxId) === 6) {
+    throw new Error("Inbox 6 es producción y está prohibido para MARTCOM AI Next");
+  }
+  if (!config.allowedInboxIds.includes(Number(config.chatwoot?.inboxId))) {
+    throw new Error(`CHATWOOT_INBOX_ID ${config.chatwoot?.inboxId} no está autorizado en ALLOWED_INBOX_IDS`);
+  }
+  const root = path.resolve(config.storage?.dataDir || "");
+  if (!root || root === "/" || root === "/app/data") {
+    throw new Error("NEXT_DATA_DIR debe ser un directorio independiente y no puede ser /app/data");
+  }
+  for (const [key, file] of Object.entries(config.storage || {})) {
+    if (key === "dataDir") continue;
+    const resolved = path.resolve(String(file || ""));
+    if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+      throw new Error(`${key} debe permanecer dentro de NEXT_DATA_DIR (${root})`);
+    }
+  }
+  return true;
+}
 
 export function loadConfig() {
   for (const key of required) {
     if (!process.env[key]) throw new Error(`Falta la variable obligatoria ${key}`);
   }
 
-  return {
+  const dataDir = path.resolve(process.env.NEXT_DATA_DIR || "/app/data-next");
+  const config = {
+    appEnv: String(process.env.APP_ENV || "").trim().toLowerCase(),
+    allowedInboxIds: parseIds(process.env.ALLOWED_INBOX_IDS),
     port: Number(process.env.PORT || 3000),
     chatwoot: {
       baseUrl: process.env.CHATWOOT_BASE_URL.replace(/\/+$/, ""),
@@ -53,12 +92,13 @@ export function loadConfig() {
         .split(",").map(v => v.trim()).filter(Boolean),
     },
     storage: {
-      memoryFile: process.env.MEMORY_FILE || "/app/data/conversation-memory.json",
-      rotationFile: process.env.AGENT_ROTATION_FILE || "/app/data/agent-rotation.json",
-      handoffRotationFile: process.env.HANDOFF_ROTATION_FILE || "/app/data/handoff-rotation.json",
-      inspectorEventsFile: process.env.INSPECTOR_EVENTS_FILE || "/app/data/inspector-events.json",
-      handoffConfigFile: process.env.HANDOFF_CONFIG_FILE || "/app/data/handoff-config.json",
-      salesFile: process.env.SALES_FILE || "/app/data/sales.json",
+      dataDir,
+      memoryFile: process.env.MEMORY_FILE || path.join(dataDir, "conversation-memory.json"),
+      rotationFile: process.env.AGENT_ROTATION_FILE || path.join(dataDir, "agent-rotation.json"),
+      handoffRotationFile: process.env.HANDOFF_ROTATION_FILE || path.join(dataDir, "handoff-rotation.json"),
+      inspectorEventsFile: process.env.INSPECTOR_EVENTS_FILE || path.join(dataDir, "inspector-events.json"),
+      handoffConfigFile: process.env.HANDOFF_CONFIG_FILE || path.join(dataDir, "handoff-config.json"),
+      salesFile: process.env.SALES_FILE || path.join(dataDir, "sales.json"),
     },
     handoff: {
       enabled: parseBool(process.env.AUTO_HANDOFF, true),
@@ -76,4 +116,6 @@ export function loadConfig() {
       token: process.env.OPERATIONS_TOKEN || process.env.INSPECTOR_ADMIN_TOKEN || "",
     },
   };
+  validateNextIsolation(config);
+  return config;
 }
