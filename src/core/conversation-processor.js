@@ -24,7 +24,7 @@ function batchFrom(conversation, snapshot, memories, conversationId) {
   const webhook = [...(snapshot.webhookMessages?.values?.() || [])];
   let batch = all.filter(m => m?.id && wanted.has(String(m.id)) && isIncoming(m) && m.private !== true && isContact(m));
   if (!batch.length) batch = webhook.filter(m => isIncoming(m) && m.private !== true && isContact(m));
-  return batch.filter(m => !memories.isProcessed(conversationId, m.id));
+  return batch.filter(m => !memories.hasProcessed(conversationId, m.id));
 }
 function explicitHumanRequest(text) { return /\b(humano|persona|asesor|asesora|ejecutivo|ejecutiva|agente real|hablar con alguien|atencion personal|atención personal)\b/i.test(text || ""); }
 
@@ -101,7 +101,6 @@ export class ConversationProcessor {
     const sales=analyzeSales(memory); let planner=planNext({...memory,ventas:sales});
     const directRequest=judgment.question||orchestration.directRequest;
     if(directRequest) planner={...planner,direct_answer_first:true,direct_request:directRequest.type,customer_question_priority:true};
-    // Una pregunta directa nunca debe terminar inmediatamente en una solicitud de CURP/NSS.
     if(directRequest && ["curp","nss"].includes(planner?.question_key)) planner={...planner,question_key:null,customer_question_priority:true};
     if(!memory.sales_cycle?.authorized&&["curp","nss"].includes(planner?.question_key)) planner={...planner,action:"continuar_venta",question_key:null,specialized:true};
     if(["curp","nss"].includes(planner?.question_key)&&sensitiveSlotSuppressed(memory,planner.question_key)) planner={action:"esperar_o_continuar_sin_dato_sensible",question_key:null,specialized:true};
