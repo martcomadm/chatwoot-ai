@@ -4,7 +4,7 @@ import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
-import { progressiveOpeningDecision, disclosureViolations } from "../sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, disclosureViolations } from "../sales/progressive-disclosure.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
 import { stopLabels } from "../chatwoot/labels.js";
 import { classifyIntent } from "../intent/intent-engine.js";
@@ -104,7 +104,6 @@ export class ConversationProcessor {
     const sales=analyzeSales(memory); let planner=planNext({...memory,ventas:sales});
     const directRequest=judgment.question||orchestration.directRequest;
     if(directRequest) planner={...planner,direct_answer_first:true,direct_request:directRequest.type,customer_question_priority:true};
-    // Una pregunta directa nunca debe terminar inmediatamente en una solicitud de CURP/NSS.
     if(directRequest && ["curp","nss"].includes(planner?.question_key)) planner={...planner,question_key:null,customer_question_priority:true};
     if(!memory.sales_cycle?.authorized&&["curp","nss"].includes(planner?.question_key)) planner={...planner,action:"continuar_venta",question_key:null,specialized:true};
     if(["curp","nss"].includes(planner?.question_key)&&sensitiveSlotSuppressed(memory,planner.question_key)) planner={action:"esperar_o_continuar_sin_dato_sensible",question_key:null,specialized:true};
@@ -114,8 +113,10 @@ export class ConversationProcessor {
     let decision;
     const onboardingDecision=buildOnboardingDecision(memory,combinedText);
     const openingDecision=progressiveOpeningDecision(memory,combinedText);
+    const compactRecommendation=compactPlanRecommendation(memory,combinedText);
     if(memory.sales_cycle?.authorized&&onboardingDecision&&!directRequest) decision=onboardingDecision;
     else if(openingDecision&&!directRequest) decision=openingDecision;
+    else if(compactRecommendation) decision=compactRecommendation;
     else decision=await this.ai.generateDecision(conversation,currentLabels,memory,planner,combinedText);
     if(memory.sales_cycle?.authorized){decision.handoff=false;if(onboardingDecision&&!directRequest)decision.question_key=onboardingDecision.question_key;}
     if(directRequest && ["curp","nss"].includes(decision.question_key)) decision.question_key=null;
@@ -127,7 +128,6 @@ export class ConversationProcessor {
     let quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:this.config.ai.maxReplyChars});
     if(!quality.ok){try{decision=await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons);}catch{decision=fallbackDecision(memory,planner,combinedText);}quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:this.config.ai.maxReplyChars});}
     if(!quality.ok&&memory.sales_cycle?.authorized&&onboardingDecision)decision=onboardingDecision;else if(!quality.ok)decision=fallbackDecision(memory,planner,combinedText);
-    // Segunda barrera: ni una reparación del LLM ni un fallback pueden pedir CURP/NSS antes de autorización.
     decision=enforcePreAuthorizationDecision(decision,{memory,planner,combinedText,fallbackDecision});
     disclosureReasons=disclosureViolations(decision.reply,{memory,combinedText});
     if(disclosureReasons.length&&openingDecision) decision=openingDecision;
@@ -141,7 +141,7 @@ export class ConversationProcessor {
       await this.chatwoot.sendMessage(conversationId,decision.reply);
       const questions=decision.question_key?arrays(memory.preguntas_realizadas,[decision.question_key]):memory.preguntas_realizadas;
       await this.memories.merge(conversationId,{preguntas_realizadas:questions,ultima_pregunta:decision.question_key||null,ultima_respuesta_agente:decision.reply,operations:{...(memory.operations||{}),onboarding_last_requested:onboardingDecision?.onboarding_requirement||memory.operations?.onboarding_last_requested||null}});
-      await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,questionKey:decision.question_key,planner,quality,onboarding:onboardingDecision?.onboarding_requirement||null,progressive_disclosure:disclosureReasons});
+      await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,questionKey:decision.question_key,planner,quality,onboarding:onboardingDecision?.onboarding_requirement||null,progressive_disclosure:disclosureReasons,compact_recommendation:Boolean(compactRecommendation)});
     }
     await this.memories.markProcessedMany(conversationId,messageIds);
   }
