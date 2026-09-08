@@ -57,7 +57,7 @@ try {
     return next();
   });
 
-  app.use(createOperationsRouter({ config, saleStore, workflow }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }));
 
   app.listen(config.port, "0.0.0.0", () => {
