@@ -46,3 +46,35 @@ export function progressiveOpeningDecision(memory = {}, combinedText = "") {
   }
   return null;
 }
+
+function pendingQuestion(memory = {}) {
+  const key = memory?.ultima_pregunta;
+  if (!key) return null;
+  if ((memory?.resolved_questions || []).includes(key)) return null;
+  if (key === "nombre" && !memory?.nombre) return { key, text: "Para seguir orientándote, ¿me compartes tu nombre completo?" };
+  if (key === "edad" && !memory?.edad) return { key, text: "Para seguir orientándote, ¿qué edad tienes?" };
+  if (key === "actividad" && !memory?.actividad) return { key, text: "Para seguir orientándote, ¿a qué te dedicas actualmente?" };
+  return null;
+}
+
+export function compactPlanRecommendation(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized || customerAskedCommercialDetails(combinedText)) return null;
+  const plan = memory?.sales_cycle?.recommended_plan;
+  const need = norm(memory?.necesidad_principal || combinedText);
+  const pending = pendingQuestion(memory);
+  if (plan === "plan_1" && /\b(servicio medico|seguro medico|medico|semanas|beneficiarios|guarderia|maternidad)\b/.test(need)) {
+    return {
+      reply: `Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS.${pending ? ` ${pending.text}` : ""}`,
+      question_key: pending?.key || null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (plan === "plan_2" && /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(need)) {
+    return {
+      reply: `Perfecto. Por lo que buscas, el Plan 2 puede ser la opción más completa. Tiene un costo de $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT.${pending ? ` ${pending.text}` : ""}`,
+      question_key: pending?.key || null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  return null;
+}
