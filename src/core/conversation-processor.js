@@ -3,6 +3,7 @@ import { analyzeSales, planNext, answered } from "../sales/sales-engine.js";
 import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
+import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
 import { stopLabels } from "../chatwoot/labels.js";
 import { classifyIntent } from "../intent/intent-engine.js";
@@ -61,10 +62,11 @@ export class ConversationProcessor {
     let base = this.memories.get(conversationId);
     const intent = classifyIntent(combinedText, base);
     const fastPatch = extractFast(combinedText, base);
+    const activityPatch = contextualActivityPatch(combinedText, base);
     if (containsCurp(combinedText)) fastPatch.curp_recibida = true;
     if (containsNss(combinedText)) fastPatch.nss_recibido = true;
     const facts = extractConversationFacts(combinedText, base);
-    const reliability = analyzeReliability(combinedText, base, { ...fastPatch, ...facts.patch, intereses: { ...(fastPatch.intereses || {}), ...(facts.patch.intereses || {}) }, slots: { ...(fastPatch.slots || {}), ...(facts.patch.slots || {}) } });
+    const reliability = analyzeReliability(combinedText, base, { ...fastPatch, ...activityPatch, ...facts.patch, intereses: { ...(fastPatch.intereses || {}), ...(facts.patch.intereses || {}) }, slots: { ...(fastPatch.slots || {}), ...(facts.patch.slots || {}) } });
     const orchestration = orchestrateConversation(combinedText, base);
     const judgment = analyzeJudgment(combinedText, base);
     const patience = analyzePatience(combinedText, base);
@@ -73,7 +75,7 @@ export class ConversationProcessor {
 
     const llmPatch = await this.ai.extractAmbiguous(base, combinedText, conversation);
     llmPatch.contradicciones = [];
-    let memory = mergeMemory(base, fastPatch, facts.patch, llmPatch, reliability.patch, judgment.patch, patience.patch, { orchestration: { direct_request: judgment.question || orchestration.directRequest, direct_answer: judgment.directAnswer || orchestration.directAnswer } });
+    let memory = mergeMemory(base, fastPatch, facts.patch, llmPatch, activityPatch, reliability.patch, judgment.patch, patience.patch, { orchestration: { direct_request: judgment.question || orchestration.directRequest, direct_answer: judgment.directAnswer || orchestration.directAnswer } });
     memory.intent=intent; memory.contradicciones=reliability.contradictions;
     for (const message of batch) if (hasAttachments(message)) memory.documentos_recibidos=arrays(memory.documentos_recibidos,message.attachments.map(a=>a?.file_type||a?.extension||"archivo"));
     await this.memories.set(conversationId,memory);
@@ -115,10 +117,13 @@ export class ConversationProcessor {
     if(memory.sales_cycle?.authorized){decision.handoff=false;if(onboardingDecision&&!directRequest)decision.question_key=onboardingDecision.question_key;}
     if(directRequest && ["curp","nss"].includes(decision.question_key)) decision.question_key=null;
     if(decision.question_key&&answered(memory,decision.question_key)&&!memory.sales_cycle?.authorized)decision=fallbackDecision(memory,planner,combinedText);
+    decision=enforcePreAuthorizationDecision(decision,{memory,planner,combinedText,fallbackDecision});
 
     let quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:this.config.ai.maxReplyChars});
     if(!quality.ok){try{decision=await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons);}catch{decision=fallbackDecision(memory,planner,combinedText);}quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:this.config.ai.maxReplyChars});}
     if(!quality.ok&&memory.sales_cycle?.authorized&&onboardingDecision)decision=onboardingDecision;else if(!quality.ok)decision=fallbackDecision(memory,planner,combinedText);
+    // Segunda barrera: ni una reparación del LLM ni un fallback pueden pedir CURP/NSS antes de autorización.
+    decision=enforcePreAuthorizationDecision(decision,{memory,planner,combinedText,fallbackDecision});
     decision.reply=String(decision.reply||"").trim().slice(0,this.config.ai.maxReplyChars);
     decision.add_labels=Array.isArray(decision.add_labels)?decision.add_labels.filter(l=>allowedLabels.has(l)&&!["cliente","venta","cerrado","no_contesta"].includes(l)):[];
     decision.remove_labels=Array.isArray(decision.remove_labels)?decision.remove_labels.filter(l=>allowedLabels.has(l)&&!protectedLabels.has(l)):[];
