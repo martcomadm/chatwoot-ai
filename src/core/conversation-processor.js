@@ -104,6 +104,7 @@ export class ConversationProcessor {
     const sales=analyzeSales(memory); let planner=planNext({...memory,ventas:sales});
     const directRequest=judgment.question||orchestration.directRequest;
     if(directRequest) planner={...planner,direct_answer_first:true,direct_request:directRequest.type,customer_question_priority:true};
+    // Una pregunta directa nunca debe terminar inmediatamente en una solicitud de CURP/NSS.
     if(directRequest && ["curp","nss"].includes(planner?.question_key)) planner={...planner,question_key:null,customer_question_priority:true};
     if(!memory.sales_cycle?.authorized&&["curp","nss"].includes(planner?.question_key)) planner={...planner,action:"continuar_venta",question_key:null,specialized:true};
     if(["curp","nss"].includes(planner?.question_key)&&sensitiveSlotSuppressed(memory,planner.question_key)) planner={action:"esperar_o_continuar_sin_dato_sensible",question_key:null,specialized:true};
