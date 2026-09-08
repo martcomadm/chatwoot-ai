@@ -11,7 +11,7 @@ function hasAny(text, patterns) {
 }
 
 const AUTHORIZATION_PATTERNS = [
-  /\bquiero (contratar|iniciar|hacerlo|proceder|continuar|darme de alta|dar de alta|empezar)(?:\b|\s+(?:el )?(?:tramite|proceso|alta))/,
+  /\bquiero (contratar|iniciar|hacerlo|proceder|continuar|empezar)(?:\b|\s+(?:el )?(?:tramite|proceso|alta))/,
   /\badelante con (el )?(tramite|proceso|alta)\b/,
   /\b(iniciemos|empecemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
   /\bme interesa (contratarlo|hacerlo|iniciar|proceder)\b/,
@@ -101,15 +101,27 @@ export function detectAuthorization(text) {
   return hasAny(value, AUTHORIZATION_PATTERNS);
 }
 
+function commercialContextReady(memory = {}) {
+  const cycle = memory.sales_cycle || {};
+  return Boolean(
+    cycle.selected_plan ||
+    cycle.recommended_plan ||
+    ["plan_recommended", "explaining", "objection_handling", "interested"].includes(cycle.stage)
+  );
+}
+
 export function analyzeNextSale(text, memory = {}) {
   const value = norm(text);
   const previous = memory.sales_cycle || {};
   const detectedPlan = detectPlanPreference(value);
   const explicitSelection = detectExplicitPlanSelection(value);
   const plan = detectedPlan || previous.recommended_plan || previous.selected_plan || null;
-  const authorized = detectAuthorization(value);
+  const authorizationPhrase = detectAuthorization(value);
+  // "Quiero darme de alta" durante exploración expresa intención de compra, no autorización
+  // operativa. NEXT solo abre expediente después de que ya existe contexto de plan/propuesta.
+  const authorized = authorizationPhrase && commercialContextReady(memory);
   const priceObjection = hasAny(value, PRICE_OBJECTION_PATTERNS);
-  const interest = authorized || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS);
+  const interest = authorizationPhrase || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS);
 
   let stage = previous.stage || "exploring";
   if (detectedPlan && ["exploring", "qualified"].includes(stage)) stage = "plan_recommended";
@@ -142,6 +154,7 @@ export function analyzeNextSale(text, memory = {}) {
     recommendedPlan: plan,
     selectedPlan,
     authorized,
+    authorizationPhrase,
     priceObjection,
     interested: interest,
   };
@@ -156,7 +169,7 @@ export function commercialInstruction(memory = {}) {
       ? "El plan seleccionado/recomendado es Plan 1 ($1,100 MXN)."
       : "Aún no hay plan recomendado.";
 
-  return `ESTADO COMERCIAL NEXT:\n- etapa: ${cycle.stage || "exploring"}\n- ${planText}\n- interesado: ${Boolean(cycle.interested)}\n- autorizado: ${Boolean(cycle.authorized)}\nReglas: responde primero la duda explícita. Recomienda Plan 1 para servicio médico/semanas/beneficiarios y Plan 2 cuando también busca AFORE o INFONAVIT. Elegir o preguntar por un plan NO equivale a autorizar el trámite. No solicites CURP/NSS como objetivo de venta antes de autorización. No declares autorización por inferencia. Solo considera autorización cuando el cliente expresa claramente que desea iniciar/proceder con el trámite. Si autorizado=true, no sigas vendiendo ni hagas más preguntas: prepara handoff humano.`;
+  return `ESTADO COMERCIAL NEXT:\n- etapa: ${cycle.stage || "exploring"}\n- ${planText}\n- interesado: ${Boolean(cycle.interested)}\n- autorizado: ${Boolean(cycle.authorized)}\nReglas: responde primero la duda explícita. Recomienda Plan 1 para servicio médico/semanas/beneficiarios y Plan 2 cuando también busca AFORE o INFONAVIT. Elegir o preguntar por un plan NO equivale a autorizar el trámite. No solicites CURP/NSS como objetivo de venta antes de autorización. "Quiero darme de alta" durante exploración expresa interés y NO autoriza abrir expediente: primero explica/recomienda el plan y precio. No declares autorización por inferencia. Solo considera autorización operativa cuando ya existe contexto comercial de plan/propuesta y el cliente después expresa claramente que desea iniciar/proceder con el trámite. Si autorizado=true, no sigas vendiendo ni hagas más preguntas: prepara el expediente operativo.`;
 }
 
 export function enforceAuthorizedHandoff(decision, memory = {}) {
