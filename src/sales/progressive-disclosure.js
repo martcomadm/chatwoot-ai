@@ -6,7 +6,9 @@ const PRICE_RE = /(?:\$\s*1[,.]?100|\$\s*1[,.]?500|1[,.]?100\s*(?:mxn|pesos)?|1[
 const BOTH_PLANS_RE = /plan\s*1[\s\S]{0,500}plan\s*2|plan\s*2[\s\S]{0,500}plan\s*1/i;
 const DETAIL_RE = /(?:salario diario|\$\s*480|5[.,]15\s*%|48\s*horas|incapacidades|documentaci[oó]n)/i;
 const PRICE_QUESTION_RE = /\b(precio|precios|cuanto cuesta|cuanto sale|costo|costos|planes|plan 1|plan 2)\b/;
-const DETAIL_QUESTION_RE = /\b(que incluye|beneficios|diferencia|como funciona|afore|infonavit|salario diario|incapacidad|tiempo|cuanto tarda|requisitos|documentos)\b/;
+const DIRECT_DETAIL_RE = /\b(que incluye|beneficios|diferencia|como funciona|salario diario|incapacidad|tiempo|cuanto tarda|requisitos|documentos)\b/;
+const DETAIL_TOPIC_RE = /\b(afore|infonavit)\b/;
+const QUESTION_CUE_RE = /[?¿]|\b(que|cual|cuales|como|cuanto|cuanta|cuantos|cuantas|tienen|incluye|manejan|ofrecen|aplica|sirve)\b/;
 
 export function isEarlyCommercialStage(memory = {}) {
   const stage = memory?.sales_cycle?.stage || "exploring";
@@ -15,7 +17,8 @@ export function isEarlyCommercialStage(memory = {}) {
 
 export function customerAskedCommercialDetails(text) {
   const value = norm(text);
-  return PRICE_QUESTION_RE.test(value) || DETAIL_QUESTION_RE.test(value);
+  if (PRICE_QUESTION_RE.test(value) || DIRECT_DETAIL_RE.test(value)) return true;
+  return DETAIL_TOPIC_RE.test(value) && QUESTION_CUE_RE.test(value);
 }
 
 export function isInformationOpening(text) {
