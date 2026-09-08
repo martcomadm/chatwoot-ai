@@ -21,6 +21,16 @@ export class SaleStore extends EventEmitter {
   list(filter = {}) { let items = Object.values(this.data.sales).map(clone); if (filter.status) items = items.filter(item => item.status === filter.status); if (filter.queue) items = items.filter(item => item.queue === filter.queue); return items.sort((a,b) => String(b.updated_at).localeCompare(String(a.updated_at))); }
   get(id) { return this.data.sales[id] ? clone(this.data.sales[id]) : null; }
   findByConversationId(conversationId) { const id = Number(conversationId); return this.list().find(item => Number(item.conversation_id) === id) || null; }
+  deleteByConversationId(conversationId) {
+    const id = Number(conversationId);
+    const removed = Object.values(this.data.sales).filter(item => Number(item.conversation_id) === id).map(item => clone(item));
+    for (const sale of removed) delete this.data.sales[sale.sale_id];
+    if (removed.length) {
+      this.persist();
+      this.emit("sale", { type: "lab.reset", conversation_id: id, removed_sale_ids: removed.map(item => item.sale_id) });
+    }
+    return removed;
+  }
 
   create(input) {
     const saleId = input.sale_id || this.nextId();
