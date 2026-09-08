@@ -18,6 +18,14 @@ const AUTHORIZATION_PATTERNS = [
   /\bsi[, ]+(quiero (?:iniciar|proceder|continuar|empezar)|adelante con (?:el )?(?:tramite|proceso|alta)|procedamos|iniciemos|empecemos)\b/,
 ];
 
+const ALTA_INTEREST_PATTERNS = [
+  /\bquiero darme de alta\b/,
+  /\bquiero dar de alta\b/,
+  /\bquiero afiliarme\b/,
+  /\bquiero la afiliacion\b/,
+  /\bme quiero dar de alta\b/,
+];
+
 const PLAN_SELECTION_PATTERNS = [
   { plan: "plan_2", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa)(?:\s+el)?\s+plan\s*(2|dos)\b/ },
   { plan: "plan_1", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa)(?:\s+el)?\s+plan\s*(1|uno)\b/ },
@@ -101,6 +109,12 @@ export function detectAuthorization(text) {
   return hasAny(value, AUTHORIZATION_PATTERNS);
 }
 
+export function detectAltaInterest(text) {
+  const value = norm(text);
+  if (!value || hasAny(value, PAUSE_PATTERNS)) return false;
+  return hasAny(value, ALTA_INTEREST_PATTERNS);
+}
+
 function commercialContextReady(memory = {}) {
   const cycle = memory.sales_cycle || {};
   return Boolean(
@@ -117,11 +131,12 @@ export function analyzeNextSale(text, memory = {}) {
   const explicitSelection = detectExplicitPlanSelection(value);
   const plan = detectedPlan || previous.recommended_plan || previous.selected_plan || null;
   const authorizationPhrase = detectAuthorization(value);
+  const altaInterest = detectAltaInterest(value);
   // "Quiero darme de alta" durante exploración expresa intención de compra, no autorización
   // operativa. NEXT solo abre expediente después de que ya existe contexto de plan/propuesta.
   const authorized = authorizationPhrase && commercialContextReady(memory);
   const priceObjection = hasAny(value, PRICE_OBJECTION_PATTERNS);
-  const interest = authorizationPhrase || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS);
+  const interest = altaInterest || authorizationPhrase || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS);
 
   let stage = previous.stage || "exploring";
   if (detectedPlan && ["exploring", "qualified"].includes(stage)) stage = "plan_recommended";
@@ -155,6 +170,7 @@ export function analyzeNextSale(text, memory = {}) {
     selectedPlan,
     authorized,
     authorizationPhrase,
+    altaInterest,
     priceObjection,
     interested: interest,
   };
