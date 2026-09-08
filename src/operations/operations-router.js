@@ -1,5 +1,5 @@
 import express from "express";
-import { operationsPage } from "./operations-page.js";
+import { operationsPage } from "./operations-page-fixed.js";
 import { saleDetailPage } from "./sale-detail-page.js";
 
 export function createOperationsRouter({config,saleStore,workflow,memories,inspectorEvents}){
