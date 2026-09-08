@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { progressiveOpeningDecision, disclosureViolations, customerAskedCommercialDetails } from "../src/sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, disclosureViolations, customerAskedCommercialDetails } from "../src/sales/progressive-disclosure.js";
 
 const fresh = { tiene_imss: null, sales_cycle: { stage: "exploring", authorized: false } };
 
@@ -41,4 +41,59 @@ test("progressive opening does not override an already known IMSS answer", () =>
 test("progressive disclosure never applies after authorization", () => {
   const memory = { tiene_imss: null, sales_cycle: { stage: "authorized", authorized: true } };
   assert.equal(progressiveOpeningDecision(memory, "Quiero información sobre afiliación IMSS"), null);
+});
+
+test("first Plan 1 recommendation is compact and resumes pending name", () => {
+  const memory = {
+    nombre: null,
+    ultima_pregunta: "nombre",
+    necesidad_principal: "servicio médico",
+    sales_cycle: { stage: "plan_recommended", recommended_plan: "plan_1", authorized: false },
+  };
+  const d = compactPlanRecommendation(memory, "Lo quiero principalmente por el servicio médico");
+  assert.ok(d);
+  assert.equal(d.question_key, "nombre");
+  assert.match(d.reply, /Plan 1/i);
+  assert.match(d.reply, /\$1,100/);
+  assert.match(d.reply, /servicio médico/i);
+  assert.match(d.reply, /semanas cotizadas/i);
+  assert.match(d.reply, /beneficiarios/i);
+  assert.match(d.reply, /nombre completo/i);
+  assert.doesNotMatch(d.reply, /\$480|salario diario|48 horas|documentación|5\.15/i);
+});
+
+test("first Plan 2 recommendation is compact", () => {
+  const memory = {
+    necesidad_principal: "AFORE e INFONAVIT",
+    sales_cycle: { stage: "plan_recommended", recommended_plan: "plan_2", authorized: false },
+  };
+  const d = compactPlanRecommendation(memory, "También me interesa AFORE e INFONAVIT");
+  assert.ok(d);
+  assert.match(d.reply, /Plan 2/i);
+  assert.match(d.reply, /\$1,500/);
+  assert.match(d.reply, /AFORE/i);
+  assert.match(d.reply, /INFONAVIT/i);
+  assert.doesNotMatch(d.reply, /5\.15|\$480|48 horas|incapacidades/i);
+});
+
+test("explicit detail question is never replaced by compact recommendation", () => {
+  const memory = {
+    necesidad_principal: "servicio médico",
+    sales_cycle: { stage: "plan_recommended", recommended_plan: "plan_1", authorized: false },
+  };
+  assert.equal(compactPlanRecommendation(memory, "¿Cuál es el salario diario y cuánto tarda?"), null);
+});
+
+test("compact recommendation does not repeat an already resolved pending question", () => {
+  const memory = {
+    nombre: "Juan Pérez",
+    ultima_pregunta: "nombre",
+    resolved_questions: ["nombre"],
+    necesidad_principal: "servicio médico",
+    sales_cycle: { stage: "plan_recommended", recommended_plan: "plan_1", authorized: false },
+  };
+  const d = compactPlanRecommendation(memory, "Busco servicio médico");
+  assert.ok(d);
+  assert.equal(d.question_key, null);
+  assert.doesNotMatch(d.reply, /nombre completo/i);
 });
