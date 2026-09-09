@@ -4,6 +4,16 @@ import { MARTCOM_KNOWLEDGE } from "../knowledge/martcom.js";
 import { validateNameCandidate } from "../semantic/name-validator.js";
 import { analyzeNextSale, commercialInstruction } from "../sales/next-sales-engine.js";
 import { deriveCommercialNeed } from "../sales/need-before-recommendation.js";
+import { stripRepeatedPublicPresentation } from "../core/public-identity-guard.js";
+
+function applyPublicIdentityGuard(decision, memory, publicName) {
+  if (!decision || typeof decision !== "object") return decision;
+  if (!memory?.presentacion_realizada) return decision;
+  return {
+    ...decision,
+    reply: stripRepeatedPublicPresentation(decision.reply, publicName),
+  };
+}
 
 export class AiServices {
   constructor(openai, config) { this.openai = openai; this.config = config; }
@@ -24,16 +34,21 @@ CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse
   async generateDecision(conversation, labels, memory, planner, combinedText) {
     const response = await this.openai.responses.create({
       model: this.config.model,
-      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. JERARQUÍA NEXT: 1) preferencia humana/handoff, 2) pregunta explícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente paso comercial. No interpretes automáticamente una negación ambigua como rechazo. Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Para Plan 1 y Plan 2 usa los precios oficiales configurados. La actividad laboral nunca es suficiente para recomendar un plan: primero debe existir una necesidad comercial explícita del cliente. Antes de autorización, CURP/NSS no son el objetivo del flujo comercial: vende y resuelve dudas primero. Si sales_cycle.authorized=true, NO hagas handoff por autorización: confirma brevemente que iniciaremos el proceso y deja question_key=null; el Workflow Engine de NEXT abrirá el expediente. Handoff queda reservado para solicitud humana, proveedor/B2B, frustración o casos especiales. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado. Si el planner es especializado, no conviertas el caso en cotización o afiliación.
-Para RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Preséntate únicamente como ${this.config.publicName || "Mia de MARTCOM"}; no uses nombres de asesores humanos. No agregues cliente, venta, cerrado ni no_contesta.`,
+      instructions: `${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. JERARQUÍA NEXT: 1) preferencia humana/handoff, 2) pregunta explícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente paso comercial. No interpretes automáticamente una negación ambigua como rechazo. Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Para Plan 1 y Plan 2 usa los precios oficiales configurados. La actividad laboral nunca es suficiente para recomendar un plan: primero debe existir una necesidad comercial explícita del cliente. Antes de autorización, CURP/NSS no son el objetivo del flujo comercial: vende y resuelve dudas primero. Si sales_cycle.authorized=true, NO hagas handoff por autorización: confirma brevemente que iniciaremos el proceso y deja question_key=null; el Workflow Engine de NEXT abrirá el expediente. Handoff queda reservado para solicitud humana, proveedor/B2B, frustración o casos especiales. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado. Si el planner es especializado, no conviertas el caso en cotización o afiliación. Si MEMORIA.presentacion_realizada=true, está prohibido volver a presentarte o iniciar con “soy Mia de MARTCOM”.\nPara RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Preséntate únicamente como ${this.config.publicName || "Mia de MARTCOM"}; no uses nombres de asesores humanos. No agregues cliente, venta, cerrado ni no_contesta.`,
       input: `MENSAJES NUEVOS:\n${combinedText}\n\nETIQUETAS:\n${labels.join(", ") || "ninguna"}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
     });
-    return jsonFrom(response.output_text);
+    const decision = jsonFrom(response.output_text);
+    return applyPublicIdentityGuard(decision, memory, this.config.publicName || "Mia de MARTCOM");
   }
 
   async repairDecision(conversation, memory, planner, combinedText, decision, reasons) {
-    const response = await this.openai.responses.create({ model:this.config.model, instructions:`${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria. Si sales_cycle.authorized=true, no fuerces handoff: NEXT abrirá un expediente operativo.`, input:`MEMORIA:\n${JSON.stringify(memory)}\n\nMENSAJES:\n${combinedText}\n\nRESPUESTA RECHAZADA:\n${JSON.stringify(decision)}\n\nHISTORIAL:\n${historyOf(conversation,this.config.maxHistory)}` });
-    return jsonFrom(response.output_text);
+    const response = await this.openai.responses.create({
+      model:this.config.model,
+      instructions:`${MARTCOM_KNOWLEDGE}\n\n${commercialInstruction(memory)}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria. Si sales_cycle.authorized=true, no fuerces handoff: NEXT abrirá un expediente operativo. Si MEMORIA.presentacion_realizada=true, no vuelvas a presentarte como Mia de MARTCOM.`,
+      input:`MEMORIA:\n${JSON.stringify(memory)}\n\nMENSAJES:\n${combinedText}\n\nRESPUESTA RECHAZADA:\n${JSON.stringify(decision)}\n\nHISTORIAL:\n${historyOf(conversation,this.config.maxHistory)}`
+    });
+    const repaired = jsonFrom(response.output_text);
+    return applyPublicIdentityGuard(repaired, memory, this.config.publicName || "Mia de MARTCOM");
   }
 
   async handoffSummary(conversation, reason, memory) {
