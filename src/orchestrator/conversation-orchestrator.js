@@ -2,6 +2,7 @@ function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').repl
 
 export function detectDirectRequest(text){
   const v=norm(text);
+  if(/\b(cuales? son los requisitos|que requisitos|requisitos para|que documentos|cuales? documentos|documentos necesito|que necesito para (?:iniciar|tramitar|afiliarme|darme de alta))\b/.test(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
   if(/\b(donde se (encuentran|ubican)|donde estan|ubicacion|oficinas?|razon social|estafa|fraude|confiable|seguro que|son reales)\b/.test(v)){
     return {type:'trust',priority:'high',answerKey:'trust'};
   }
@@ -13,6 +14,7 @@ export function detectDirectRequest(text){
 
 export function directAnswerText(request){
   if(!request) return null;
+  if(request.answerKey==='requirements') return 'Para integrar el expediente normalmente necesitamos CURP, NSS, INE y Constancia de Situación Fiscal. No necesitas enviarlos todavía si aún estás revisando la opción; primero podemos resolver tus dudas sobre el plan y el proceso.';
   if(request.answerKey==='services') return 'Tenemos dos opciones: Plan 1 por $1,100 MXN, enfocado en servicio médico, semanas cotizadas y beneficiarios; y Plan 2 por $1,500 MXN, que además contempla AFORE, INFONAVIT e incapacidades conforme al caso. Ambos manejan un salario diario registrado de $480 MXN.';
   if(request.answerKey==='price') return 'El Plan 1 tiene un costo de $1,100 MXN y el Plan 2 de $1,500 MXN. Ambos manejan un salario diario registrado de $480 MXN; el Plan 2 además contempla AFORE, INFONAVIT e incapacidades conforme al caso.';
   if(request.answerKey==='trust') return 'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, con gusto podemos ayudarte a hacerlo.';
