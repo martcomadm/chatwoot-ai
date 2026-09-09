@@ -65,16 +65,29 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   const plan = memory?.sales_cycle?.recommended_plan;
   const need = norm(memory?.necesidad_principal || combinedText);
   const pending = pendingQuestion(memory);
-  if (plan === "plan_1" && /\b(servicio medico|seguro medico|medico|semanas|beneficiarios|guarderia|maternidad)\b/.test(need)) {
+  const retirementContext = /\b(pension|pensionarme|retiro|jubilarme|jubilacion)\b/.test(need);
+  const weeksContext = /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas)\b/.test(need);
+
+  if (plan === "plan_1" && retirementContext && weeksContext) {
     return {
-      reply: `Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS.${pending ? ` ${pending.text}` : ""}`,
+      reply: `Entiendo. Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.`,
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (plan === "plan_1" && /\b(servicio medico|seguro medico|medico|semanas|beneficiarios|guarderia|maternidad)\b/.test(need)) {
+    const serviceLead = /\b(servicio medico|seguro medico|medico)\b/.test(need);
+    return {
+      reply: serviceLead
+        ? `Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`
+        : `Entiendo. Si tu prioridad es continuar cotizando semanas, el Plan 1 puede ajustarse a lo que buscas. Tiene un costo de $1,100 MXN e incluye continuación de semanas y servicio médico del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
       question_key: pending?.key || null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
   }
   if (plan === "plan_2" && /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(need)) {
     return {
-      reply: `Perfecto. Por lo que buscas, el Plan 2 puede ser la opción más completa. Tiene un costo de $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT.${pending ? ` ${pending.text}` : ""}`,
+      reply: `Perfecto. Si también te interesa AFORE e INFONAVIT, el Plan 2 puede ajustarse mejor a lo que buscas. Tiene un costo de $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
       question_key: pending?.key || null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
