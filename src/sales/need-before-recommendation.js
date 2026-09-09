@@ -36,7 +36,7 @@ export function needGuardDecision(memory = {}, combinedText = "") {
 
   const firstName = memory?.primer_nombre || String(memory?.nombre || "").trim().split(/\s+/)[0] || null;
   return {
-    reply: `${firstName ? `${firstName}, ` : ""}para recomendarte la opción adecuada necesito conocer primero qué buscas principalmente. ¿Te interesa más contar con servicio médico, continuar cotizando semanas o también realizar aportaciones a AFORE e INFONAVIT?`,
+    reply: `${firstName ? `${firstName}, ` : ""}para orientarte mejor, ¿qué es lo más importante para ti con la afiliación: tener servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?`,
     question_key: "necesidad_principal",
     add_labels: [],
     remove_labels: [],
@@ -50,5 +50,5 @@ export function suppressRecommendationWithoutNeed(decision, memory = {}, combine
   const text = String(decision?.reply || "");
   const recommendsPlan = /\b(te recomiendo|recomiendo|mejor opcion|mejor opción|plan\s*[12])\b/i.test(text);
   if (!recommendsPlan) return decision;
-  return needGuardDecision(memory, combinedText) || { ...decision, reply: "Para orientarte bien, primero necesito saber qué buscas principalmente con la afiliación.", question_key: "necesidad_principal" };
+  return needGuardDecision(memory, combinedText) || { ...decision, reply: "Antes de recomendarte un plan, cuéntame qué buscas principalmente con la afiliación.", question_key: "necesidad_principal" };
 }
