@@ -27,7 +27,10 @@ export function deriveCommercialNeed(text, previous = {}) {
 
 export function hasCommercialNeed(memory = {}) {
   const need = memory.commercial_need || {};
-  return Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement || memory.necesidad_principal);
+  // Only deterministic, structured signals count as commercial need. The LLM field
+  // necesidad_principal may contain contextual prose (for example "desempleado") and
+  // must never bypass the Need Before Recommendation guard by itself.
+  return Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement);
 }
 
 export function needGuardDecision(memory = {}, combinedText = "") {
