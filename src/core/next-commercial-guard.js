@@ -1,18 +1,23 @@
 const SENSITIVE_REQUEST_RE = /\b(curp|nss|n[uú]mero\s+de\s+seguridad\s+social)\b/i;
 const QUESTIONISH_RE = /[?¿]/;
+const ACTIVITY_QUESTION_RE = /\b(a\s+qu[eé]\s+te\s+dedicas|en\s+qu[eé]\s+trabajas|cu[aá]l\s+es\s+tu\s+(?:actividad|ocupaci[oó]n)|actividad\s+actual)\b/i;
 
 function cleanActivity(text) {
   return String(text || "").trim().replace(/[.!?]+$/g, "").replace(/\s+/g, " ");
 }
 
 export function contextualActivityPatch(text, memory = {}) {
-  if (memory?.ultima_pregunta !== "actividad" && memory?.flujo?.siguiente_paso !== "actividad") return null;
+  const askedByKey = memory?.ultima_pregunta === "actividad" || memory?.flujo?.siguiente_paso === "actividad";
+  const askedByReply = ACTIVITY_QUESTION_RE.test(String(memory?.ultima_respuesta_agente || ""));
+  if (!askedByKey && !askedByReply) return null;
+
   const value = cleanActivity(text);
   if (!value || value.length > 100 || QUESTIONISH_RE.test(value)) return null;
   if (/\b(curp|nss|imss|infonavit|afore|plan\s*[12]|precio|cu[aá]nto|informaci[oó]n)\b/i.test(value)) return null;
 
   const stripped = value
     .replace(/^(?:yo\s+)?(?:trabajo|laboro)\s+(?:en|como)\s+/i, "")
+    .replace(/^(?:yo\s+)?(?:estoy\s+)?(?:actualmente\s+)?desemplead[oa]\b/i, "desempleado")
     .replace(/^(?:yo\s+)?soy\s+/i, "")
     .trim();
   if (!stripped || stripped.length < 2) return null;
