@@ -25,7 +25,8 @@ for (const phrase of [
     assert.equal(result.authorized, true);
     assert.equal(result.patch.sales_cycle.authorized, true);
     assert.equal(result.patch.sales_cycle.selected_plan, "plan_1");
-    const decision = commitmentDecision(result.patch, phrase);
+    const mergedMemory = { ...memory, ...result.patch };
+    const decision = commitmentDecision(mergedMemory, phrase);
     assert.equal(decision?.commitment, "authorized");
     assert.match(decision?.reply || "", /abrir tu expediente/i);
   });
