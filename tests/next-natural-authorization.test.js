@@ -25,8 +25,9 @@ for (const phrase of [
     assert.equal(result.authorized, true);
     assert.equal(result.patch.sales_cycle.authorized, true);
     assert.equal(result.patch.sales_cycle.selected_plan, "plan_1");
-    const mergedMemory = { ...memory, ...result.patch };
-    const decision = commitmentDecision(mergedMemory, phrase);
+    // commitmentDecision intentionally receives the pre-message state:
+    // it decides whether THIS message changes interested -> authorized.
+    const decision = commitmentDecision(memory, phrase);
     assert.equal(decision?.commitment, "authorized");
     assert.match(decision?.reply || "", /abrir tu expediente/i);
   });
