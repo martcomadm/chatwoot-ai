@@ -46,7 +46,8 @@ const openingDecision=progressiveOpeningDecision(memory,combinedText);
 const needDecision=needGuardDecision(memory,combinedText);
 const compactRecommendation=compactPlanRecommendation(memory,combinedText);
 const directDecision=directAnswerDecision({judgment,orchestration});
-const commitment=commitmentDecision(memory,combinedText);
+// Evaluate commitment against the state that existed BEFORE this customer message.
+const commitment=commitmentDecision(base,combinedText);
 
 // NEXT deterministic priority: explicit customer question > authorization/selection/interest > operations > opening > need > recommendation > LLM.
 if(directDecision)decision=directDecision;
