@@ -15,9 +15,11 @@ export function detectHumanPreference(text){
 export function detectQuestion(text){
   const v=norm(text);
   if(/\b(cuanto (?:cuesta|cobran?|sale)|precio|costo|mensualidad|aproximad[oa])\b/.test(v)) return {type:'price',answerKey:'price'};
+  if(/\bque incluye (?:el )?plan\s*(1|uno)\b/.test(v)) return {type:'services_plan_1',answerKey:'services_plan_1'};
+  if(/\bque incluye (?:el )?plan\s*(2|dos)\b/.test(v)) return {type:'services_plan_2',answerKey:'services_plan_2'};
   // Requiere intención interrogativa real: una mención declarativa de Plan 1/2
-  // pertenece al commitment-flow y no debe abrir el catálogo.
-  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:beneficios|planes|paquetes|servicios)|que (?:beneficios|planes|paquetes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el )?plan|que incluye (?:el )?plan\s*[12])\b/.test(v)) return {type:'services',answerKey:'services'};
+  // pertenece al commitment-flow.
+  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:beneficios|planes|paquetes|servicios)|que (?:beneficios|planes|paquetes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el )?plan)\b/.test(v)) return {type:'services',answerKey:'services'};
   if(/\b(donde (?:estan|se encuentran|se ubican)|ubicacion|oficinas?|direccion|direcci[oó]n|razon social|confiable|estafa|fraude|son reales)\b/.test(v)) return {type:'trust',answerKey:'trust'};
   if(/cotizaci[oó]n de qu[eé]|qu[eé] cotizaci[oó]n|a qu[eé] te refieres con cotizaci[oó]n/.test(v)) return {type:'clarify_quote',answerKey:'clarify_quote'};
   if(/(?:que|qu[eé]) (?:es|significa) (?:el )?curp|en qu[eé] consiste (?:el )?curp|curp es la fecha/.test(v)) return {type:'explain_curp',answerKey:'explain_curp'};
@@ -41,6 +43,8 @@ export function controlledAnswer(key,memory={}){
     price:isWeeksQuote
       ? 'El costo depende de la opción y del salario de registro. Como buscas completar semanas, necesito revisar unos datos mínimos para darte una cotización correcta y no inventarte una cifra.'
       : 'El costo depende del plan y del salario con el que se realice el registro. No quiero darte una cifra incorrecta sin revisar qué opción corresponde a tu caso.',
+    services_plan_1:'El Plan 1 cuesta $1,100 MXN e incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Si quieres, también puedo explicarte algún beneficio en particular.',
+    services_plan_2:'El Plan 2 cuesta $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT; también contempla incapacidades conforme al caso.',
     services:'Manejamos opciones que pueden incluir servicio médico, cotización de semanas y beneficiarios; también existe una opción que puede contemplar aportaciones relacionadas con AFORE e INFONAVIT según el caso.',
     trust:'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, es totalmente válido hacerlo primero.',
     clarify_quote:'Me refiero a la cotización de la opción de afiliación que corresponda a tu caso: el plan, el salario de registro y los beneficios que buscas.',
