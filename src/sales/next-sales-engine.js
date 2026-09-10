@@ -11,7 +11,7 @@ function hasAny(text, patterns) {
 }
 
 const AUTHORIZATION_PATTERNS = [
-  /\bquiero (contratar|iniciar|hacerlo|proceder|continuar|empezar)(?:\b|\s+(?:el )?(?:tramite|proceso|alta))/,
+  /\b(?:quiero|deseo|podemos|quiero que)\s+(?:contratar|iniciar|hacerlo|proceder|continuar|empezar)(?:\b|\s+(?:con\s+)?(?:el )?(?:tramite|proceso|alta))/,
   /\badelante con (el )?(tramite|proceso|alta)\b/,
   /\b(iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
   /\bme interesa (contratarlo|hacerlo|iniciar|proceder)\b/,
