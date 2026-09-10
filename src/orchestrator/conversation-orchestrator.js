@@ -8,7 +8,10 @@ export function detectDirectRequest(text){
   if(/\b(donde se (encuentran|ubican)|donde estan|ubicacion|oficinas?|razon social|estafa|fraude|confiable|seguro que|son reales)\b/.test(v)){
     return {type:'trust',priority:'high',answerKey:'trust'};
   }
-  if(/\b(que ofrecen|que incluye|que manejan|paquetes|planes|servicios|diferencia entre (el )?plan|plan 1|plan 2)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
+  // Solo es pregunta de servicios cuando el cliente realmente pregunta por ellos.
+  // Menciones declarativas como "me quedo con el Plan 1" o "quiero el Plan 1"
+  // pertenecen al commitment-flow y no deben convertirse en catálogo de planes.
+  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el )?plan|que incluye (?:el )?plan\s*[12])\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
   if(/\b(precio|cuanto cuesta|cuanto cobra|mensualidad|costo|cuanto sale)\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
   if(/\b(quiero vender|quiero revender|quiero comercializar|quiero distribuir|quiero ofrecer (el|su) servicio|vender las afiliaciones|vender afiliaciones|ser distribuidor|ser proveedor|quiero ser asesor|ser asesor comercial|trabajar como asesor|integrarme como asesor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones|ofrecer afiliaciones a (mis )?clientes|generar afiliaciones para terceros)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
   return null;
