@@ -13,9 +13,10 @@ function hasAny(text, patterns) {
 const AUTHORIZATION_PATTERNS = [
   /\bquiero (contratar|iniciar|hacerlo|proceder|continuar|empezar)(?:\b|\s+(?:el )?(?:tramite|proceso|alta))/,
   /\badelante con (el )?(tramite|proceso|alta)\b/,
-  /\b(iniciemos|empecemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
+  /\b(iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
   /\bme interesa (contratarlo|hacerlo|iniciar|proceder)\b/,
-  /\bsi[, ]+(quiero (?:iniciar|proceder|continuar|empezar)|adelante con (?:el )?(?:tramite|proceso|alta)|procedamos|iniciemos|empecemos)\b/,
+  /\bsi[, ]+(quiero (?:iniciar|proceder|continuar|empezar)|adelante con (?:el )?(?:tramite|proceso|alta)|procedamos|iniciemos|empecemos|empezemos)\b/,
+  /\b(?:si[, ]*)?me interesa[, ]+(?:empecemos|empezemos|iniciemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
 ];
 
 const ALTA_INTEREST_PATTERNS = [
