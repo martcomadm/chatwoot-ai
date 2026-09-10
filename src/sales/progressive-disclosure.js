@@ -12,7 +12,7 @@ const QUESTION_CUE_RE = /[?¿]|\b(que|cual|cuales|como|cuanto|cuanta|cuantos|cua
 
 export function isEarlyCommercialStage(memory = {}) {
   const stage = memory?.sales_cycle?.stage || "exploring";
-  return !memory?.sales_cycle?.authorized && ["exploring", "qualified", "interested"].includes(stage);
+  return !memory?.sales_cycle?.authorized && ["exploring", "qualified", "interested", "plan_recommended", "explaining"].includes(stage);
 }
 
 export function customerAskedCommercialDetails(text) {
@@ -60,32 +60,43 @@ function pendingQuestion(memory = {}) {
   return null;
 }
 
+function effectivePlan(memory = {}) {
+  if (memory?.sales_cycle?.selected_plan) return memory.sales_cycle.selected_plan;
+  if (memory?.sales_cycle?.recommended_plan) return memory.sales_cycle.recommended_plan;
+  const need = memory?.commercial_need || {};
+  if (need.afore_infonavit) return "plan_2";
+  if (need.service_medical || need.weeks || need.retirement) return "plan_1";
+  return null;
+}
+
 export function compactPlanRecommendation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized || customerAskedCommercialDetails(combinedText)) return null;
-  const plan = memory?.sales_cycle?.recommended_plan;
-  const need = norm(memory?.necesidad_principal || combinedText);
+  const plan = effectivePlan(memory);
+  const needText = norm(`${memory?.necesidad_principal || ""} ${combinedText || ""}`);
+  const structured = memory?.commercial_need || {};
   const pending = pendingQuestion(memory);
-  const retirementContext = /\b(pension|pensionarme|retiro|jubilarme|jubilacion)\b/.test(need);
-  const weeksContext = /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas)\b/.test(need);
+  const retirementContext = Boolean(structured.retirement) || /\b(pension|pensionarme|retiro|jubilarme|jubilacion)\b/.test(needText);
+  const weeksContext = Boolean(structured.weeks) || /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas)\b/.test(needText);
+  const serviceContext = Boolean(structured.service_medical) || /\b(servicio medico|seguro medico|medico|beneficiarios|guarderia|maternidad)\b/.test(needText);
+  const plan2Context = Boolean(structured.afore_infonavit) || /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(needText);
 
   if (plan === "plan_1" && retirementContext && weeksContext) {
     return {
-      reply: `Entiendo. Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.`,
+      reply: "Entiendo. Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
   }
-  if (plan === "plan_1" && /\b(servicio medico|seguro medico|medico|semanas|beneficiarios|guarderia|maternidad)\b/.test(need)) {
-    const serviceLead = /\b(servicio medico|seguro medico|medico)\b/.test(need);
+  if (plan === "plan_1" && (serviceContext || weeksContext)) {
     return {
-      reply: serviceLead
+      reply: serviceContext
         ? `Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`
         : `Entiendo. Si tu prioridad es continuar cotizando semanas, el Plan 1 puede ajustarse a lo que buscas. Tiene un costo de $1,100 MXN e incluye continuación de semanas y servicio médico del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
       question_key: pending?.key || null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
   }
-  if (plan === "plan_2" && /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(need)) {
+  if (plan === "plan_2" && plan2Context) {
     return {
       reply: `Perfecto. Si también te interesa AFORE e INFONAVIT, el Plan 2 puede ajustarse mejor a lo que buscas. Tiene un costo de $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
       question_key: pending?.key || null,
