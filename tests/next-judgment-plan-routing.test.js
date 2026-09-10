@@ -12,8 +12,9 @@ test("selection of Plan 1 is not a services question", () => {
   assert.equal(detectQuestion("Sí quiero el Plan 1 solamente"), null);
 });
 
-test("real plan questions still route to services", () => {
+test("real plan questions still route to the correct services scope", () => {
   assert.equal(detectQuestion("¿Cuáles son los planes?")?.type, "services");
-  assert.equal(detectQuestion("¿Qué incluye el Plan 1?")?.type, "services");
+  assert.equal(detectQuestion("¿Qué incluye el Plan 1?")?.type, "services_plan_1");
+  assert.equal(detectQuestion("¿Qué incluye el Plan 2?")?.type, "services_plan_2");
   assert.equal(detectQuestion("¿Qué servicios manejan?")?.type, "services");
 });
