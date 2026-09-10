@@ -15,7 +15,9 @@ export function detectHumanPreference(text){
 export function detectQuestion(text){
   const v=norm(text);
   if(/\b(cuanto (?:cuesta|cobran?|sale)|precio|costo|mensualidad|aproximad[oa])\b/.test(v)) return {type:'price',answerKey:'price'};
-  if(/\b(que ofrecen|que incluye|que manejan|beneficios?|planes?|paquetes?|servicios?)\b/.test(v)) return {type:'services',answerKey:'services'};
+  // Requiere intención interrogativa real: una mención declarativa de Plan 1/2
+  // pertenece al commitment-flow y no debe abrir el catálogo.
+  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:beneficios|planes|paquetes|servicios)|que (?:beneficios|planes|paquetes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el )?plan|que incluye (?:el )?plan\s*[12])\b/.test(v)) return {type:'services',answerKey:'services'};
   if(/\b(donde (?:estan|se encuentran|se ubican)|ubicacion|oficinas?|direccion|direcci[oó]n|razon social|confiable|estafa|fraude|son reales)\b/.test(v)) return {type:'trust',answerKey:'trust'};
   if(/cotizaci[oó]n de qu[eé]|qu[eé] cotizaci[oó]n|a qu[eé] te refieres con cotizaci[oó]n/.test(v)) return {type:'clarify_quote',answerKey:'clarify_quote'};
   if(/(?:que|qu[eé]) (?:es|significa) (?:el )?curp|en qu[eé] consiste (?:el )?curp|curp es la fecha/.test(v)) return {type:'explain_curp',answerKey:'explain_curp'};
