@@ -5,7 +5,7 @@ function norm(value) {
 function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_1" ? "Plan 1" : "el plan"; }
 function planPrice(plan) { return plan === "plan_2" ? "$1,500 MXN" : plan === "plan_1" ? "$1,100 MXN" : null; }
 
-const START_RE = /\b(?:si[, ]*)?(?:quiero|deseo|podemos|quiero que)\s+(?:iniciar|empezar|proceder|continuar|hacer)\s+(?:con\s+)?(?:el\s+)?(?:tramite|proceso|alta)|\b(?:iniciemos|empecemos|procedamos)\b|\badelante con (?:el )?(?:tramite|proceso|alta)\b/;
+const START_RE = /\b(?:si[, ]*)?(?:quiero|deseo|podemos|quiero que)\s+(?:iniciar|empezar|proceder|continuar|hacer)\s+(?:con\s+)?(?:el\s+)?(?:tramite|proceso|alta)|\b(?:iniciemos|empecemos|empezemos|procedamos)\b|\badelante con (?:el )?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?me interesa[, ]+(?:iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/;
 const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
 const INTEREST_ONLY_RE = /\bme interesa(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
 
