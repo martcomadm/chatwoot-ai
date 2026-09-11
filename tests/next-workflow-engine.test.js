@@ -6,6 +6,7 @@ import path from "node:path";
 import { SaleStore } from "../src/operations/sale-store.js";
 import { SaleWorkflowEngine } from "../src/operations/workflow-engine.js";
 import { classifyAttachment, attachmentReference, documentPackageStatus } from "../src/operations/document-service.js";
+import { operationsPage } from "../src/operations/operations-page.js";
 
 function fixture(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),"martcom-next-"));const store=new SaleStore(path.join(dir,"sales.json"));return{store,workflow:new SaleWorkflowEngine(store)};}
 function completeInput(){return { conversation_id:101, customer:{nombre:"Ana",curp:"AAAA000000AAAAAA00",nss:"12345678901"}, sale:{plan:"plan_2",precio:1500,authorized:true}, documents:{files:[{id:"ine",type:"ine",name:"INE.pdf"},{id:"csf",type:"csf",name:"Constancia Situacion Fiscal.pdf"}]}};}
