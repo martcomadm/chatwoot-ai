@@ -29,7 +29,7 @@ export function saleInputFromMemory({ conversationId, conversation = {}, memory 
       authorized: Boolean(memory.sales_cycle?.authorized),
       authorization_text: memory.sales_cycle?.authorization_text || null,
     },
-    documents: { files: extractConversationAttachments(conversation) },
+    documents: { files: extractConversationAttachments(conversation, { expectedType: memory.operations?.onboarding_next || memory.operations?.onboarding_last_requested || null }) },
   };
 }
 
