@@ -43,10 +43,14 @@ export function classifyAttachment(attachment = {}) {
   return "other";
 }
 
-export function attachmentReference(attachment = {}, message = {}) {
+export function attachmentReference(attachment = {}, message = {}, expectedType = null) {
+  const classified = classifyAttachment(attachment);
+  const contentType = String(attachment.content_type || attachment.file_type || "").toLowerCase();
+  const isDocumentLike = /^(image\/|application\/pdf)/.test(contentType) || /\b(image|photo|file|document|pdf)\b/.test(contentType);
+  const contextualType = classified === "other" && expectedType === "ine" && isDocumentLike ? "ine" : classified;
   return {
     id: String(attachment.id || `${message.id || "msg"}-${attachment.file_name || attachment.filename || attachment.name || Date.now()}`),
-    type: classifyAttachment(attachment),
+    type: contextualType,
     name: attachment.file_name || attachment.filename || attachment.name || "archivo",
     content_type: attachment.content_type || attachment.file_type || null,
     url: attachment.data_url || attachment.file_url || attachment.download_url || null,
@@ -87,7 +91,7 @@ export function mergeAttachmentFiles(current = [], incoming = []) {
   return [...map.values()];
 }
 
-export function extractConversationAttachments(conversation = {}) {
+export function extractConversationAttachments(conversation = {}, options = {}) {
   const messages = Array.isArray(conversation.messages)
     ? conversation.messages
     : Array.isArray(conversation?.messages?.payload)
@@ -95,7 +99,7 @@ export function extractConversationAttachments(conversation = {}) {
       : [];
   const refs = [];
   for (const message of messages) {
-    for (const attachment of (message?.attachments || [])) refs.push(attachmentReference(attachment, message));
+    for (const attachment of (message?.attachments || [])) refs.push(attachmentReference(attachment, message, options.expectedType || null));
   }
   return refs;
 }
