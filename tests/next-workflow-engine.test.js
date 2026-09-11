@@ -44,3 +44,11 @@ test("context never overwrites an explicitly classified document",()=>{
   const ref=attachmentReference(attachment,{id:501,created_at:Date.now()/1000},"ine");
   assert.equal(ref.type,"csf");
 });
+
+test("Operations page boots the dashboard before protected API loading",()=>{
+  const html=operationsPage();
+  assert.match(html,/function bootOperations\(\)/);
+  assert.match(html,/render\(\);[\s\S]*if\(!token\)/);
+  assert.match(html,/Falta el token de Operations/);
+  assert.match(html,/No se pudo iniciar Operations/);
+});
