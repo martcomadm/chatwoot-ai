@@ -12,6 +12,11 @@ import { MessageBuffer } from "./core/message-buffer.js";
 import { createRouter } from "./routes.js";
 import { InspectorEventStore } from "./inspector/event-store.js";
 import { HandoffRotationStore, HandoffRouter, OperationsConfigStore } from "./handoff/index.js";
+import { SaleStore } from "./operations/sale-store.js";
+import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
+import { createOperationsRouter } from "./operations/operations-router.js";
+import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
+import { webhookEventAllowedForAgent } from "./utils/webhook-isolation.js";
 
 try {
   const config = loadConfig();
@@ -28,28 +33,43 @@ try {
     sunday: config.handoff.sundayAgents,
   });
   const handoffRouter = new HandoffRouter({ config, store: handoffRotation, chatwoot, operationsConfig });
+  const saleStore = new SaleStore(config.storage.salesFile);
+  const workflow = new SaleWorkflowEngine(saleStore);
+  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, memories, inspectorEvents });
+  workflowBridge.start();
   const ai = new AiServices(openai, { ...config.openai, ...config.ai });
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter });
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot));
 
   const app = express();
   app.use(express.json({ limit: "4mb" }));
+
+  // Segunda barrera de aislamiento para Inbox compartido.
+  // En message_created, NEXT solo deja pasar eventos cuyo assignee sea
+  // explícitamente el usuario LAB configurado. Assignee ausente/desconocido = rechazo.
+  app.use((req, res, next) => {
+    if (req.method !== "POST" || req.path !== "/webhook/chatwoot") return next();
+    if (String(req.body?.event || "") !== "message_created") return next();
+    if (!webhookEventAllowedForAgent(req.body, config.chatwoot.agentId)) {
+      console.log("NEXT ignoró message_created: conversación no asignada explícitamente al usuario LAB.");
+      return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
+    }
+    return next();
+  });
+
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }));
 
   app.listen(config.port, "0.0.0.0", () => {
-    console.log(`MARTCOM AI V3.3.3 escuchando en puerto ${config.port}`);
-    console.log(`Arquitectura modular activa`);
-    console.log(`Buffer de mensajes: ${config.ai.bufferMs} ms`);
+    console.log(`MARTCOM AI NEXT escuchando en puerto ${config.port}`);
+    console.log(`Identidad pública: ${config.ai.publicName}`);
     console.log(`Memoria persistente: ${config.storage.memoryFile}`);
-    console.log(`Inspector: /inspector · versión 1.6`);
-    console.log(`Advisor Affinity: activo`);
-    console.log(`Conversational Judgment Engine: activo`);
-    console.log(`Auto handoff: ${config.handoff.enabled ? "activo" : "desactivado"}`);
-    console.log(`Operations Control Center: ${config.inspector.adminToken ? "activo" : "solo lectura (sin INSPECTOR_ADMIN_TOKEN)"}`);
-    console.log(`Domingo: ${config.handoff.sundayAgents.map(a => `${a.name}(${a.id})`).join(" -> ") || "sin agentes"}`);
-    console.log(`Sábado: ${config.handoff.saturdayAgents.map(a => `${a.name}(${a.id})`).join(" -> ") || "sin agentes"}`);
+    console.log(`Expedientes de venta: ${config.storage.salesFile}`);
+    console.log(`Operations: /operations · realtime SSE`);
+    console.log(`Chatwoot Workflow Bridge: activo`);
+    console.log(`Inspector: /inspector`);
   });
 } catch (error) {
-  console.error("No se pudo iniciar MARTCOM AI V3.3.3:", error);
+  console.error("No se pudo iniciar MARTCOM AI NEXT:", error);
   process.exit(1);
 }

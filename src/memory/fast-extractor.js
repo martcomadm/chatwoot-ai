@@ -141,7 +141,11 @@ export function extractFast(text,memory={}){
   if(curp.valid){ patch.curp_recibida=true; patch.curp_valor=curp.value; }
   const subject=resolveSubject(raw,memory);
   if(subject.patch.caso_sujeto) patch.caso_sujeto=subject.patch.caso_sujeto;
-  if(NSS_RE.test(raw)) patch.nss_recibido=true;
+  const nssMatch=raw.match(NSS_RE);
+  if(nssMatch){
+    patch.nss_recibido=true;
+    patch.nss_valor=String(nssMatch[0]).replace(/\D/g,"");
+  }
 
   if(patch.intereses.infonavit || patch.intereses.afore) patch.necesidad_principal="plan_2";
   else if(patch.intereses.servicio_medico) patch.necesidad_principal="servicio_medico";
