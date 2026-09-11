@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { SaleStore } from "../src/operations/sale-store.js";
 import { SaleWorkflowEngine } from "../src/operations/workflow-engine.js";
-import { classifyAttachment, documentPackageStatus } from "../src/operations/document-service.js";
+import { classifyAttachment, attachmentReference, documentPackageStatus } from "../src/operations/document-service.js";
 
 function fixture(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),"martcom-next-"));const store=new SaleStore(path.join(dir,"sales.json"));return{store,workflow:new SaleWorkflowEngine(store)};}
 function completeInput(){return { conversation_id:101, customer:{nombre:"Ana",curp:"AAAA000000AAAAAA00",nss:"12345678901"}, sale:{plan:"plan_2",precio:1500,authorized:true}, documents:{files:[{id:"ine",type:"ine",name:"INE.pdf"},{id:"csf",type:"csf",name:"Constancia Situacion Fiscal.pdf"}]}};}
@@ -29,4 +29,18 @@ test("CSF is optional for initial capture and deferred to month 3",()=>{
   const csf=status.deferred.find(item=>item.key==="csf");
   assert.equal(csf.required_for_initial_capture,false);
   assert.equal(csf.request_after_months,3);
+});
+
+test("generic WhatsApp image is classified as INE only when INE is expected",()=>{
+  const attachment={id:99,file_name:"image.jpg",content_type:"image/jpeg"};
+  const contextual=attachmentReference(attachment,{id:500,created_at:Date.now()/1000},"ine");
+  const unprompted=attachmentReference(attachment,{id:500,created_at:Date.now()/1000},null);
+  assert.equal(contextual.type,"ine");
+  assert.equal(unprompted.type,"other");
+});
+
+test("context never overwrites an explicitly classified document",()=>{
+  const attachment={id:100,file_name:"Constancia Situacion Fiscal.pdf",content_type:"application/pdf"};
+  const ref=attachmentReference(attachment,{id:501,created_at:Date.now()/1000},"ine");
+  assert.equal(ref.type,"csf");
 });
