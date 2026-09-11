@@ -53,3 +53,10 @@ test("Operations page boots the dashboard before protected API loading",()=>{
   assert.match(html,/Falta el token de Operations/);
   assert.match(html,/No se pudo iniciar Operations/);
 });
+
+test("Operations inline browser script is valid JavaScript",()=>{
+  const html=operationsPage();
+  const match=html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(match?.[1],"Operations inline script not found");
+  assert.doesNotThrow(()=>new Function(match[1]));
+});
