@@ -9,7 +9,7 @@ const PROMPTS = Object.freeze({
   curp: "Para continuar con tu expediente, compárteme por favor la CURP del titular.",
   nss: "Gracias. Ahora compárteme por favor el NSS del titular.",
   ine: "Perfecto. Ahora envíame una foto o archivo claro de la INE del titular.",
-  csf: "Muy bien. Solo falta la Constancia de Situación Fiscal. Envíamela por aquí en foto o PDF, por favor.",
+  csf: "La Constancia de Situación Fiscal no es necesaria para iniciar. Se solicitará más adelante, una vez que cumplas 3 meses con nosotros.",
 });
 
 function norm(value) {
@@ -40,7 +40,7 @@ export function onboardingStateFromSale(sale = {}) {
     documents_complete: Boolean(sale.documents?.complete),
     documents_missing: missing,
     documents_received: Number(sale.documents?.checklist?.received_count || 0),
-    documents_required: Number(sale.documents?.checklist?.required_count || 4),
+    documents_required: Number(sale.documents?.checklist?.required_count || 3),
     onboarding_next: missing[0] || null,
     onboarding_active: !sale.documents?.complete,
   };
