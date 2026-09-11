@@ -2,7 +2,17 @@ const REQUIRED = Object.freeze([
   { key: "curp", label: "CURP", kind: "data" },
   { key: "nss", label: "NSS", kind: "data" },
   { key: "ine", label: "INE", kind: "document" },
-  { key: "csf", label: "Constancia de Situación Fiscal", kind: "document" },
+]);
+
+const DEFERRED_OPTIONAL = Object.freeze([
+  {
+    key: "csf",
+    label: "Constancia de Situación Fiscal",
+    kind: "document",
+    required_for_initial_capture: false,
+    request_after_months: 3,
+    trigger_from: "service_start",
+  },
 ]);
 
 function norm(value) {
@@ -56,6 +66,7 @@ export function documentPackageStatus(sale = {}) {
     csf: files.some(file => file.type === "csf"),
   };
   const requirements = REQUIRED.map(item => ({ ...item, received: Boolean(states[item.key]) }));
+  const deferred = DEFERRED_OPTIONAL.map(item => ({ ...item, received: Boolean(states[item.key]) }));
   const missing = requirements.filter(item => !item.received).map(item => item.key);
   return {
     complete: missing.length === 0,
@@ -63,6 +74,7 @@ export function documentPackageStatus(sale = {}) {
     required_count: requirements.length,
     missing,
     requirements,
+    deferred,
   };
 }
 
@@ -88,4 +100,4 @@ export function extractConversationAttachments(conversation = {}) {
   return refs;
 }
 
-export { REQUIRED as DOCUMENT_REQUIREMENTS };
+export { REQUIRED as DOCUMENT_REQUIREMENTS, DEFERRED_OPTIONAL as DEFERRED_DOCUMENTS };
