@@ -7,6 +7,35 @@ export function operationsPage() {
     'onclick="window.resetLabConversationSafe()"'
   );
 
+
+  const validityUploadScript = `<script>
+window.confirmValidityWithUpload = async function(id) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp';
+  input.onchange = async function() {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert('El documento no puede exceder 10 MB.'); return; }
+    try {
+      const base64 = await new Promise((resolve,reject)=>{
+        const reader = new FileReader();
+        reader.onload = ()=>resolve(String(reader.result||'').split(',')[1]||'');
+        reader.onerror = ()=>reject(new Error('No se pudo leer el archivo'));
+        reader.readAsDataURL(file);
+      });
+      await act('/operations/api/sales/'+encodeURIComponent(id)+'/validity/confirm',{
+        document_name:file.name,
+        document_content_type:file.type || 'application/pdf',
+        document_base64:base64,
+        by:'Vigencias'
+      });
+    } catch (error) { alert(error.message || String(error)); }
+  };
+  input.click();
+};
+</script>`;
+
   const script = `<script>
 window.resetLabConversationSafe = async function () {
   const input = document.getElementById('resetConversationId');
@@ -78,5 +107,6 @@ window.resetLabConversationSafe = async function () {
 };
 </script>`;
 
-  return fixedButton.replace("</body>", script + "</body>");
+  const validityButton = fixedButton.replace(/onclick="confirmValidity\(&quot;([^&]+)&quot;\)">Confirmar vigencia<\/button>/g,'onclick="window.confirmValidityWithUpload(&quot;$1&quot;)">Subir vigencia y confirmar</button>');
+  return validityButton.replace("</body>", validityUploadScript + script + "</body>");
 }
