@@ -6,7 +6,8 @@ function isRequirementsQuestion(v){
   const hasDocuments=/\b(documentos?|papeles?)\b/.test(cleaned);
   const askCue=/\b(que|cual|cuales|necesito|necesitas|necesitan|piden|solicitan|requieren|ocupo|hace falta|se necesita)\b/.test(cleaned);
   const processCue=/\b(iniciar|tramite|tramitar|afiliarme|alta|darme de alta|empezar)\b/.test(cleaned);
-  return (hasRequirements && askCue) || (hasDocuments && (askCue || processCue));
+  const asksWhatIsNeeded=/\bque se necesita\b/.test(cleaned)||/\bque necesito\b/.test(cleaned)||/\bque hace falta\b/.test(cleaned);
+  return (hasRequirements && askCue) || (hasDocuments && (askCue || processCue)) || (asksWhatIsNeeded && processCue);
 }
 
 export function detectDirectRequest(text){
