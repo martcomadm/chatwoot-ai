@@ -16,7 +16,7 @@ export function saleInputFromMemory({ conversationId, conversation = {}, memory 
     contact_id: Number(sender.id || conversation?.contact_id || 0) || null,
     customer: {
       nombre: memory.nombre || sender.name || null,
-      telefono: sender.phone_number || sender.identifier || null,
+      telefono: sender.phone_number || sender.phone || sender.identifier || meta.sender?.phone_number || conversation?.contact?.phone_number || conversation?.contact?.phone || null,
       edad: memory.edad ?? null,
       actividad: memory.actividad || null,
       curp: memory.curp_valor || null,
