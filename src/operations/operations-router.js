@@ -47,7 +47,17 @@ export function createOperationsRouter({config,saleStore,workflow,memories,inspe
   }));
   router.post("/operations/api/sales/:id/validity/issue",guard,action(req=>workflow.reportValidityIssue(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/validity/reopen",guard,action(req=>workflow.reopenValidity(req.params.id,req.body||{})));
-  router.post("/operations/api/sales/:id/payment/request",guard,action(req=>workflow.requestPayment(req.params.id,req.body||{})));
+  router.post("/operations/api/sales/:id/payment/request",guard,action(req=>{
+    const body=req.body||{};
+    if(body.accounts_image_base64){
+      const raw=String(body.accounts_image_base64);
+      const estimatedBytes=Math.floor(raw.length*3/4);
+      if(estimatedBytes>10*1024*1024)throw new Error("La imagen de cuentas no puede exceder 10 MB");
+      const allowed=new Set(["image/jpeg","image/png","image/webp"]);
+      if(!allowed.has(String(body.accounts_image_content_type||"")))throw new Error("Formato de imagen no permitido. Usa JPG, PNG o WEBP");
+    }
+    return workflow.requestPayment(req.params.id,body);
+  }));
   router.post("/operations/api/sales/:id/payment/receive",guard,action(req=>workflow.receivePayment(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/payment/issue",guard,action(req=>workflow.reportPaymentIssue(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/payment/reopen",guard,action(req=>workflow.reopenPayment(req.params.id,req.body||{})));
