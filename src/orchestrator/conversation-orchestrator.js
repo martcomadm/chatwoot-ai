@@ -1,10 +1,19 @@
 function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
 
+function isRequirementsQuestion(v){
+  const cleaned=String(v||"").replace(/[¿?¡!.,;:()[\]{}]/g," ").replace(/\s+/g," ").trim();
+  const hasRequirements=/\brequisitos?\b/.test(cleaned);
+  const hasDocuments=/\b(documentos?|papeles?)\b/.test(cleaned);
+  const askCue=/\b(que|cual|cuales|necesito|necesitas|necesitan|piden|solicitan|requieren|ocupo|hace falta|se necesita)\b/.test(cleaned);
+  const processCue=/\b(iniciar|tramite|tramitar|afiliarme|alta|darme de alta|empezar)\b/.test(cleaned);
+  return (hasRequirements && askCue) || (hasDocuments && (askCue || processCue));
+}
+
 export function detectDirectRequest(text){
   const v=norm(text);
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
   if(/\b(cuanto tarda|cuanto tiempo tarda|cuanto demora|tiempo de proceso|tiempo del tramite|tramite cuanto tarda|en cuanto tiempo|cuantas horas tarda)\b/.test(v)) return {type:'process_time',priority:'high',answerKey:'process_time'};
-  if(/\b(cuales? son los requisitos|que requisitos(?: (?:necesitas|necesitan|piden|solicitan))?|requisitos para|que documentos|cuales? documentos|documentos necesito|que necesito para (?:iniciar|tramitar|afiliarme|darme de alta))(?=\b|\s|[?!.,;:]|$)/.test(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
+  if(isRequirementsQuestion(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
   if(/\b(donde se (encuentran|ubican)|donde estan|ubicacion|oficinas?|razon social|estafa|fraude|confiable|seguro que|son reales)\b/.test(v)){
     return {type:'trust',priority:'high',answerKey:'trust'};
   }
