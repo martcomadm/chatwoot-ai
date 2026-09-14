@@ -42,7 +42,7 @@ try {
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot));
 
   const app = express();
-  app.use(express.json({ limit: "4mb" }));
+  app.use(express.json({ limit: "16mb" }));
 
   // Segunda barrera de aislamiento para Inbox compartido.
   // En message_created, NEXT solo deja pasar eventos cuyo assignee sea
