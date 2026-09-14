@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { progressiveOpeningDecision, compactPlanRecommendation, disclosureViolations, customerAskedCommercialDetails } from "../src/sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, contextualPlanExplanation, disclosureViolations, customerAskedCommercialDetails } from "../src/sales/progressive-disclosure.js";
 
 const fresh = { tiene_imss: null, sales_cycle: { stage: "exploring", authorized: false } };
 
@@ -96,4 +96,28 @@ test("compact recommendation does not repeat an already resolved pending questio
   assert.ok(d);
   assert.equal(d.question_key, null);
   assert.doesNotMatch(d.reply, /nombre completo/i);
+});
+
+
+test("affirmative follow-up continues the offered Plan 1 explanation instead of repeating recommendation", () => {
+  const memory = {
+    necesidad_principal: "servicio médico",
+    ultima_respuesta_agente: "Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS. ¿Quieres que te explique cómo funciona?",
+    sales_cycle: { stage: "plan_recommended", recommended_plan: "plan_1", authorized: false },
+  };
+  for (const text of ["si explicame", "sí explícame", "claro", "por favor", "adelante"]) {
+    const d = contextualPlanExplanation(memory, text);
+    assert.ok(d, text);
+    assert.match(d.reply, /Plan 1/i);
+    assert.match(d.reply, /48 horas hábiles/i);
+    assert.doesNotMatch(d.reply, /¿Quieres que te explique cómo funciona\?/i);
+  }
+});
+
+test("affirmative text does not trigger plan explanation without a prior explanation offer", () => {
+  const memory = {
+    ultima_respuesta_agente: "¿Cuál es tu edad?",
+    sales_cycle: { stage: "plan_recommended", recommended_plan: "plan_1", authorized: false },
+  };
+  assert.equal(contextualPlanExplanation(memory, "sí"), null);
 });
