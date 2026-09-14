@@ -4,7 +4,7 @@ export function detectDirectRequest(text){
   const v=norm(text);
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
   if(/\b(cuanto tarda|cuanto tiempo tarda|cuanto demora|tiempo de proceso|tiempo del tramite|tramite cuanto tarda|en cuanto tiempo|cuantas horas tarda)\b/.test(v)) return {type:'process_time',priority:'high',answerKey:'process_time'};
-  if(/\b(cuales? son los requisitos|que requisitos|requisitos para|que documentos|cuales? documentos|documentos necesito|que necesito para (?:iniciar|tramitar|afiliarme|darme de alta))\b/.test(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
+  if(/\b(cuales? son los requisitos|que requisitos(?: (?:necesitas|necesitan|piden|solicitan))?|requisitos para|que documentos|cuales? documentos|documentos necesito|que necesito para (?:iniciar|tramitar|afiliarme|darme de alta))\b/.test(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
   if(/\b(donde se (encuentran|ubican)|donde estan|ubicacion|oficinas?|razon social|estafa|fraude|confiable|seguro que|son reales)\b/.test(v)){
     return {type:'trust',priority:'high',answerKey:'trust'};
   }
@@ -24,7 +24,7 @@ export function directAnswerText(request){
   if(!request) return null;
   if(request.answerKey==='identity') return 'Me llamo Mia, soy la asistente virtual de MARTCOM. 😊';
   if(request.answerKey==='process_time') return 'Una vez que recibimos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. El tiempo puede variar según la revisión del caso.';
-  if(request.answerKey==='requirements') return 'Para integrar el expediente normalmente necesitamos CURP, NSS, INE y Constancia de Situación Fiscal. No necesitas enviarlos todavía si aún estás revisando la opción; primero podemos resolver tus dudas sobre el plan y el proceso.';
+  if(request.answerKey==='requirements') return 'Para iniciar necesitamos CURP, NSS e INE del titular. La Constancia de Situación Fiscal es opcional al inicio y se solicitará a los 3 meses de que ya estés con nosotros. Si todavía estás revisando la opción, no necesitas enviar tus documentos aún.';
   if(request.answerKey==='services' && request.plan==='plan_1') return 'El Plan 1 cuesta $1,100 MXN e incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Si quieres, también puedo explicarte algún beneficio en particular.';
   if(request.answerKey==='services' && request.plan==='plan_2') return 'El Plan 2 cuesta $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT; también contempla incapacidades conforme al caso.';
   if(request.answerKey==='services') return 'Tenemos dos opciones: Plan 1 por $1,100 MXN, enfocado en servicio médico, semanas cotizadas y beneficiarios; y Plan 2 por $1,500 MXN, que además contempla AFORE, INFONAVIT e incapacidades conforme al caso. Ambos manejan un salario diario registrado de $480 MXN.';
