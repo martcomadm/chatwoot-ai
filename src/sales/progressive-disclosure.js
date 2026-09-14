@@ -69,6 +69,41 @@ function effectivePlan(memory = {}) {
   return null;
 }
 
+
+function affirmativeFollowUp(text = "") {
+  const value = norm(text);
+  return /^(?:si|sí|claro|por favor|va|vale|adelante|ok|okay|perfecto)(?:[ ,.!¡¿?]+(?:explicame|explícame|cuentame|cuéntame|dime|por favor))?$/.test(value)
+    || /\b(?:si|sí)\s+(?:explicame|explícame|cuentame|cuéntame|dime)\b/.test(value);
+}
+
+function priorAgentOfferedExplanation(memory = {}) {
+  const previous = norm(memory?.ultima_respuesta_agente || "");
+  return /quieres que te explique como funciona/.test(previous)
+    || /si quieres, te explico como funciona/.test(previous)
+    || /puedo explicarte como funciona/.test(previous);
+}
+
+export function contextualPlanExplanation(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  if (!affirmativeFollowUp(combinedText) || !priorAgentOfferedExplanation(memory)) return null;
+  const plan = effectivePlan(memory);
+  if (plan === "plan_1") {
+    return {
+      reply: "Claro. Con el Plan 1 puedes contar con servicio médico del IMSS y continuar cotizando semanas. También puedes registrar beneficiarios conforme a las reglas del IMSS. El costo es de $1,100 MXN y, una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si te interesa, puedo explicarte los requisitos para iniciar o resolver cualquier duda que tengas sobre el plan.",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (plan === "plan_2") {
+    return {
+      reply: "Claro. Con el Plan 2 tienes servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT conforme al caso. Tiene un costo de $1,500 MXN. Si quieres, puedo explicarte los requisitos para iniciar o resolver cualquier duda sobre este plan.",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  return null;
+}
+
 export function compactPlanRecommendation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized || customerAskedCommercialDetails(combinedText)) return null;
   const plan = effectivePlan(memory);
