@@ -64,3 +64,12 @@ test("natural requirements phrasing is answered directly", () => {
     assert.match(orchestration.directAnswer || "", /INE/i);
   }
 });
+
+
+test("requirements detector accepts punctuation after natural phrasing", () => {
+  for (const text of ["que requisitos necesitas?", "¿qué requisitos necesitas?", "que requisitos necesitan?", "que requisitos piden?", "que requisitos solicitan?"]) {
+    const orchestration = orchestrateConversation(text, {});
+    assert.equal(orchestration.directRequest?.type, "requirements", text);
+    assert.match(orchestration.directAnswer || "", /CURP/i);
+  }
+});
