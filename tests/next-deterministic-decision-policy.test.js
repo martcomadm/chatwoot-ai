@@ -14,7 +14,8 @@ test("requirements becomes a deterministic direct answer", () => {
   assert.match(decision.reply, /NSS/);
   assert.match(decision.reply, /INE/);
   assert.match(decision.reply, /Constancia/);
-  assert.match(decision.reply, /No necesitas enviarlos todavía/);
+  assert.match(decision.reply, /no necesitas enviar tus documentos aún/i);
+  assert.match(decision.reply, /3 meses/i);
 });
 
 test("need guard is protected as deterministic decision", () => {
@@ -51,4 +52,15 @@ test("compact recommendation can be protected from fallback repair", () => {
 test("internal deterministic metadata is removed before sending", () => {
   const clean = stripDecisionMetadata({ reply: "Hola", __deterministic: true, __source: "test", question_key: null });
   assert.deepEqual(clean, { reply: "Hola", question_key: null });
+});
+
+
+test("natural requirements phrasing is answered directly", () => {
+  for (const text of ["que requisitos necesitas?", "qué requisitos necesitan", "que requisitos piden", "que requisitos solicitan"]) {
+    const orchestration = orchestrateConversation(text, {});
+    assert.equal(orchestration.directRequest?.type, "requirements", text);
+    assert.match(orchestration.directAnswer || "", /CURP/i);
+    assert.match(orchestration.directAnswer || "", /NSS/i);
+    assert.match(orchestration.directAnswer || "", /INE/i);
+  }
 });
