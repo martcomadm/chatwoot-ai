@@ -73,3 +73,25 @@ test("requirements detector accepts punctuation after natural phrasing", () => {
     assert.match(orchestration.directAnswer || "", /CURP/i);
   }
 });
+
+
+test("requirements intent wins for broad natural variants", () => {
+  const variants = [
+    "que requisitos necesitas?",
+    "¿Qué requisitos necesitas?",
+    "que requisitos necesito",
+    "cuales requisitos piden",
+    "que documentos necesito",
+    "que papeles ocupan",
+    "que se necesita para iniciar el tramite",
+  ];
+  for (const text of variants) {
+    const orchestration = orchestrateConversation(text, {});
+    assert.equal(orchestration.directRequest?.type, "requirements", text);
+    const decision = directAnswerDecision({ judgment: {}, orchestration });
+    assert.equal(decision?.__source, "direct:requirements", text);
+    assert.match(decision?.reply || "", /CURP/i, text);
+    assert.match(decision?.reply || "", /NSS/i, text);
+    assert.match(decision?.reply || "", /INE/i, text);
+  }
+});
