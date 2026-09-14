@@ -20,7 +20,7 @@ function money(v){return v==null?'—':new Intl.NumberFormat('es-MX',{style:'cur
 function date(v){if(!v)return '—';try{return new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(v))}catch{return v}}
 function statusLabel(v){return String(v||'').replaceAll('_',' ')}
 function progress(s){const order=['capture','validation','validity','payment','completed'];const q=s.queue||'capture';const idx=order.indexOf(q);return order.map((x,i)=>'<div class="step '+(i<=idx?'done':'')+'" title="'+x+'"></div>').join('')}
-async function api(url,method='GET',body){const r=await fetch(url,{method,headers,body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw new Error(j.error||'Error');return j}
+async function api(url,method='GET',body){const sep=url.includes('?')?'&':'?';const authedUrl=url+sep+'token='+encodeURIComponent(token);const r=await fetch(authedUrl,{method,headers,body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw new Error(j.error||'Error');return j}
 async function action(url,body={}){try{await api(url,'POST',body);await load()}catch(e){alert(e.message)}}
 function render(s,links){
  const checklist=s.documents?.checklist?.requirements||[];const files=s.documents?.files||[];const complete=Boolean(s.documents?.complete);const events=[...(s.events||[])].reverse();
@@ -28,12 +28,21 @@ function render(s,links){
  const documents=files.length?files.map(f=>'<div class="doc"><div><b>'+esc(f.name||'Archivo')+'</b><div class="muted">'+esc(f.type||'other')+' · '+date(f.received_at)+'</div></div>'+(f.url?'<a target="_blank" rel="noopener" href="'+esc(f.url)+'">Abrir</a>':'<span class="muted">Sin URL</span>')+'</div>').join(''):'<div class="empty">Todavía no hay archivos asociados.</div>';
  const timeline=events.length?events.map(e=>'<div class="event"><b>'+esc(e.type)+'</b><small>'+date(e.at)+'</small><small>'+esc(JSON.stringify(e.details||{}))+'</small></div>').join(''):'<div class="empty">Sin eventos.</div>';
  let actions='';
- if(s.queue==='capture'){actions+='<button class="btn" onclick="action(\'/operations/api/sales/'+esc(s.sale_id)+'/capture/start\',{name:\'Capturista\'})">Tomar expediente</button>';actions+='<button class="btn" '+(!complete?'disabled':'')+' onclick="action(\'/operations/api/sales/'+esc(s.sale_id)+'/capture/complete\',{})">Alta procesada</button>';actions+='<button class="btn secondary" onclick="action(\'/operations/api/sales/'+esc(s.sale_id)+'/documents/sync\',{})">Recalcular documentos</button>'}
+ if(s.queue==='capture'){actions+='<button type="button" class="btn" data-action="capture-start" data-sale-id="'+esc(s.sale_id)+'">Tomar expediente</button>';actions+='<button type="button" class="btn" '+(!complete?'disabled':'')+' data-action="capture-complete" data-sale-id="'+esc(s.sale_id)+'">Alta procesada</button>';actions+='<button type="button" class="btn secondary" data-action="documents-sync" data-sale-id="'+esc(s.sale_id)+'">Recalcular documentos</button>'}
  if(s.queue==='validation')actions+='<a class="btn" href="/operations?queue=validation&token='+encodeURIComponent(token)+'">Ir a Validación</a>';
  if(links?.chatwoot)actions+='<a class="btn secondary" target="_blank" rel="noopener" href="'+esc(links.chatwoot)+'">Ver conversación</a>';
  document.getElementById('app').innerHTML='<div class="hero"><div><span class="pill">'+esc(s.sale_id)+'</span><h1>'+esc(s.customer?.nombre||'Cliente sin nombre')+'</h1><div class="muted">Chat #'+esc(s.conversation_id||'—')+' · '+esc(s.sale?.plan||'Sin plan')+' · '+money(s.sale?.precio)+'</div><div class="progress">'+progress(s)+'</div></div><span class="pill '+(complete?'ok':'warn')+'">'+(complete?'Expediente completo':'Expediente incompleto')+'</span></div><div class="layout"><main><section class="panel"><h2>Datos del cliente</h2><div class="data"><div class="field"><small>CURP</small>'+esc(s.customer?.curp||'Pendiente')+'</div><div class="field"><small>NSS</small>'+esc(s.customer?.nss||'Pendiente')+'</div><div class="field"><small>Edad</small>'+esc(s.customer?.edad??'—')+'</div><div class="field"><small>Actividad</small>'+esc(s.customer?.actividad||'—')+'</div><div class="field"><small>Teléfono</small>'+esc(s.customer?.telefono||'—')+'</div><div class="field"><small>Estado</small>'+esc(statusLabel(s.status))+'</div></div></section><section class="panel"><h2>Checklist documental</h2><div class="reqs">'+requirements+'</div>'+(!complete?'<div class="missing"><b>Faltantes:</b> '+esc((s.documents?.missing||[]).join(', ')||'requisitos pendientes')+'</div>':'')+'</section><section class="panel"><h2>Documentos recibidos</h2><div class="docs">'+documents+'</div></section></main><aside><section class="panel"><h2>Acciones</h2><div class="actions">'+actions+'</div><div class="muted" style="margin-top:12px">Responsable: '+esc(s.capture?.assigned_name||'Sin asignar')+'<br>Inicio: '+date(s.capture?.started_at)+'<br>Actualizado: '+date(s.updated_at)+'</div></section><section class="panel"><h2>Timeline</h2><div class="timeline">'+timeline+'</div></section></aside></div>'
 }
 async function load(){try{const j=await api('/operations/api/sales/'+encodeURIComponent(saleId));render(j.sale,j.links||{})}catch(e){document.getElementById('app').innerHTML='<div class="error">'+esc(e.message)+'</div>'}}
+document.getElementById('app').addEventListener('click',e=>{
+  const button=e.target.closest('[data-action]');
+  if(!button)return;
+  const id=button.dataset.saleId;
+  const actionName=button.dataset.action;
+  if(actionName==='capture-start')action('/operations/api/sales/'+encodeURIComponent(id)+'/capture/start',{name:'Capturista'});
+  else if(actionName==='capture-complete')action('/operations/api/sales/'+encodeURIComponent(id)+'/capture/complete',{});
+  else if(actionName==='documents-sync')action('/operations/api/sales/'+encodeURIComponent(id)+'/documents/sync',{});
+});
 const es=new EventSource('/operations/api/events?token='+encodeURIComponent(token));es.onmessage=e=>{try{const x=JSON.parse(e.data);if(x.sale?.sale_id===saleId)load()}catch{}};load();
 </script></body></html>`;
 }
