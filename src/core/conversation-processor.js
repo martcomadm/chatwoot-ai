@@ -4,7 +4,7 @@ import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
-import { progressiveOpeningDecision, compactPlanRecommendation, disclosureViolations } from "../sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, contextualPlanExplanation, disclosureViolations } from "../sales/progressive-disclosure.js";
 import { needGuardDecision, suppressRecommendationWithoutNeed } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
@@ -44,6 +44,7 @@ let decision;
 const onboardingDecision=buildOnboardingDecision(memory,combinedText);
 const openingDecision=progressiveOpeningDecision(memory,combinedText);
 const needDecision=needGuardDecision(memory,combinedText);
+const contextualExplanation=contextualPlanExplanation(base,combinedText);
 const compactRecommendation=compactPlanRecommendation(memory,combinedText);
 const directDecision=directAnswerDecision({judgment,orchestration});
 // Evaluate commitment against the state that existed BEFORE this customer message.
@@ -51,6 +52,7 @@ const commitment=commitmentDecision(base,combinedText);
 
 // NEXT deterministic priority: explicit customer question > authorization/selection/interest > operations > opening > need > recommendation > LLM.
 if(directDecision)decision=directDecision;
+else if(contextualExplanation)decision=protectDeterministicDecision(contextualExplanation,"contextual_plan_explanation");
 else if(commitment)decision=protectDeterministicDecision(commitment,`commitment:${commitment.commitment}`);
 else if(memory.sales_cycle?.authorized&&onboardingDecision)decision=protectDeterministicDecision(onboardingDecision,"onboarding");
 else if(openingDecision)decision=protectDeterministicDecision(openingDecision,"progressive_opening");
