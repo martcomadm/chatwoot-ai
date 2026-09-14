@@ -1,7 +1,7 @@
 import { onboardingStateFromSale } from "./onboarding-service.js";
 
 const CUSTOMER_MESSAGES=Object.freeze({
-  "capture.completed":"Gracias. Tu alta ya fue procesada y ahora pasará a revisión. Te avisaré en cuanto el área de validación confirme que todo está correcto.",
+  "capture.completed":"Agradecemos su confianza. El trámite de afiliación ya se encuentra en proceso.\n\nEl Área de Validación se comunicará con usted para confirmar sus datos y asegurarse de que toda la información haya sido registrada correctamente.\nAdemás, por WhatsApp recibirá los Términos y Condiciones del servicio.\nLe pedimos, por favor, confirmar de enterado cuando los reciba.\n\nEl contacto se realizará desde los siguientes números:\n📞 561 485 8202\n📞 554 883 3726\n\nGracias nuevamente. Estamos para servirle.",
   "validation.approved":"Tu proceso de validación fue aprobado correctamente. Ahora estamos esperando la confirmación de vigencia ante el IMSS; en cuanto quede confirmada te aviso por aquí.",
   "validity.confirmed":"Tu afiliación ya aparece vigente. El siguiente paso corresponde al pago del servicio. Enseguida te indicaré cómo continuar con el pago.",
   "payment.received":"Recibimos el registro de tu pago. Estamos validándolo y te confirmaré por aquí cuando quede aplicado correctamente.",
