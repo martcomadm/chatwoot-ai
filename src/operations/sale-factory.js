@@ -1,6 +1,43 @@
 import { extractConversationAttachments } from "./document-service.js";
 import { onboardingStateFromSale } from "./onboarding-service.js";
 
+function normalizePhone(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const cleaned = raw.replace(/^whatsapp:/i, "").replace(/[\s().-]/g, "");
+  const digits = cleaned.replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 15) return null;
+  return cleaned.startsWith("+") ? `+${digits}` : digits;
+}
+
+function extractContactPhone(conversation = {}) {
+  const meta = conversation?.meta || {};
+  const sender = meta.sender || conversation?.contact || {};
+  const candidates = [
+    sender.phone_number,
+    sender.phone,
+    sender.identifier,
+    sender.additional_attributes?.phone_number,
+    sender.additional_attributes?.phone,
+    sender.custom_attributes?.phone_number,
+    conversation?.contact?.phone_number,
+    conversation?.contact?.phone,
+    conversation?.contact?.identifier,
+    conversation?.contact?.additional_attributes?.phone_number,
+    conversation?.contact_inbox?.source_id,
+    meta?.contact_inbox?.source_id,
+    sender?.contact_inboxes?.[0]?.source_id,
+    conversation?.contact?.contact_inboxes?.[0]?.source_id,
+    conversation?.contact_inboxes?.[0]?.source_id,
+    conversation?.additional_attributes?.phone_number,
+  ];
+  for (const value of candidates) {
+    const phone = normalizePhone(value);
+    if (phone) return phone;
+  }
+  return null;
+}
+
 function planPrice(plan) {
   if (plan === "plan_1") return 1100;
   if (plan === "plan_2") return 1500;
@@ -16,7 +53,7 @@ export function saleInputFromMemory({ conversationId, conversation = {}, memory 
     contact_id: Number(sender.id || conversation?.contact_id || 0) || null,
     customer: {
       nombre: memory.nombre || sender.name || null,
-      telefono: sender.phone_number || sender.phone || sender.identifier || meta.sender?.phone_number || conversation?.contact?.phone_number || conversation?.contact?.phone || null,
+      telefono: extractContactPhone(conversation),
       edad: memory.edad ?? null,
       actividad: memory.actividad || null,
       curp: memory.curp_valor || null,
