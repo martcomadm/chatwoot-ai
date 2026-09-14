@@ -4,7 +4,7 @@ export function detectDirectRequest(text){
   const v=norm(text);
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
   if(/\b(cuanto tarda|cuanto tiempo tarda|cuanto demora|tiempo de proceso|tiempo del tramite|tramite cuanto tarda|en cuanto tiempo|cuantas horas tarda)\b/.test(v)) return {type:'process_time',priority:'high',answerKey:'process_time'};
-  if(/\b(cuales? son los requisitos|que requisitos(?: (?:necesitas|necesitan|piden|solicitan))?|requisitos para|que documentos|cuales? documentos|documentos necesito|que necesito para (?:iniciar|tramitar|afiliarme|darme de alta))\b/.test(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
+  if(/\b(cuales? son los requisitos|que requisitos(?: (?:necesitas|necesitan|piden|solicitan))?|requisitos para|que documentos|cuales? documentos|documentos necesito|que necesito para (?:iniciar|tramitar|afiliarme|darme de alta))(?=\b|\s|[?!.,;:]|$)/.test(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
   if(/\b(donde se (encuentran|ubican)|donde estan|ubicacion|oficinas?|razon social|estafa|fraude|confiable|seguro que|son reales)\b/.test(v)){
     return {type:'trust',priority:'high',answerKey:'trust'};
   }
