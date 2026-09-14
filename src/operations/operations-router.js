@@ -34,7 +34,17 @@ export function createOperationsRouter({config,saleStore,workflow,memories,inspe
   router.post("/operations/api/sales/:id/validation/correction",guard,action(req=>workflow.requestCorrection(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/validation/reject",guard,action(req=>workflow.rejectValidation(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/validation/reopen",guard,action(req=>workflow.reopenRejected(req.params.id,req.body||{})));
-  router.post("/operations/api/sales/:id/validity/confirm",guard,action(req=>workflow.confirmValidity(req.params.id,req.body||{})));
+  router.post("/operations/api/sales/:id/validity/confirm",guard,action(req=>{
+    const body=req.body||{};
+    if(body.document_base64){
+      const raw=String(body.document_base64);
+      const estimatedBytes=Math.floor(raw.length*3/4);
+      if(estimatedBytes>10*1024*1024)throw new Error("El documento de vigencia no puede exceder 10 MB");
+      const allowed=new Set(["application/pdf","image/jpeg","image/png","image/webp"]);
+      if(!allowed.has(String(body.document_content_type||"")))throw new Error("Formato de vigencia no permitido. Usa PDF, JPG, PNG o WEBP");
+    }
+    return workflow.confirmValidity(req.params.id,body);
+  }));
   router.post("/operations/api/sales/:id/validity/issue",guard,action(req=>workflow.reportValidityIssue(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/validity/reopen",guard,action(req=>workflow.reopenValidity(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/payment/request",guard,action(req=>workflow.requestPayment(req.params.id,req.body||{})));
