@@ -36,6 +36,35 @@ window.confirmValidityWithUpload = async function(id) {
 };
 </script>`;
 
+  const paymentUploadScript = `<script>
+window.requestPaymentWithAccountsImage = async function(id) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
+  input.onchange = async function() {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert('La imagen de cuentas no puede exceder 10 MB.'); return; }
+    if (!confirm('Se enviará esta imagen al cliente y se le indicará que debe cubrir el pago el día de hoy. ¿Continuar?')) return;
+    try {
+      const base64 = await new Promise((resolve,reject)=>{
+        const reader = new FileReader();
+        reader.onload = ()=>resolve(String(reader.result||'').split(',')[1]||'');
+        reader.onerror = ()=>reject(new Error('No se pudo leer la imagen'));
+        reader.readAsDataURL(file);
+      });
+      await act('/operations/api/sales/'+encodeURIComponent(id)+'/payment/request',{
+        accounts_image_name:file.name,
+        accounts_image_content_type:file.type || 'image/jpeg',
+        accounts_image_base64:base64,
+        by:'Cobranza'
+      });
+    } catch (error) { alert(error.message || String(error)); }
+  };
+  input.click();
+};
+</script>`;
+
   const script = `<script>
 window.resetLabConversationSafe = async function () {
   const input = document.getElementById('resetConversationId');
@@ -108,5 +137,6 @@ window.resetLabConversationSafe = async function () {
 </script>`;
 
   const validityButton = fixedButton.replace(/onclick="confirmValidity\(&quot;([^&]+)&quot;\)">Confirmar vigencia<\/button>/g,'onclick="window.confirmValidityWithUpload(&quot;$1&quot;)">Subir vigencia y confirmar</button>');
-  return validityButton.replace("</body>", validityUploadScript + script + "</body>");
+  const paymentButton = validityButton.replace(/onclick="requestPayment\(&quot;([^&]+)&quot;\)">Solicitar pago<\/button>/g,'onclick="window.requestPaymentWithAccountsImage(&quot;$1&quot;)">Subir cuentas y solicitar pago</button>');
+  return paymentButton.replace("</body>", validityUploadScript + paymentUploadScript + script + "</body>");
 }
