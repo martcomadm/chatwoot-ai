@@ -34,7 +34,11 @@ const conversation=await this.chatwoot.getConversation(conversationId);if(Number
 let base=this.memories.get(conversationId);const intent=classifyIntent(combinedText,base);const fastPatch=extractFast(combinedText,base);const activityPatch=contextualActivityPatch(combinedText,base);if(containsCurp(combinedText))fastPatch.curp_recibida=true;if(containsNss(combinedText))fastPatch.nss_recibido=true;const facts=extractConversationFacts(combinedText,base);const reliability=analyzeReliability(combinedText,base,{...fastPatch,...activityPatch,...facts.patch,intereses:{...(fastPatch.intereses||{}),...(facts.patch.intereses||{})},slots:{...(fastPatch.slots||{}),...(facts.patch.slots||{})}});const orchestration=orchestrateConversation(combinedText,base);const judgment=analyzeJudgment(combinedText,base);const patience=analyzePatience(combinedText,base);const negation=resolveNegationScope(combinedText);if(negation.status==="ambiguous"){judgment.shouldHandoff=false;judgment.directAnswer=negation.clarification;judgment.question={type:"clarify_interest",answerKey:null};}
 const llmPatch=await this.ai.extractAmbiguous(base,combinedText,conversation);llmPatch.contradicciones=[];let memory=mergeMemory(base,fastPatch,facts.patch,llmPatch,activityPatch,reliability.patch,judgment.patch,patience.patch,{orchestration:{direct_request:judgment.question||orchestration.directRequest,direct_answer:judgment.directAnswer||orchestration.directAnswer}});memory.intent=intent;memory.contradicciones=reliability.contradictions;for(const message of batch)if(hasAttachments(message))memory.documentos_recibidos=arrays(memory.documentos_recibidos,message.attachments.map(a=>a?.file_type||a?.extension||"archivo"));await this.memories.set(conversationId,memory);
 const paymentSale=this.workflow?.store?.findByConversationId?.(conversationId);
-const paymentProof=paymentSale?.status==="payment_requested"?paymentProofAttachment(batch):null;
+// Chatwoot puede entregar el adjunto en el webhook pero no incluirlo todavía en
+// GET /conversations/:id. Revisamos ambos orígenes antes de decidir que no hay comprobante.
+const paymentProof=paymentSale?.status==="payment_requested"
+  ? (paymentProofAttachment(batch)||paymentProofAttachment([...(snapshot?.webhookMessages?.values?.()||[])]))
+  : null;
 if(paymentProof){
   try{
     this.workflow.receivePayment(paymentSale.sale_id,{...paymentProof,by:"Mia · comprobante recibido por Chatwoot",notes:combinedText||"Comprobante enviado por el cliente"});
