@@ -19,6 +19,24 @@ export class ChatwootApi {
       method: "POST", body: JSON.stringify({ content, message_type: "outgoing", private: isPrivate }),
     });
   }
+  async sendMessageWithAttachment(id, content, attachment, isPrivate = false) {
+    const form = new FormData();
+    form.append("content", content || "");
+    form.append("message_type", "outgoing");
+    form.append("private", String(Boolean(isPrivate)));
+    const bytes = Buffer.from(String(attachment?.base64 || ""), "base64");
+    form.append("attachments[]", new Blob([bytes], { type: attachment?.contentType || "application/pdf" }), attachment?.filename || "vigencia.pdf");
+    const response = await fetch(this.config.baseUrl + `/api/v1/accounts/${this.config.accountId}/conversations/${id}/messages`, {
+      method: "POST",
+      headers: { api_access_token: this.config.token },
+      body: form,
+    });
+    const responseText = await response.text();
+    let data = null;
+    try { data = responseText ? JSON.parse(responseText) : null; } catch { data = responseText; }
+    if (!response.ok) throw new Error(`Chatwoot ${response.status}: ${JSON.stringify(data)}`);
+    return data;
+  }
   assignConversation(id, assigneeId) {
     return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/assignments`, {
       method: "POST", body: JSON.stringify({ assignee_id: Number(assigneeId) }),
