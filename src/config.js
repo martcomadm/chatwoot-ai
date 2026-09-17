@@ -46,7 +46,7 @@ export function loadConfig() {
     handoff: { enabled: parseBool(process.env.AUTO_HANDOFF,true), sundayAgents: parseAgents(process.env.HANDOFF_SUNDAY_AGENTS || "25:Elizabeth Aguilera,20:Jonathan Nuñez,31:Tonatiuh Ramirez"), saturdayAgents: parseAgents(process.env.HANDOFF_SATURDAY_AGENTS || "40:Alberto Gonzalez,26:Pamela Montiel,32:Vicente Martinez"), weekdayAgents: parseAgents(process.env.HANDOFF_WEEKDAY_AGENTS || "") },
     webhookSecret: process.env.WEBHOOK_SECRET || "",
     inspector: { token: process.env.INSPECTOR_TOKEN || "", maxEventsPerConversation: Number(process.env.INSPECTOR_MAX_EVENTS_PER_CONVERSATION || 200), adminToken: process.env.INSPECTOR_ADMIN_TOKEN || "" },
-    operations: { token: process.env.OPERATIONS_TOKEN || process.env.INSPECTOR_ADMIN_TOKEN || "" },
+    operations: { token: process.env.OPERATIONS_TOKEN || process.env.INSPECTOR_ADMIN_TOKEN || "", customerServiceTeamId: Number(process.env.CUSTOMER_SERVICE_TEAM_ID || 0) },
   };
   validateNextIsolation(config); return config;
 }
