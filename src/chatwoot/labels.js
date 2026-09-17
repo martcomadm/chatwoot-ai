@@ -1,6 +1,6 @@
-const allowed = new Set(["asignado","cerrado","chat_basura","cliente","embarazo","no_contesta","no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado","seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"]);
+const allowed = new Set(["asignado","cerrado","chat_basura","cliente","completado","embarazo","no_contesta","no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado","seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"]);
 const protectedLabels = new Set(["asignado","predictivo","reasignado","cliente","venta"]);
-export const stopLabels = new Set(["cerrado","chat_basura","no_quiere_el_servicio","rechazado","venta","validacion"]);
+export const stopLabels = new Set(["cerrado","chat_basura","completado","no_quiere_el_servicio","rechazado","venta","validacion"]);
 
 function labelsFromConversation(conversation) {
   for (const value of [conversation?.labels, conversation?.meta?.labels, conversation?.conversation?.labels]) {
