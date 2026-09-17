@@ -24,6 +24,19 @@ const allowedLabels=new Set(["asignado","cerrado","chat_basura","cliente","embar
 const protectedLabels=new Set(["asignado","predictivo","reasignado","cliente","venta"]);
 function batchFrom(conversation,snapshot,memories,conversationId){const all=messagesOf(conversation);const wanted=new Set(snapshot.ids||[]);const webhook=[...(snapshot.webhookMessages?.values?.()||[])];let batch=all.filter(m=>m?.id&&wanted.has(String(m.id))&&isIncoming(m)&&m.private!==true&&isContact(m));if(!batch.length)batch=webhook.filter(m=>isIncoming(m)&&m.private!==true&&isContact(m));return batch.filter(m=>!memories.hasProcessed(conversationId,m.id));}
 function explicitHumanRequest(text){return /\b(humano|persona|asesor|asesora|ejecutivo|ejecutiva|agente real|hablar con alguien|atencion personal|atención personal)\b/i.test(text||"");}
+function paymentProofAttachment(messages=[]){
+  for(const message of messages||[]){
+    const attachments=Array.isArray(message?.attachments)?message.attachments:[];
+    for(const attachment of attachments){
+      const type=String(attachment?.file_type||attachment?.extension||attachment?.content_type||"").toLowerCase();
+      if(type.includes("audio")||type.includes("video")) continue;
+      const proof_url=attachment?.data_url||attachment?.download_url||attachment?.file_url||attachment?.url||null;
+      const proof_name=attachment?.file_name||attachment?.filename||attachment?.name||"comprobante";
+      if(proof_url||attachment?.id) return {proof_url,proof_name,attachment_id:attachment?.id||null,file_type:type||null};
+    }
+  }
+  return null;
+}
 
 export class ConversationProcessor{
 constructor({config,chatwoot,labels,memories,agentRotation,ai,inspectorEvents,handoffRouter,workflow}){this.config=config;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.agentRotation=agentRotation;this.ai=ai;this.inspectorEvents=inspectorEvents;this.handoffRouter=handoffRouter;this.workflow=workflow;}
@@ -34,11 +47,7 @@ const conversation=await this.chatwoot.getConversation(conversationId);if(Number
 let base=this.memories.get(conversationId);const intent=classifyIntent(combinedText,base);const fastPatch=extractFast(combinedText,base);const activityPatch=contextualActivityPatch(combinedText,base);if(containsCurp(combinedText))fastPatch.curp_recibida=true;if(containsNss(combinedText))fastPatch.nss_recibido=true;const facts=extractConversationFacts(combinedText,base);const reliability=analyzeReliability(combinedText,base,{...fastPatch,...activityPatch,...facts.patch,intereses:{...(fastPatch.intereses||{}),...(facts.patch.intereses||{})},slots:{...(fastPatch.slots||{}),...(facts.patch.slots||{})}});const orchestration=orchestrateConversation(combinedText,base);const judgment=analyzeJudgment(combinedText,base);const patience=analyzePatience(combinedText,base);const negation=resolveNegationScope(combinedText);if(negation.status==="ambiguous"){judgment.shouldHandoff=false;judgment.directAnswer=negation.clarification;judgment.question={type:"clarify_interest",answerKey:null};}
 const llmPatch=await this.ai.extractAmbiguous(base,combinedText,conversation);llmPatch.contradicciones=[];let memory=mergeMemory(base,fastPatch,facts.patch,llmPatch,activityPatch,reliability.patch,judgment.patch,patience.patch,{orchestration:{direct_request:judgment.question||orchestration.directRequest,direct_answer:judgment.directAnswer||orchestration.directAnswer}});memory.intent=intent;memory.contradicciones=reliability.contradictions;for(const message of batch)if(hasAttachments(message))memory.documentos_recibidos=arrays(memory.documentos_recibidos,message.attachments.map(a=>a?.file_type||a?.extension||"archivo"));await this.memories.set(conversationId,memory);
 const paymentSale=this.workflow?.store?.findByConversationId?.(conversationId);
-// Chatwoot puede entregar el adjunto en el webhook pero no incluirlo todavía en
-// GET /conversations/:id. Revisamos ambos orígenes antes de decidir que no hay comprobante.
-const paymentProof=paymentSale?.status==="payment_requested"
-  ? (paymentProofAttachment(batch)||paymentProofAttachment([...(snapshot?.webhookMessages?.values?.()||[])]))
-  : null;
+const paymentProof=paymentSale?.status==="payment_requested" ? (paymentProofAttachment(batch)||paymentProofAttachment([...(snapshot?.webhookMessages?.values?.()||[])])) : null;
 if(paymentProof){
   try{
     this.workflow.receivePayment(paymentSale.sale_id,{...paymentProof,by:"Mia · comprobante recibido por Chatwoot",notes:combinedText||"Comprobante enviado por el cliente"});
@@ -54,7 +63,6 @@ if(patience.shouldPause){await this.record(conversationId,"conversation_patience
 const b2b=orchestration.shouldHandoffB2B||memory.intent?.id==="PROVEEDOR";const frustrated=Number(memory.experiencia?.frustration_score||0)>=2||judgment.shouldHandoff;if(explicitHumanRequest(combinedText)||b2b||frustrated){if(b2b)await this.labels.mergeSafe(conversationId,["proveedor",this.config.ai.validationLabel],[],conversation);const reason=explicitHumanRequest(combinedText)?"El cliente solicitó atención humana.":b2b?"Solicitud comercial de proveedor/asesor.":judgment.handoffReason||"El caso requiere intervención humana.";await this.transfer(conversationId,conversation,reason,memory);await this.memories.markProcessedMany(conversationId,messageIds);return;}
 if(memory.sales_cycle?.authorized&&this.workflow){const result=await ensureAuthorizedSale({workflow:this.workflow,memories:this.memories,inspectorEvents:this.inspectorEvents,conversationId,conversation,memory});memory=this.memories.get(conversationId);await this.record(conversationId,"authorized_sale_workflow",{sale_id:result.sale?.sale_id,status:result.sale?.status,documents_complete:result.sale?.documents?.complete,missing:result.sale?.documents?.missing||[]});}
 const sales=analyzeSales(memory);let planner=planNext({...memory,ventas:sales});const directRequest=judgment.question||orchestration.directRequest;if(directRequest)planner={...planner,direct_answer_first:true,direct_request:directRequest.type,customer_question_priority:true};
-// Una pregunta directa nunca debe terminar inmediatamente en una solicitud de CURP/NSS.
 if(directRequest&&["curp","nss"].includes(planner?.question_key))planner={...planner,question_key:null,customer_question_priority:true};if(!memory.sales_cycle?.authorized&&["curp","nss"].includes(planner?.question_key))planner={...planner,action:"continuar_venta",question_key:null,specialized:true};if(["curp","nss"].includes(planner?.question_key)&&sensitiveSlotSuppressed(memory,planner.question_key))planner={action:"esperar_o_continuar_sin_dato_sensible",question_key:null,specialized:true};if(memory.sales_cycle?.authorized)planner={action:"expediente_onboarding",question_key:memory.operations?.onboarding_next||null,specialized:true,operations:memory.operations};memory.ventas=sales;memory.flujo={fase:memory.sales_cycle?.authorized?"operaciones":"venta",siguiente_paso:planner.question_key};await this.memories.set(conversationId,memory);
 
 let decision;
@@ -64,44 +72,24 @@ const needDecision=needGuardDecision(memory,combinedText);
 const contextualExplanation=contextualPlanExplanation(base,combinedText);
 const compactRecommendation=compactPlanRecommendation(memory,combinedText);
 const directDecision=directAnswerDecision({judgment,orchestration});
-// Evaluate commitment against the state that existed BEFORE this customer message.
 const commitment=commitmentDecision(base,combinedText);
-
-// NEXT deterministic priority: explicit customer question > authorization/selection/interest > operations > opening > need > recommendation > LLM.
 if(directDecision)decision=directDecision;
 else if(contextualExplanation)decision=protectDeterministicDecision(contextualExplanation,"contextual_plan_explanation");
 else if(commitment)decision=protectDeterministicDecision(commitment,`commitment:${commitment.commitment}`);
 else if(memory.sales_cycle?.authorized&&onboardingDecision)decision=protectDeterministicDecision(onboardingDecision,"onboarding");
 else if(openingDecision)decision=protectDeterministicDecision(openingDecision,"progressive_opening");
-else if(needDecision)decision=protectDeterministicDecision(needDecision,"need_guard");
-else if(compactRecommendation)decision=protectDeterministicDecision(compactRecommendation,"compact_recommendation");
-else decision=await this.ai.generateDecision(conversation,currentLabels,memory,planner,combinedText);
-
-if(memory.sales_cycle?.authorized){decision.handoff=false;if(onboardingDecision&&!directRequest&&!commitment)decision.question_key=onboardingDecision.question_key;}
-if(directRequest&&["curp","nss"].includes(decision.question_key))decision.question_key=null;
-if(decision.question_key&&answered(memory,decision.question_key)&&!memory.sales_cycle?.authorized&&!isDeterministicDecision(decision))decision=fallbackDecision(memory,planner,combinedText);
-if(!isDeterministicDecision(decision)){
-  decision=enforcePreAuthorizationDecision(decision,{memory,planner,combinedText,fallbackDecision});
-  decision=suppressRecommendationWithoutNeed(decision,memory,combinedText);
-}
-
-let disclosureReasons=disclosureViolations(decision.reply,{memory,combinedText});
-if(disclosureReasons.length&&openingDecision&&!directDecision&&!commitment)decision=protectDeterministicDecision(openingDecision,"progressive_opening");
-let quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:this.config.ai.maxReplyChars});
-if(!quality.ok&&!isDeterministicDecision(decision)){
-  try{decision=await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons);}catch{decision=fallbackDecision(memory,planner,combinedText);}
-  quality=checkReply(decision.reply,{memory,questionKey:decision.question_key,maxChars:this.config.ai.maxReplyChars});
-}
-if(!quality.ok&&!isDeterministicDecision(decision)&&memory.sales_cycle?.authorized&&onboardingDecision)decision=protectDeterministicDecision(onboardingDecision,"onboarding");
-else if(!quality.ok&&!isDeterministicDecision(decision))decision=fallbackDecision(memory,planner,combinedText);
-if(!isDeterministicDecision(decision)){
-  decision=enforcePreAuthorizationDecision(decision,{memory,planner,combinedText,fallbackDecision});
-  decision=suppressRecommendationWithoutNeed(decision,memory,combinedText);
-}
-disclosureReasons=disclosureViolations(decision.reply,{memory,combinedText});
-if(disclosureReasons.length&&openingDecision&&!directDecision&&!commitment)decision=protectDeterministicDecision(openingDecision,"progressive_opening");
-
-const decisionSource=decision.__source||null;
+else if(needDecision)decision=protectDeterministicDecision(needDecision,"need_discovery");
+else if(compactRecommendation)decision=protectDeterministicDecision(compactRecommendation,"compact_plan_recommendation");
+else decision=await this.ai.generateDecision({conversation,memory,planner});
+if(!isDeterministicDecision(decision)&&!answered(combinedText,decision))decision=fallbackDecision(memory,planner);
+if(!isDeterministicDecision(decision))decision=enforcePreAuthorizationDecision(decision,memory);
+if(!isDeterministicDecision(decision))decision=suppressRecommendationWithoutNeed(decision,memory);
+const violations=disclosureViolations(decision,memory,combinedText);if(violations.length&&!isDeterministicDecision(decision))decision=fallbackDecision(memory,planner);
+const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecision(decision))decision=await this.ai.repairDecision(decision,quality,memory);
+if(!decision?.reply)decision=fallbackDecision(memory,planner);
 decision=stripDecisionMetadata(decision);
-decision.reply=String(decision.reply||"").trim().slice(0,this.config.ai.maxReplyChars);decision.add_labels=Array.isArray(decision.add_labels)?decision.add_labels.filter(l=>allowedLabels.has(l)&&!["cliente","venta","cerrado","no_contesta"].includes(l)):[];decision.remove_labels=Array.isArray(decision.remove_labels)?decision.remove_labels.filter(l=>allowedLabels.has(l)&&!protectedLabels.has(l)):[];currentLabels=await this.labels.mergeSafe(conversationId,decision.add_labels,decision.remove_labels,conversation);if(decision.handoff)await this.transfer(conversationId,conversation,decision.handoff_reason||"El caso requiere intervención humana.",memory);else if(decision.reply){if(!memory.presentacion_realizada){const publicName=this.config.ai.publicName||"Mia de MARTCOM";if(!decision.reply.toLowerCase().includes(publicName.toLowerCase()))decision.reply=`Hola, soy ${publicName}. ${decision.reply}`;await this.memories.merge(conversationId,{asesor_presentacion:publicName,presentacion_realizada:true});}await this.chatwoot.sendMessage(conversationId,decision.reply);const questions=decision.question_key?arrays(memory.preguntas_realizadas,[decision.question_key]):memory.preguntas_realizadas;await this.memories.merge(conversationId,{preguntas_realizadas:questions,ultima_pregunta:decision.question_key||null,ultima_respuesta_agente:decision.reply,operations:{...(memory.operations||{}),onboarding_last_requested:onboardingDecision?.onboarding_requirement||memory.operations?.onboarding_last_requested||null}});await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,questionKey:decision.question_key,planner,quality,onboarding:onboardingDecision?.onboarding_requirement||null,progressive_disclosure:disclosureReasons,compact_recommendation:Boolean(compactRecommendation),need_guard:Boolean(needDecision),commitment:commitment?.commitment||null,decision_source:decisionSource});}await this.memories.markProcessedMany(conversationId,messageIds);
-}}
+await this.chatwoot.sendMessage(conversationId,decision.reply);
+await this.memories.markProcessedMany(conversationId,messageIds);
+await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,decision_source:decision.__source||null});
+}
+}
