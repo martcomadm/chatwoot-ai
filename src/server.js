@@ -35,7 +35,7 @@ try {
   const handoffRouter = new HandoffRouter({ config, store: handoffRotation, chatwoot, operationsConfig });
   const saleStore = new SaleStore(config.storage.salesFile);
   const workflow = new SaleWorkflowEngine(saleStore);
-  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, memories, inspectorEvents });
+  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId });
   workflowBridge.start();
   const ai = new AiServices(openai, { ...config.openai, ...config.ai });
   const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow });
