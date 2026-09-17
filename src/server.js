@@ -45,16 +45,29 @@ try {
   app.use(express.json({ limit: "16mb" }));
 
   // Segunda barrera de aislamiento para Inbox compartido.
-  // En message_created, NEXT solo deja pasar eventos cuyo assignee sea
-  // explícitamente el usuario LAB configurado. Assignee ausente/desconocido = rechazo.
+  // Por defecto NEXT solo procesa message_created asignados al usuario LAB.
+  // Excepción acotada: si existe un expediente de ESA conversación esperando pago,
+  // permitimos el evento para que el comprobante pueda registrarse aunque Operaciones
+  // haya cambiado la asignación del chat. El processor mantiene el resto de guardas.
   app.use((req, res, next) => {
     if (req.method !== "POST" || req.path !== "/webhook/chatwoot") return next();
     if (String(req.body?.event || "") !== "message_created") return next();
-    if (!webhookEventAllowedForAgent(req.body, config.chatwoot.agentId)) {
-      console.log("NEXT ignoró message_created: conversación no asignada explícitamente al usuario LAB.");
-      return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
+    if (webhookEventAllowedForAgent(req.body, config.chatwoot.agentId)) return next();
+
+    const conversationId = Number(
+      req.body?.conversation?.id ||
+      req.body?.message?.conversation_id ||
+      req.body?.conversation_id ||
+      0
+    );
+    const paymentSale = conversationId ? saleStore.findByConversationId(conversationId) : null;
+    if (paymentSale?.status === "payment_requested") {
+      console.log(`NEXT permitió message_created de pago para conversación ${conversationId} aunque no esté asignada al usuario LAB.`);
+      return next();
     }
-    return next();
+
+    console.log("NEXT ignoró message_created: conversación no asignada explícitamente al usuario LAB.");
+    return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
   });
 
   app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents }));
