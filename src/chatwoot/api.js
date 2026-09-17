@@ -42,4 +42,9 @@ export class ChatwootApi {
       method: "POST", body: JSON.stringify({ assignee_id: Number(assigneeId) }),
     });
   }
+  assignTeam(id, teamId) {
+    return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/assignments`, {
+      method: "POST", body: JSON.stringify({ team_id: Number(teamId) }),
+    });
+  }
 }
