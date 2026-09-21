@@ -89,6 +89,7 @@ const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecisi
 if(!decision?.reply)decision=fallbackDecision(memory,planner);
 decision=stripDecisionMetadata(decision);
 await this.chatwoot.sendMessage(conversationId,decision.reply);
+if(decision.question_key){memory={...memory,ultima_pregunta:decision.question_key};await this.memories.set(conversationId,memory);}
 await this.memories.markProcessedMany(conversationId,messageIds);
 await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,decision_source:decision.__source||null});
 }
