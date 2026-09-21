@@ -108,7 +108,17 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
 }
 
 export function compactPlanRecommendation(memory = {}, combinedText = "") {
-  if (memory?.sales_cycle?.authorized || customerAskedCommercialDetails(combinedText)) return null;
+  if (memory?.sales_cycle?.authorized) return null;
+  const directValue = norm(combinedText);
+  const asksPlan2Option = /\b(?:tienen|hay|manejan|ofrecen|existe|opcion|plan)\b.{0,50}\b(?:afore|infonavit)\b/.test(directValue) || /\b(?:afore|infonavit)\b.{0,50}\b(?:es posible|tienen|hay|manejan|ofrecen|opcion|plan)\b/.test(directValue);
+  if (asksPlan2Option) {
+    return {
+      reply: "Sí. Para eso tenemos el Plan 2, que además del servicio médico y continuación de semanas contempla aportaciones a AFORE y acumulación de puntos para INFONAVIT. Tiene un costo de $1,500 MXN. ¿Quieres que te explique cómo funciona?",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (customerAskedCommercialDetails(combinedText)) return null;
   const plan = effectivePlan(memory);
   const needText = norm(`${memory?.necesidad_principal || ""} ${combinedText || ""}`);
   const structured = memory?.commercial_need || {};
