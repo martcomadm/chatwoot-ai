@@ -80,12 +80,12 @@ else if(memory.sales_cycle?.authorized&&onboardingDecision)decision=protectDeter
 else if(openingDecision)decision=protectDeterministicDecision(openingDecision,"progressive_opening");
 else if(needDecision)decision=protectDeterministicDecision(needDecision,"need_discovery");
 else if(compactRecommendation)decision=protectDeterministicDecision(compactRecommendation,"compact_plan_recommendation");
-else decision=await this.ai.generateDecision({conversation,memory,planner});
+else decision=await this.ai.generateDecision(conversation,currentLabels,memory,planner,combinedText);
 if(!isDeterministicDecision(decision)&&!answered(combinedText,decision))decision=fallbackDecision(memory,planner);
 if(!isDeterministicDecision(decision))decision=enforcePreAuthorizationDecision(decision,memory);
 if(!isDeterministicDecision(decision))decision=suppressRecommendationWithoutNeed(decision,memory);
 const violations=disclosureViolations(decision,memory,combinedText);if(violations.length&&!isDeterministicDecision(decision))decision=fallbackDecision(memory,planner);
-const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecision(decision))decision=await this.ai.repairDecision(decision,quality,memory);
+const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecision(decision))decision=await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons||[]);
 if(!decision?.reply)decision=fallbackDecision(memory,planner);
 decision=stripDecisionMetadata(decision);
 await this.chatwoot.sendMessage(conversationId,decision.reply);
