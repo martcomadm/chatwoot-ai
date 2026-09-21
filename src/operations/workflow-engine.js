@@ -4,7 +4,8 @@ export const SALE_STATUSES = Object.freeze({
 export const VALIDATION_KEYS=Object.freeze(["datos","alta","documentos","revision_final"]);
 function requireStatus(sale,allowed,action){if(!allowed.includes(sale.status))throw new Error(`${action} no permitido desde estado ${sale.status}`)}
 function requireReason(payload){const reason=String(payload?.reason||payload?.notes||"").trim();if(!reason)throw new Error("Se requiere indicar el motivo");return reason}
-function proofFrom(payload={}){return {proof_url:payload.proof_url||payload.document_url||null,proof_name:payload.proof_name||payload.document_name||null}}\nfunction proofKey(payload={},proof=proofFrom(payload)){const explicit=payload.proof_key||payload.idempotency_key||payload.attachment_id||payload.message_id;if(explicit!=null&&String(explicit).trim())return String(explicit).trim();const url=String(proof.proof_url||"").trim();if(url)return `url:${url}`;const name=String(proof.proof_name||"").trim(),reference=String(payload.reference||"").trim();return name?`name:${name}|ref:${reference}`:null}
+function proofFrom(payload={}){return {proof_url:payload.proof_url||payload.document_url||null,proof_name:payload.proof_name||payload.document_name||null}}
+function proofKey(payload={},proof=proofFrom(payload)){const explicit=payload.proof_key||payload.idempotency_key||payload.attachment_id||payload.message_id;if(explicit!=null&&String(explicit).trim())return String(explicit).trim();const url=String(proof.proof_url||"").trim();if(url)return `url:${url}`;const name=String(proof.proof_name||"").trim(),reference=String(payload.reference||"").trim();return name?`name:${name}|ref:${reference}`:null}
 
 export class SaleWorkflowEngine{
   constructor(store){this.store=store}
