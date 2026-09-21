@@ -30,4 +30,14 @@ export class LabelService {
     if ([...next].sort().join("|") !== [...current].sort().join("|")) await this.api.setLabels(id, [...next]);
     return [...next];
   }
-  async finalizeForCustomerService(id) {\n    const response = await this.api.getLabels(id);\n    const current = Array.isArray(response?.payload) ? response.payload : [];\n    const next = new Set(current.filter(label => allowed.has(label)));\n    next.delete("asignado");\n    next.delete("seguimiento");\n    next.add("completado");\n    if ([...next].sort().join("|") !== [...current].sort().join("|")) await this.api.setLabels(id, [...next]);\n    return [...next];\n  }\n}\n
+  async finalizeForCustomerService(id) {
+    const response = await this.api.getLabels(id);
+    const current = Array.isArray(response?.payload) ? response.payload : [];
+    const next = new Set(current.filter(label => allowed.has(label)));
+    next.delete("asignado");
+    next.delete("seguimiento");
+    next.add("completado");
+    if ([...next].sort().join("|") !== [...current].sort().join("|")) await this.api.setLabels(id, [...next]);
+    return [...next];
+  }
+}
