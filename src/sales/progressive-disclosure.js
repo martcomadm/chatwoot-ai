@@ -85,7 +85,10 @@ function priorAgentOfferedExplanation(memory = {}) {
 
 export function contextualPlanExplanation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
-  if (!affirmativeFollowUp(combinedText) || !priorAgentOfferedExplanation(memory)) return null;
+  const value = norm(combinedText);
+  const explicitExplanationRequest = /\b(?:explicame|cuentame|dime)\b.{0,30}\b(?:como funciona|del plan|sobre el plan)\b/.test(value) || /\bcomo funciona\b/.test(value);
+  const contextualAffirmative = affirmativeFollowUp(combinedText) && priorAgentOfferedExplanation(memory);
+  if (!explicitExplanationRequest && !contextualAffirmative) return null;
   const plan = effectivePlan(memory);
   if (plan === "plan_1") {
     return {
