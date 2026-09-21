@@ -10,13 +10,33 @@ const CUSTOMER_MESSAGES=Object.freeze({
 
 export class ChatwootWorkflowBridge{
   constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0}){this.saleStore=saleStore;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
-  start(){this.saleStore.on("sale",this.listener)}stop(){this.saleStore.off("sale",this.listener)}
+  start(){this.saleStore.on("sale",this.listener)}
+  stop(){this.saleStore.off("sale",this.listener)}
+  async reconcileCompletedSales(){
+    const completed=this.saleStore.list({status:"completed"});
+    for(const sale of completed){
+      const conversationId=Number(sale?.conversation_id||0);
+      if(!conversationId)continue;
+      try{
+        const conversation=await this.chatwoot.getConversation(conversationId);
+        const rawLabels=conversation?.labels||conversation?.meta?.labels||[];
+        const labels=rawLabels.map(item=>typeof item==="string"?item:item?.title||item?.name).filter(Boolean);
+        const teamId=Number(conversation?.meta?.team?.id||conversation?.team?.id||0);
+        if(labels.includes("completado")&&teamId===this.customerServiceTeamId)continue;
+        await this.completeHumanHandoff(conversationId,sale);
+        await this.record(conversationId,"completed_handoff_reconciled",{sale_id:sale.sale_id,team_id:this.customerServiceTeamId});
+      }catch(error){
+        await this.record(conversationId,"completed_handoff_reconcile_failed",{sale_id:sale.sale_id,error:error.message});
+        console.error("NEXT no pudo reconciliar expediente completado:",error);
+      }
+    }
+  }
   async record(conversationId,type,details={}){try{await this.inspectorEvents?.record(conversationId,type,details)}catch{}}
   customerMessage(event){if(event.type==="validation.correction.requested"&&event.details?.target==="customer")return `El área de validación necesita una corrección para continuar con tu proceso: ${event.details.reason}. Puedes enviarme por aquí la información o documento solicitado.`;return CUSTOMER_MESSAGES[event.type]||null}
   async completeHumanHandoff(conversationId,sale){
     if(!this.customerServiceTeamId){await this.record(conversationId,"completed_handoff_skipped",{sale_id:sale.sale_id,reason:"customer_service_team_not_configured"});console.warn("NEXT completó expediente pero CUSTOMER_SERVICE_TEAM_ID no está configurado.");return;}
     try{
-      await this.labels?.merge(conversationId,["completado"],[]);
+      await this.labels?.finalizeForCustomerService(conversationId);
       await this.chatwoot.assignTeam(conversationId,this.customerServiceTeamId);
       await this.record(conversationId,"completed_handoff",{sale_id:sale.sale_id,label:"completado",team_id:this.customerServiceTeamId});
     }catch(error){
