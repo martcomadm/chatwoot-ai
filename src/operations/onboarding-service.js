@@ -57,7 +57,7 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   }
 
   const text = norm(combinedText);
-  const saysNoNss = /\b(no tengo|no cuento con|no se|no recuerdo|no conozco|no encuentro)\b.{0,30}\bnss\b/.test(text);
+  const nssResolution = memory?.operations?.nss_resolution || memory?.nss_resolution || null;\n  const saysNoNss = /\b(no tengo|no cuento con|no se|no recuerdo|no conozco|no encuentro)\b.{0,30}\bnss\b/.test(text);
   const saysNeverHadNss = /\b(nunca|jamas)\b.{0,25}\b(?:he tenido|tuve|he contado con|me han dado|me asignaron)?\s*nss\b|\bnunca he tenido seguro\b/.test(text);
   if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && (saysNoNss || saysNeverHadNss)) {
     return {
@@ -70,7 +70,7 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
       nss_resolution: saysNeverHadNss ? "request_new" : "lookup_by_curp",
     };
   }
-  const looksLikeQuestion = /\?|\b(cuanto|cuánto|como|cómo|cuando|cuándo|donde|dónde|por que|por qué|puedo|puede|incluye|cuesta|tarda|pago|proceso)\b/.test(text);
+  if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && nssResolution) {\n    const remaining=(memory.operations.documents_missing||[]).find(key=>key!=="nss");\n    if(remaining)return {reply:onboardingPrompt(remaining),question_key:remaining==="curp"?remaining:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:remaining};\n    return {reply:"Perfecto. Con esto podemos continuar integrando tu expediente mientras Captura resuelve el NSS.",question_key:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:null};\n  }\n  const looksLikeQuestion = /\?|\b(cuanto|cuánto|como|cómo|cuando|cuándo|donde|dónde|por que|por qué|puedo|puede|incluye|cuesta|tarda|pago|proceso)\b/.test(text);
   const containsRequestedData = hasCurpValue(combinedText) || hasNssValue(combinedText);
   if (looksLikeQuestion && !containsRequestedData) return null;
 
