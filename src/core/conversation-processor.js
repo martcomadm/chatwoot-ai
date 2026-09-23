@@ -89,9 +89,11 @@ if(!isDeterministicDecision(decision))decision=suppressRecommendationWithoutNeed
 const violations=disclosureViolations(decision,memory,combinedText);if(violations.length&&!isDeterministicDecision(decision))decision=fallbackDecision(memory,planner);
 const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecision(decision))decision=await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons||[]);
 if(!decision?.reply)decision=fallbackDecision(memory,planner);
+const decisionState={nss_resolution:decision?.nss_resolution||null,onboarding_requirement:decision?.onboarding_requirement||null};
 decision=stripDecisionMetadata(decision);
 await this.chatwoot.sendMessage(conversationId,decision.reply);
 memory={...memory,ultima_respuesta_agente:decision.reply,ultima_pregunta:decision.question_key||null};
+if(decisionState.nss_resolution){memory={...memory,nss_resolution:decisionState.nss_resolution,operations:{...(memory.operations||{}),nss_resolution:decisionState.nss_resolution}};}
 await this.memories.set(conversationId,memory);
 await this.memories.markProcessedMany(conversationId,messageIds);
 await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,decision_source:decision.__source||null});
