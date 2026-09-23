@@ -57,6 +57,19 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   }
 
   const text = norm(combinedText);
+  const saysNoNss = /\b(no tengo|no cuento con|no se|no recuerdo|no conozco|no encuentro)\b.{0,30}\bnss\b/.test(text);
+  const saysNeverHadNss = /\b(nunca|jamas)\b.{0,25}\b(?:he tenido|tuve|he contado con|me han dado|me asignaron)?\s*nss\b|\bnunca he tenido seguro\b/.test(text);
+  if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && (saysNoNss || saysNeverHadNss)) {
+    return {
+      reply: saysNeverHadNss
+        ? "No te preocupes. Si nunca has tenido NSS, podemos solicitar uno nuevo y continuar con tu trámite. Este proceso puede tardar aproximadamente de 3 a 7 días. Por ahora podemos seguir integrando tu expediente con tu CURP y los demás documentos para no retrasarlo."
+        : "No te preocupes. Si no tienes tu NSS a la mano, con tu CURP podemos localizarlo. El área de Captura puede agregarlo al expediente para que no se retrase tu trámite. Podemos continuar con los demás documentos pendientes.",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+      onboarding_requirement: "nss",
+      nss_resolution: saysNeverHadNss ? "request_new" : "lookup_by_curp",
+    };
+  }
   const looksLikeQuestion = /\?|\b(cuanto|cuánto|como|cómo|cuando|cuándo|donde|dónde|por que|por qué|puedo|puede|incluye|cuesta|tarda|pago|proceso)\b/.test(text);
   const containsRequestedData = hasCurpValue(combinedText) || hasNssValue(combinedText);
   if (looksLikeQuestion && !containsRequestedData) return null;
