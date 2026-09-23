@@ -86,8 +86,8 @@ function priorAgentOfferedExplanation(memory = {}) {
 export function contextualPlanExplanation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
   const value = norm(combinedText);
-  const explicitExplanationRequest = /\b(?:explicame|cuentame|dime)\b.{0,30}\b(?:como funciona|del plan|sobre el plan)\b/.test(value) || /\bcomo funciona\b/.test(value);
-  const contextualAffirmative = affirmativeFollowUp(combinedText) && priorAgentOfferedExplanation(memory);
+  const explicitExplanationRequest = /\b(?:explicame|cuentame|dime)\b.{0,30}\b(?:como funciona|del plan|sobre el plan|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
+  const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
   if (!explicitExplanationRequest && !contextualAffirmative) return null;
   const plan = effectivePlan(memory);
   if (plan === "plan_1") {
@@ -99,7 +99,7 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   }
   if (plan === "plan_2") {
     return {
-      reply: "Claro. Con el Plan 2 tienes servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT conforme al caso. Tiene un costo de $1,500 MXN. Si quieres, puedo explicarte los requisitos para iniciar o resolver cualquier duda sobre este plan.",
+      reply: "Claro. El Plan 2 cuesta $1,500 MXN y maneja un salario diario registrado de $480 MXN. Incluye servicio médico del IMSS y continuación de semanas cotizadas; además contempla aportaciones a AFORE, alternando un mes 5.5% y el siguiente 10%, y acumulación estimada de entre 200 y 250 puntos para INFONAVIT. También contempla incapacidades conforme al caso. Para iniciar necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se solicita posteriormente. Con la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si estás de acuerdo, podemos iniciar el trámite.",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
