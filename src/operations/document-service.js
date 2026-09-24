@@ -46,7 +46,9 @@ export function classifyAttachment(attachment = {}) {
 export function attachmentReference(attachment = {}, message = {}, expectedType = null) {
   const classified = classifyAttachment(attachment);
   const contentType = String(attachment.content_type || attachment.file_type || "").toLowerCase();
-  const isDocumentLike = /^(image\/|application\/pdf)/.test(contentType) || /\b(image|photo|file|document|pdf)\b/.test(contentType);
+  const fileName = String(attachment.file_name || attachment.filename || attachment.name || "").toLowerCase();
+  const url = String(attachment.data_url || attachment.file_url || attachment.download_url || attachment.url || "").toLowerCase();
+  const isDocumentLike = /^(image\/|application\/pdf)/.test(contentType) || /\b(image|photo|file|document|pdf)\b/.test(contentType) || /\.(?:jpe?g|png|webp|heic|pdf)(?:\?|$)/.test(fileName) || /\.(?:jpe?g|png|webp|heic|pdf)(?:\?|$)/.test(url) || Boolean(attachment.id && (attachment.data_url || attachment.file_url || attachment.download_url || attachment.url));
   const contextualType = classified === "other" && expectedType === "ine" && isDocumentLike ? "ine" : classified;
   return {
     id: String(attachment.id || `${message.id || "msg"}-${attachment.file_name || attachment.filename || attachment.name || Date.now()}`),
