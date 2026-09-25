@@ -7,7 +7,7 @@ import { conversationProgress, handoffMetrics, rotationOverview, slotStates } fr
 import { conversationIdOf, inboxIdOf, isContact, isIncoming, messageOf, messagesOf } from "./utils/conversation.js";
 import { buildAnalytics } from "./inspector/analytics-service.js";
 
-export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }) {
+export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }) {
   const router = express.Router();
   const inspectorPublicPath = fileURLToPath(new URL("./inspector/public/", import.meta.url));
   router.use("/inspector/assets", express.static(inspectorPublicPath, {
@@ -213,7 +213,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     res.json({ deleted: true, conversationId: id });
   });
 
-  router.post("/webhook/chatwoot", (req, res) => {
+  router.post("/webhook/chatwoot", async (req, res) => {
     if (config.webhookSecret && req.query.secret !== config.webhookSecret) return res.status(401).json({ error: "unauthorized" });
     res.status(200).json({ received: true });
     const event = String(req.body?.event || "");
@@ -238,7 +238,21 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
           return;
         }
       }
-      console.log(`Actualización ${id} recibida sin mensaje entrante utilizable; no se consulta Chatwoot.`);
+      try {
+        const fresh = await chatwoot.getConversation(id);
+        const freshMessages = messagesOf(fresh);
+        for (let index = freshMessages.length - 1; index >= 0; index -= 1) {
+          const message = freshMessages[index];
+          if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {
+            buffer.enqueue(id, message, "conversation_updated_recovery", req.body);
+            console.log(`Actualización ${id}: mensaje entrante ${message.id} recuperado desde Chatwoot.`);
+            return;
+          }
+        }
+        console.log(`Actualización ${id} recibida sin mensaje entrante nuevo utilizable, incluso tras consultar Chatwoot.`);
+      } catch (error) {
+        console.error(`No se pudo recuperar la conversación ${id} tras conversation_updated:`, error?.message || error);
+      }
     }
   });
 
