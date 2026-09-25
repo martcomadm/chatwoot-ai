@@ -1,5 +1,5 @@
 export const arrays = (a = [], b = [], max = 100) => [...new Set([...(a || []), ...(b || [])])].slice(-max);
-export const messageOf = payload => payload?.message || payload;
+export const messageOf = payload => {\n  const message = payload?.message || payload;\n  if (!message || typeof message !== "object") return message;\n  const attachments = Array.isArray(message.attachments) && message.attachments.length\n    ? message.attachments\n    : Array.isArray(payload?.attachments) && payload.attachments.length\n      ? payload.attachments\n      : Array.isArray(payload?.message?.attachments)\n        ? payload.message.attachments\n        : [];\n  return attachments.length ? { ...message, attachments } : message;\n};
 export const conversationIdOf = payload => Number(payload?.conversation?.id ?? payload?.message?.conversation_id ?? payload?.conversation_id ?? payload?.id);
 export const inboxIdOf = payload => Number(payload?.conversation?.inbox_id ?? payload?.conversation?.inbox?.id ?? payload?.inbox?.id ?? payload?.message?.inbox_id);
 export const isIncoming = message => message?.message_type === "incoming" || message?.message_type === 0;
