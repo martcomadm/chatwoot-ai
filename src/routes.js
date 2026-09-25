@@ -7,7 +7,7 @@ import { conversationProgress, handoffMetrics, rotationOverview, slotStates } fr
 import { conversationIdOf, inboxIdOf, isContact, isIncoming, messageOf, messagesOf } from "./utils/conversation.js";
 import { buildAnalytics } from "./inspector/analytics-service.js";
 
-export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }) {
+export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }) {
   const router = express.Router();
   const inspectorPublicPath = fileURLToPath(new URL("./inspector/public/", import.meta.url));
   router.use("/inspector/assets", express.static(inspectorPublicPath, {
