@@ -238,7 +238,21 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
           return;
         }
       }
-      try {\n        const fresh = await chatwoot.getConversation(id);\n        const freshMessages = messagesOf(fresh);\n        for (let index = freshMessages.length - 1; index >= 0; index -= 1) {\n          const message = freshMessages[index];\n          if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {\n            buffer.enqueue(id, message, "conversation_updated_recovery", req.body);\n            console.log(`Actualización ${id}: mensaje entrante ${message.id} recuperado desde Chatwoot.`);\n            return;\n          }\n        }\n        console.log(`Actualización ${id} recibida sin mensaje entrante nuevo utilizable, incluso tras consultar Chatwoot.`);\n      } catch (error) {\n        console.error(`No se pudo recuperar la conversación ${id} tras conversation_updated:`, error?.message || error);\n      }
+      try {
+        const fresh = await chatwoot.getConversation(id);
+        const freshMessages = messagesOf(fresh);
+        for (let index = freshMessages.length - 1; index >= 0; index -= 1) {
+          const message = freshMessages[index];
+          if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {
+            buffer.enqueue(id, message, "conversation_updated_recovery", req.body);
+            console.log(`Actualización ${id}: mensaje entrante ${message.id} recuperado desde Chatwoot.`);
+            return;
+          }
+        }
+        console.log(`Actualización ${id} recibida sin mensaje entrante nuevo utilizable, incluso tras consultar Chatwoot.`);
+      } catch (error) {
+        console.error(`No se pudo recuperar la conversación ${id} tras conversation_updated:`, error?.message || error);
+      } catch (error) {\n        console.error(`No se pudo recuperar la conversación ${id} tras conversation_updated:`, error?.message || error);\n      }
     }
   });
 
