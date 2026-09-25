@@ -32,8 +32,7 @@ export function historyOf(conversation, maxHistory = 50) {
     .filter(message => !message.private && message.content)
     .slice(-maxHistory)
     .map(message => `${isIncoming(message) ? "CLIENTE" : "AGENTE"}: ${String(message.content).trim()}`)
-    .join("
-");
+    .join("\\n");
 }
 
 export function localHour(timezone) {
