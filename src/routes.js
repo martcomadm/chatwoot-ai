@@ -213,7 +213,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     res.json({ deleted: true, conversationId: id });
   });
 
-  router.post("/webhook/chatwoot", (req, res) => {
+  router.post("/webhook/chatwoot", async (req, res) => {
     if (config.webhookSecret && req.query.secret !== config.webhookSecret) return res.status(401).json({ error: "unauthorized" });
     res.status(200).json({ received: true });
     const event = String(req.body?.event || "");
@@ -238,7 +238,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
           return;
         }
       }
-      console.log(`Actualización ${id} recibida sin mensaje entrante utilizable; no se consulta Chatwoot.`);
+      try {\n        const fresh = await chatwoot.getConversation(id);\n        const freshMessages = messagesOf(fresh);\n        for (let index = freshMessages.length - 1; index >= 0; index -= 1) {\n          const message = freshMessages[index];\n          if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {\n            buffer.enqueue(id, message, "conversation_updated_recovery", req.body);\n            console.log(`Actualización ${id}: mensaje entrante ${message.id} recuperado desde Chatwoot.`);\n            return;\n          }\n        }\n        console.log(`Actualización ${id} recibida sin mensaje entrante nuevo utilizable, incluso tras consultar Chatwoot.`);\n      } catch (error) {\n        console.error(`No se pudo recuperar la conversación ${id} tras conversation_updated:`, error?.message || error);\n      }
     }
   });
 
