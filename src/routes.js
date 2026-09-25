@@ -252,7 +252,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
         console.log(`Actualización ${id} recibida sin mensaje entrante nuevo utilizable, incluso tras consultar Chatwoot.`);
       } catch (error) {
         console.error(`No se pudo recuperar la conversación ${id} tras conversation_updated:`, error?.message || error);
-
+      }
     }
   });
 
