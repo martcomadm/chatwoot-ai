@@ -72,7 +72,7 @@ try {
   });
 
   app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents }));
-  app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }));
+  app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }));
 
   app.listen(config.port, "0.0.0.0", () => {
     console.log(`MARTCOM AI NEXT escuchando en puerto ${config.port}`);
