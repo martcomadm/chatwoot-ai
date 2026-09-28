@@ -222,8 +222,36 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
 
     if (event === "message_created") {
       const message = messageOf(req.body);
-      if (!message?.id || inboxIdOf(req.body) !== config.chatwoot.inboxId || !isIncoming(message) || message.private === true || !isContact(message)) return;
-      buffer.enqueue(id, message, "message_created", req.body);
+      const attachmentList = Array.isArray(message?.attachments) ? message.attachments : [];
+      console.log("INE TRACE webhook", JSON.stringify({
+        conversation: id,
+        message: message?.id ? String(message.id) : null,
+        inbox: inboxIdOf(req.body) || null,
+        message_type: message?.message_type ?? null,
+        sender_type: message?.sender_type || message?.sender?.type || null,
+        private: message?.private === true,
+        attachments: attachmentList.length,
+        attachment_keys: attachmentList.map(item => Object.keys(item || {})),
+        attachment_types: attachmentList.map(item => String(item?.file_type || item?.content_type || item?.extension || "")),
+        attachment_has_url: attachmentList.map(item => Boolean(item?.data_url || item?.download_url || item?.file_url || item?.url)),
+        payload_keys: Object.keys(req.body || {}),
+        message_keys: message && typeof message === "object" ? Object.keys(message) : [],
+      }));
+      if (!message?.id || inboxIdOf(req.body) !== config.chatwoot.inboxId || !isIncoming(message) || message.private === true || !isContact(message)) {
+        console.log("INE TRACE webhook_rejected", JSON.stringify({
+          conversation: id,
+          message: message?.id ? String(message.id) : null,
+          has_id: Boolean(message?.id),
+          inbox_ok: inboxIdOf(req.body) === config.chatwoot.inboxId,
+          incoming: isIncoming(message),
+          contact: isContact(message),
+          private: message?.private === true,
+          attachments: attachmentList.length,
+        }));
+        return;
+      }
+      const queued = buffer.enqueue(id, message, "message_created", req.body);
+      console.log("INE TRACE buffer_enqueue", JSON.stringify({ conversation: id, message: String(message.id), attachments: attachmentList.length, queued }));
     } else if (event === "conversation_updated") {
       const conversation = req.body?.conversation || req.body;
       const inbox = Number(conversation?.inbox_id || conversation?.inbox?.id || inboxIdOf(req.body));
