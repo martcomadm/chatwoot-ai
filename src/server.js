@@ -50,7 +50,7 @@ try {
   // Excepción acotada: si existe un expediente de ESA conversación esperando pago,
   // permitimos el evento para que el comprobante pueda registrarse aunque Operaciones
   // haya cambiado la asignación del chat. El processor mantiene el resto de guardas.
-  app.use((req, res, next) => {
+  app.use(async (req, res, next) => {
     if (req.method !== "POST" || req.path !== "/webhook/chatwoot") return next();
     if (String(req.body?.event || "") !== "message_created") return next();
     if (webhookEventAllowedForAgent(req.body, config.chatwoot.agentId)) return next();
