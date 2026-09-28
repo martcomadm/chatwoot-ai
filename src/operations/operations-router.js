@@ -28,6 +28,7 @@ export function createOperationsRouter({config,saleStore,workflow,memories,inspe
   });
   router.post("/operations/api/sales",guard,action(req=>workflow.openAuthorizedSale(req.body||{})));
   router.post("/operations/api/sales/:id/documents/sync",guard,action(req=>workflow.syncDocuments(req.params.id,req.body||{})));
+  router.post("/operations/api/sales/:id/capture/nss",guard,action(req=>workflow.registerNss(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/capture/start",guard,action(req=>workflow.startCapture(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/capture/complete",guard,action(req=>workflow.completeCapture(req.params.id,req.body||{})));
   router.post("/operations/api/sales/:id/validation/check",guard,action(req=>workflow.setValidationCheck(req.params.id,req.body?.key,req.body?.checked,req.body||{})));
