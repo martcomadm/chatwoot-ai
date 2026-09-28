@@ -74,7 +74,12 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && nssResolution) {
     const remaining=(memory.operations.documents_missing||[]).find(key=>key!=="nss");
     if(remaining)return {reply:onboardingPrompt(remaining),question_key:remaining==="curp"?remaining:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:remaining};
-    return {reply:"Perfecto. Con esto podemos continuar integrando tu expediente mientras Captura resuelve el NSS.",question_key:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:null};
+    return {
+      reply: nssResolution === "request_new"
+        ? "Perfecto, ya recibimos tu documentación. Podemos continuar con tu trámite. Como nos indicaste que nunca has tenido NSS, podemos solicitar uno nuevo para integrar tu expediente. Este proceso puede tomar de 3 a 7 días."
+        : "Perfecto, ya recibimos tu documentación. Podemos continuar con tu trámite. No te preocupes por el NSS; con tu CURP podemos localizarlo y agregarlo a tu expediente para que el proceso continúe sin retrasos.",
+      question_key:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:null
+    };
   }
   const looksLikeQuestion = /\?|\b(cuanto|cuánto|como|cómo|cuando|cuándo|donde|dónde|por que|por qué|puedo|puede|incluye|cuesta|tarda|pago|proceso)\b/.test(text);
   const containsRequestedData = hasCurpValue(combinedText) || hasNssValue(combinedText);
