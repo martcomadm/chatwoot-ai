@@ -67,7 +67,28 @@ try {
       return next();
     }
 
-    console.log("NEXT ignoró message_created: conversación no asignada explícitamente al usuario LAB.");
+    // Algunos canales (p. ej. WhatsApp) no incluyen assignee en message_created.
+    // No descartamos esos eventos a ciegas: verificamos la asignación real en Chatwoot.
+    // Esto mantiene el aislamiento de NEXT y permite que attachments lleguen al router.
+    try {
+      if (conversationId) {
+        const freshConversation = await chatwoot.getConversation(conversationId);
+        const freshAssigneeId = Number(
+          freshConversation?.meta?.assignee?.id ||
+          freshConversation?.assignee?.id ||
+          0
+        );
+        if (freshAssigneeId === Number(config.chatwoot.agentId)) {
+          console.log(`NEXT permitió message_created de conversación ${conversationId} tras verificar asignación LAB en Chatwoot.`);
+          return next();
+        }
+        console.log(`NEXT ignoró message_created de conversación ${conversationId}: asignación real ${freshAssigneeId || "sin agente"}, esperada ${config.chatwoot.agentId}.`);
+      } else {
+        console.log("NEXT ignoró message_created sin conversation_id verificable.");
+      }
+    } catch (error) {
+      console.error(`NEXT no pudo verificar asignación real de conversación ${conversationId || "desconocida"}:`, error?.message || error);
+    }
     return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
   });
 
