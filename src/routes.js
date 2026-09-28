@@ -239,8 +239,8 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
         }
       }
       try {
-        const fresh = await chatwoot.getConversation(id);
-        const freshMessages = messagesOf(fresh);
+        const fresh = await chatwoot.getMessages(id);
+        const freshMessages = Array.isArray(fresh?.payload) ? fresh.payload : Array.isArray(fresh) ? fresh : messagesOf(fresh);
         for (let index = freshMessages.length - 1; index >= 0; index -= 1) {
           const message = freshMessages[index];
           if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {
