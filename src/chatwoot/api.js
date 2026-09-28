@@ -12,6 +12,7 @@ export class ChatwootApi {
     return data;
   }
   getConversation(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}`); }
+  getMessages(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/messages`); }
   getLabels(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/labels`); }
   setLabels(id, labels) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/labels`, { method: "POST", body: JSON.stringify({ labels }) }); }
   sendMessage(id, content, isPrivate = false) {
