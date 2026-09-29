@@ -1,7 +1,6 @@
 const REQUIRED = Object.freeze([
   { key: "curp", label: "CURP", kind: "data" },
   { key: "nss", label: "NSS", kind: "data" },
-  { key: "ine", label: "INE", kind: "document" },
 ]);
 
 const DEFERRED_OPTIONAL = Object.freeze([
@@ -71,7 +70,14 @@ export function documentPackageStatus(sale = {}) {
     ine: files.some(file => file.type === "ine"),
     csf: files.some(file => file.type === "csf"),
   };
-  const requirements = REQUIRED.map(item => ({ ...item, received: Boolean(states[item.key]) }));
+  // INE is an alternative only when the client does not have the CURP available.
+  // It is not a mandatory document when CURP is already present.
+  const curpSatisfied = states.curp || states.ine;
+  const requirements = REQUIRED.map(item => ({
+    ...item,
+    received: item.key === "curp" ? Boolean(curpSatisfied) : Boolean(states[item.key]),
+    alternative_received: item.key === "curp" && !states.curp && states.ine ? "ine" : null,
+  }));
   const deferred = DEFERRED_OPTIONAL.map(item => ({ ...item, received: Boolean(states[item.key]) }));
   const missing = requirements.filter(item => !item.received).map(item => item.key);
   return {
