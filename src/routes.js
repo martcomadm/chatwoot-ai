@@ -261,7 +261,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
       const messages = messagesOf(conversation);
       for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
-        if (message && isIncoming(message) && !message.private && isContact(message)) {
+        if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {
           buffer.enqueue(id, message, "conversation_updated", req.body);
           return;
         }
