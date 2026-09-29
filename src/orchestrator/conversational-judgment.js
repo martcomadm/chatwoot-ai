@@ -60,6 +60,7 @@ export function analyzeJudgment(text,memory={}){
   const question=detectQuestion(text);
   const objection=detectObjection(text);
   const humanPreference=detectHumanPreference(text);
+  const advisoryRequest=/\b(?:quiero|necesito|busco|quisiera|me gustaria)\s+(?:una\s+)?(?:asesoria|orientacion|informacion)\b|\b(?:asesorame|orientame)\b/i.test(norm(text));
   const previous=memory?.judgment||{};
   const priceRequests=Number(previous.price_requests||0)+(question?.type==='price'?1:0);
   const trustSignals=Number(previous.trust_signals||0)+((question?.type==='trust'||objection?.type==='trust')?1:0);
@@ -76,6 +77,9 @@ export function analyzeJudgment(text,memory={}){
       priority:humanPreference?'critical':objection?.severity==='high'?'high':question?'high':'normal',
       resume_planner:!humanPreference&&!shouldHandoffPrice&&!shouldHandoffSensitive
     },
+    // Pedir "asesoría" u "orientación" es una intención conversacional para Mia,
+    // no una solicitud de transferencia. Solo transferimos si el cliente pide
+    // explícitamente una persona/asesor humano o se activa otra causa controlada.
     shouldHandoff:humanPreference||shouldHandoffPrice||shouldHandoffSensitive,
     handoffReason:humanPreference
       ?'El cliente pidió o manifestó preferencia por atención humana.'
@@ -92,6 +96,7 @@ export function analyzeJudgment(text,memory={}){
         last_question_type:question?.type||previous.last_question_type||null,
         last_objection:objection?.type||previous.last_objection||null,
         human_preference:Boolean(previous.human_preference||humanPreference),
+        advisory_request:Boolean(previous.advisory_request||advisoryRequest),
         interrupt_type:humanPreference?'human_preference':objection?.type||question?.type||previous.interrupt_type||null,
         interrupt_active:Boolean(question||objection||humanPreference),
       }
