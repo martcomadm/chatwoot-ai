@@ -42,7 +42,9 @@ export function progressiveOpeningDecision(memory = {}, combinedText = "") {
   if (customerAskedCommercialDetails(combinedText)) return null;
   if (memory?.tiene_imss === null || memory?.tiene_imss === undefined) {
     return {
-      reply: "Claro, con gusto te ayudo. La afiliación puede ayudarte a contar con servicio médico del IMSS y continuar cotizando semanas. Para orientarte mejor, ¿actualmente cuentas con IMSS?",
+      reply: memory?.presentacion_realizada
+        ? "¿Actualmente tienes un alta activa ante el IMSS?"
+        : "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo a revisar tu caso. ¿Actualmente tienes un alta activa ante el IMSS?",
       question_key: "tiene_imss",
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
