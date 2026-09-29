@@ -8,3 +8,10 @@ test("processor bloquea CURP NSS tras pregunta directa",()=>{
   assert.match(src,/directRequest&&\["curp","nss"\]\.includes\(planner\?\.question_key\)/);
   assert.match(src,/question_key:null,customer_question_priority:true/);
 });
+
+test("processor da prioridad a asesoria conversacional sobre guardas de descubrimiento",()=>{
+  assert.match(src,/const advisoryTurn=isAdvisoryTurn\(combinedText\)/);
+  assert.match(src,/action:"asesoria_conversacional",question_key:null/);
+  assert.match(src,/needDecision&&!advisoryTurn/);
+  assert.match(src,/compactRecommendation&&!advisoryTurn/);
+});
