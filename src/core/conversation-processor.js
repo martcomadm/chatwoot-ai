@@ -92,6 +92,31 @@ const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecisi
 if(!decision?.reply)decision=fallbackDecision(memory,planner);
 const decisionState={nss_resolution:decision?.nss_resolution||null,onboarding_requirement:decision?.onboarding_requirement||null};
 decision=stripDecisionMetadata(decision);
+// Final dedupe barrier: Chatwoot can deliver the same customer turn through
+// message_created and conversation_updated (or even to overlapping app instances).
+// Before sending, consult the authoritative Chatwoot history and suppress an
+// identical recent outgoing reply. This is intentionally at the last possible
+// point so every decision path is protected, not only the opening greeting.
+let duplicateReply=false;
+try{
+  const fresh=await this.chatwoot.getMessages(conversationId);
+  const recent=Array.isArray(fresh?.payload)?fresh.payload:Array.isArray(fresh)?fresh:messagesOf(fresh);
+  const normalizedReply=String(decision.reply||"").replace(/\\s+/g," ").trim();
+  duplicateReply=recent.slice(-12).some(message=>{
+    const outgoing=message?.message_type==="outgoing"||message?.message_type===1;
+    const same=String(message?.content||"").replace(/\\s+/g," ").trim()===normalizedReply;
+    const created=Number(message?.created_at||0);
+    const recentEnough=!created||Math.abs(Date.now()/1000-created)<=90;
+    return outgoing&&message?.private!==true&&same&&recentEnough;
+  });
+}catch(error){
+  console.error(`NEXT no pudo verificar deduplicación de respuesta en conversación ${conversationId}:`,error?.message||error);
+}
+if(duplicateReply){
+  await this.record(conversationId,"duplicate_reply_suppressed",{reply:decision.reply,message_ids:messageIds.map(String)});
+  await this.memories.markProcessedMany(conversationId,messageIds);
+  return;
+}
 await this.chatwoot.sendMessage(conversationId,decision.reply);
 memory={...memory,ultima_respuesta_agente:decision.reply,ultima_pregunta:decision.question_key||null};
 if(decisionState.nss_resolution){memory={...memory,nss_resolution:decisionState.nss_resolution,operations:{...(memory.operations||{}),nss_resolution:decisionState.nss_resolution}};}
