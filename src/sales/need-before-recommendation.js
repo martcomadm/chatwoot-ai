@@ -33,8 +33,17 @@ export function hasCommercialNeed(memory = {}) {
   return Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement);
 }
 
+export function isAdvisoryTurn(text = "") {
+  const value = norm(text);
+  return /\b(?:no se que me conviene|que me conviene|quiero que me guien|guiame|orientame|asesorame|quiero asesoria|necesito asesoria|busco asesoria|quiero orientacion|necesito orientacion|que opcion me conviene|que opcion seria mejor para mi)\b/.test(value);
+}
+
 export function needGuardDecision(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized || hasCommercialNeed(memory)) return null;
+  // An advisory turn must reach the conversational model. The guard still
+  // prevents an unsupported recommendation afterwards, but it must not replace
+  // the customer's request for guidance with the same discovery question.
+  if (isAdvisoryTurn(combinedText)) return null;
   if (!memory?.nombre || !memory?.edad || !memory?.actividad) return null;
 
   const firstName = memory?.primer_nombre || String(memory?.nombre || "").trim().split(/\s+/)[0] || null;
