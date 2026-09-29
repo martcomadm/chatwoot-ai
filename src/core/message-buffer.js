@@ -5,6 +5,7 @@ export class MessageBuffer {
     this.states = new Map();
     this.seen = new Map();
     this.seenTtlMs = 15 * 60 * 1000;
+    this.processingIds = new Set();
   }
 
   cleanupSeen() {
@@ -22,7 +23,7 @@ export class MessageBuffer {
     if (messageId) {
       this.cleanupSeen();
       const key = `${id}:${messageId}`;
-      if (this.seen.has(key)) return false;
+      if (this.seen.has(key) || this.processingIds.has(key)) return false;
       this.seen.set(key, Date.now());
     }
 
@@ -43,8 +44,10 @@ export class MessageBuffer {
     state.timer = null;
     const snapshot = { ids: [...state.ids], sources: [...state.sources], payload: state.payload, webhookMessages: new Map(state.webhookMessages) };
     state.ids.clear(); state.sources.clear(); state.dirty = false;
+    for (const messageId of snapshot.ids) this.processingIds.add(`${id}:${messageId}`);
     try { await this.processor(id, snapshot); }
     finally {
+      for (const messageId of snapshot.ids) this.processingIds.delete(`${id}:${messageId}`);
       state.processing = false;
       for (const messageId of snapshot.ids) state.webhookMessages.delete(String(messageId));
       if (state.dirty || state.ids.size) {
