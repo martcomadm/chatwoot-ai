@@ -14,7 +14,7 @@ export function fallbackDecision(memory, planner, combinedText) {
 
   const hasAfore = Boolean(memory?.intereses?.afore) || /afor[eé]|aportaciones?/i.test(combinedText);
   const continuity = Boolean(memory?.contexto_laboral?.busca_continuidad) || /constantes?|continuidad|sin cambios cada semana/i.test(combinedText);
-  const prefix = hasAfore ? (continuity ? "Entiendo: buscas continuidad en el alta y las aportaciones a tu AFORE." : "Claro, podemos orientarte sobre una opción con aportaciones a tu AFORE.") : "Claro, te ayudo a revisar tu caso.";
+  const prefix = hasAfore ? (continuity ? "Buscas continuidad en el alta y las aportaciones a tu AFORE." : "Podemos orientarte sobre una opción con aportaciones a tu AFORE.") : "";
   const questions = {
     necesidad_principal: "¿Qué te interesa principalmente: servicio médico, semanas, INFONAVIT o AFORE?",
     tiene_imss: "¿Actualmente tienes un alta activa ante el IMSS?",
@@ -33,6 +33,14 @@ export function fallbackDecision(memory, planner, combinedText) {
     return { reply: direct, question_key:null, add_labels:[], remove_labels:[], handoff:false, handoff_reason:"" };
   }
   const nextQuestion = questions[planner?.question_key] || (direct ? "" : "¿Me compartes un poco más sobre tu situación?");
+  const lastQuestion = memory?.ultima_pregunta || null;
+  const questionKey = planner?.question_key || null;
+  // Never resend the exact pending question just because a duplicate/stale event
+  // produced no new usable answer. The processor will ask again only after a real
+  // customer turn changes the planner or supplies new information.
+  if (!direct && questionKey && questionKey === lastQuestion) {
+    return { reply: "", question_key: questionKey, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
+  }
   const reply = [direct || prefix, nextQuestion].filter(Boolean).join(" ").trim();
-  return { reply, question_key: planner?.question_key || null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
+  return { reply, question_key: questionKey, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
 }
