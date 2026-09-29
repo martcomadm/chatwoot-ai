@@ -14,6 +14,7 @@ export function detectHumanPreference(text){
 
 export function detectQuestion(text){
   const v=norm(text);
+  if(/\b(?:que|cual|cuanto|de cuanto)\b.{0,35}\b(?:salario|sueldo)\b.{0,25}\b(?:cotizado|registrado|maneja|manejan|tiene|es)\b|\b(?:salario|sueldo)\b.{0,35}\b(?:cotizado|registrado|maneja|manejan)\b/.test(v)) return {type:'registered_salary',answerKey:'registered_salary'};
   if(/\b(cuanto (?:cuesta|cobran?|sale)|precio|costo|mensualidad|aproximad[oa])\b/.test(v)) return {type:'price',answerKey:'price'};
   if(/\bque incluye (?:el )?plan\s*(1|uno)\b/.test(v)) return {type:'services_plan_1',answerKey:'services_plan_1'};
   if(/\bque incluye (?:el )?plan\s*(2|dos)\b/.test(v)) return {type:'services_plan_2',answerKey:'services_plan_2'};
@@ -40,6 +41,7 @@ export function controlledAnswer(key,memory={}){
     || memory?.intereses?.semanas_cotizadas
     || /semanas/i.test(String(memory?.necesidad_principal||""));
   const answers={
+    registered_salary:'Ambos planes manejan un salario diario registrado de $480 MXN.',
     price:isWeeksQuote
       ? 'El costo depende de la opción y del salario de registro. Como buscas completar semanas, necesito revisar unos datos mínimos para darte una cotización correcta y no inventarte una cifra.'
       : 'El costo depende del plan y del salario con el que se realice el registro. No quiero darte una cifra incorrecta sin revisar qué opción corresponde a tu caso.',
