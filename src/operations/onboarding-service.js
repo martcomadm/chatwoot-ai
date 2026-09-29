@@ -6,7 +6,7 @@ const LABELS = Object.freeze({
 });
 
 const PROMPTS = Object.freeze({
-  curp: "Para continuar con tu expediente, compárteme por favor la CURP del titular.",
+  curp: "Para continuar con tu expediente, compárteme por favor la CURP del titular. Si no la tienes a la mano, puedes enviarme una foto clara de la INE del titular como alternativa.",
   nss: "Gracias. Ahora compárteme por favor el NSS del titular.",
   ine: "Perfecto. Ahora envíame una foto o archivo claro de la INE del titular.",
   csf: "La Constancia de Situación Fiscal no es necesaria para iniciar. Se solicitará más adelante, una vez que cumplas 3 meses con nosotros.",
@@ -57,6 +57,16 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   }
 
   const text = norm(combinedText);
+  const curpPending = memory.operations.onboarding_next === "curp" || memory.operations.documents_missing?.[0] === "curp";
+  const saysNoCurp = /\b(no tengo|no cuento con|no se|no recuerdo|no conozco|no encuentro|no la tengo|no la se)\b.{0,35}\bcurp\b|\bcurp\b.{0,35}\b(no la tengo|no la se|no la recuerdo|no la encuentro)\b/.test(text);
+  if (curpPending && saysNoCurp) {
+    return {
+      reply: "No te preocupes. Si no tienes la CURP a la mano, envíame una foto clara de la INE del titular y podemos usarla como alternativa para continuar integrando el expediente.",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+      onboarding_requirement: "ine",
+    };
+  }
   const nssResolution = memory?.operations?.nss_resolution || memory?.nss_resolution || null;
   const saysNoNss = /\b(no tengo|no cuento con|no se|no recuerdo|no conozco|no encuentro)\b.{0,30}\bnss\b/.test(text);
   const saysNeverHadNss = /\b(nunca|jamas)\b.{0,25}\b(?:he tenido|tuve|he contado con|me han dado|me asignaron)?\s*nss\b|\bnunca he tenido seguro\b/.test(text);
