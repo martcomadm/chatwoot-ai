@@ -62,6 +62,9 @@ export function analyzeJudgment(text,memory={}){
   const humanPreference=detectHumanPreference(text);
   const advisoryRequest=/\b(?:quiero|necesito|busco|quisiera|me gustaria)\s+(?:una\s+)?(?:asesoria|orientacion|informacion)\b|\b(?:asesorame|orientame)\b/i.test(norm(text));
   const previous=memory?.judgment||{};
+  // human_preference is turn-scoped. A previous handoff-like interpretation must
+  // never survive into a later answer such as "no, no tengo".
+  const currentHumanPreference=Boolean(humanPreference);
   const priceRequests=Number(previous.price_requests||0)+(question?.type==='price'?1:0);
   const trustSignals=Number(previous.trust_signals||0)+((question?.type==='trust'||objection?.type==='trust')?1:0);
   const shouldHandoffPrice=question?.type==='price' && (priceRequests>=3 || objection?.type==='data_before_price');
@@ -95,7 +98,7 @@ export function analyzeJudgment(text,memory={}){
         trust_signals:trustSignals,
         last_question_type:question?.type||previous.last_question_type||null,
         last_objection:objection?.type||previous.last_objection||null,
-        human_preference:Boolean(previous.human_preference||humanPreference),
+        human_preference:currentHumanPreference,
         advisory_request:Boolean(previous.advisory_request||advisoryRequest),
         interrupt_type:humanPreference?'human_preference':objection?.type||question?.type||previous.interrupt_type||null,
         interrupt_active:Boolean(question||objection||humanPreference),
