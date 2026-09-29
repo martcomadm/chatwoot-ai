@@ -31,3 +31,13 @@ test("Plan 2-specific question stays Plan 2-specific", () => {
   assert.match(answer, /AFORE/);
   assert.match(answer, /INFONAVIT/);
 });
+
+
+test("registered salary question is answered directly instead of repeating plan pitch", () => {
+  const request = detectDirectRequest("¿Y qué salario cotizado maneja ese plan?");
+  assert.equal(request?.type, "registered_salary");
+  assert.match(directAnswerText(request), /\$480 MXN/);
+  const question = detectQuestion("¿Cuál es el salario diario registrado?");
+  assert.equal(question?.type, "registered_salary");
+  assert.match(controlledAnswer(question.answerKey, {}), /\$480 MXN/);
+});
