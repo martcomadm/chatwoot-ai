@@ -42,9 +42,9 @@ export function progressiveOpeningDecision(memory = {}, combinedText = "") {
   if (customerAskedCommercialDetails(combinedText)) return null;
   if (memory?.tiene_imss === null || memory?.tiene_imss === undefined) {
     return {
-      reply: memory?.presentacion_realizada
-        ? "¿Actualmente tienes un alta activa ante el IMSS?"
-        : "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo. La afiliación puede ayudarte a contar con servicio médico del IMSS y continuar cotizando semanas. Para orientarte mejor, ¿actualmente cuentas con IMSS?",
+      // An explicit information/menu entry is a fresh customer opening. Greet here
+      // even if this Chatwoot conversation has older persisted presentation state.
+      reply: "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo. La afiliación puede ayudarte a contar con servicio médico del IMSS y continuar cotizando semanas. Para orientarte mejor, ¿actualmente cuentas con IMSS?",
       question_key: "tiene_imss",
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
