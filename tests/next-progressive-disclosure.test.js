@@ -121,3 +121,12 @@ test("affirmative text does not trigger plan explanation without a prior explana
   };
   assert.equal(contextualPlanExplanation(memory, "sí"), null);
 });
+
+
+test("explicit information opening greets even with stale presentation memory", () => {
+  const memory = { tiene_imss: null, presentacion_realizada: true, sales_cycle: { stage: "exploring", authorized: false } };
+  const d = progressiveOpeningDecision(memory, "Información y revisar mi caso con mi NSS");
+  assert.ok(d);
+  assert.match(d.reply, /Hola.*Mia de MARTCOM/i);
+  assert.equal(d.question_key, "tiene_imss");
+});
