@@ -24,7 +24,8 @@ export function customerAskedCommercialDetails(text) {
 export function isInformationOpening(text) {
   const value = norm(text);
   return /\b(quiero|quisiera|necesito|me gustaria|dame|busco)\b.{0,35}\b(informacion|saber mas|orientacion)\b/.test(value)
-    || /\binformacion\b.{0,30}\b(afiliacion|imss)\b/.test(value);
+    || /\binformacion\b.{0,30}\b(afiliacion|imss|caso|nss)\b/.test(value)
+    || /\binformacion\b.{0,45}\b(?:revisar|revision)\b.{0,30}\b(?:caso|nss|imss)\b/.test(value);
 }
 
 export function disclosureViolations(reply, { memory = {}, combinedText = "" } = {}) {
