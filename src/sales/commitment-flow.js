@@ -7,7 +7,7 @@ function planPrice(plan) { return plan === "plan_2" ? "$1,500 MXN" : plan === "p
 
 const START_RE = /\b(?:si[, ]*)?(?:quiero|deseo|podemos|quiero que)\s+(?:iniciar|empezar|proceder|continuar|hacer)\s+(?:con\s+)?(?:el\s+)?(?:tramite|proceso|alta)|\b(?:iniciemos|empecemos|empezemos|procedamos)\b|\badelante con (?:el )?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?me interesa[, ]+(?:iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/;
 const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
-const INTEREST_ONLY_RE = /\bme interesa(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
+const INTEREST_ONLY_RE = /\bme interesa(?:\s+(?:adquirir|contratar|tomar|elegir|escoger))?(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|\b(?:quiero|deseo)\s+(?:adquirir|contratar|tomar)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
 
 export function commitmentDecision(memory = {}, combinedText = "") {
   const text = norm(combinedText);
@@ -33,12 +33,16 @@ export function commitmentDecision(memory = {}, combinedText = "") {
     };
   }
 
-  if (INTEREST_ONLY_RE.test(text) && plan) {
+  if (INTEREST_ONLY_RE.test(text)) {
+    const explicit = text.match(/\bplan\s*(1|uno|2|dos)\b/)?.[1];
+    const interestedPlan = explicit ? (/^(2|dos)$/.test(explicit) ? "plan_2" : "plan_1") : plan;
+    if (!interestedPlan) return null;
     return {
-      reply: `Claro. ${planLabel(plan)}${planPrice(plan) ? ` tiene un costo de ${planPrice(plan)}` : ""}. Podemos revisar cualquier duda que tengas antes de decidir si deseas iniciar el trámite.`,
+      reply: `Perfecto. Veo que te interesa ${planLabel(interestedPlan)}${planPrice(interestedPlan) ? ` de ${planPrice(interestedPlan)}` : ""}. Si ya deseas adquirirlo, podemos iniciar tu trámite y abrir tu expediente. ¿Quieres que comencemos?`,
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
       commitment: "interested",
+      selected_plan: interestedPlan,
     };
   }
   return null;
