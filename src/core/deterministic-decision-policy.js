@@ -1,6 +1,7 @@
 const FACT_LOCKED_TYPES = new Set([
   "identity",
   "process_time",
+  "medical_access_scope",
   "plan_2_contributions",
   "registered_salary",
   "requirements",
@@ -19,9 +20,17 @@ const FACT_LOCKED_TYPES = new Set([
 ]);
 
 export function directAnswerDecision({ judgment, orchestration }) {
-  const request = judgment?.question || orchestration?.directRequest;
+  // Prefer an explicitly recognized deterministic request from the orchestrator.
+  // A broader judgment question must not mask a fact-locked customer question.
+  const orchestrationRequest = orchestration?.directRequest;
+  const judgmentRequest = judgment?.question;
+  const request = FACT_LOCKED_TYPES.has(orchestrationRequest?.type || orchestrationRequest?.answerKey)
+    ? orchestrationRequest
+    : judgmentRequest;
   if (!request || !FACT_LOCKED_TYPES.has(request.type || request.answerKey)) return null;
-  const answer = judgment?.directAnswer || orchestration?.directAnswer;
+  const answer = request === orchestrationRequest
+    ? orchestration?.directAnswer
+    : (judgment?.directAnswer || orchestration?.directAnswer);
   if (!answer) return null;
   return {
     reply: answer,
