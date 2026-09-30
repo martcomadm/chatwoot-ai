@@ -92,7 +92,7 @@ try {
     return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
   });
 
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }));
 
   app.listen(config.port, "0.0.0.0", () => {
