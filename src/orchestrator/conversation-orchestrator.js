@@ -14,6 +14,7 @@ export function detectDirectRequest(text){
   const v=norm(text);
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
   if(/\b(cuanto tarda|cuanto tiempo tarda|cuanto demora|tiempo de proceso|tiempo del tramite|tramite cuanto tarda|en cuanto tiempo|cuantas horas tarda)\b/.test(v)) return {type:'process_time',priority:'high',answerKey:'process_time'};
+  if(/\b(?:el )?acceso (?:al )?(?:servicio medico|imss).{0,25}(?:es )?(?:total|completo|completo al cien|100)|\b(?:tengo|tendre|incluye|da)\b.{0,25}\b(?:acceso|servicio)\b.{0,20}\b(?:total|completo|100)\b/.test(v)) return {type:'medical_access_scope',priority:'high',answerKey:'medical_access_scope'};
   const asksAforeAmount=/\b(?:cuanto|cuanta|cuantas|que porcentaje|porcentaje de|de cuanto)\b.{0,45}\b(?:aportacion(?:es)?|afore)\b|\b(?:aportacion(?:es)?|afore)\b.{0,45}\b(?:cuanto|cuanta|cuantas|que porcentaje|porcentaje)\b/.test(v);
   const asksInfonavitPoints=/\b(?:cuantos?|cuantas?)\b.{0,30}\bpuntos?\b|\bpuntos?\b.{0,30}\b(?:cuantos?|cuantas?)\b/.test(v);
   if(asksAforeAmount||asksInfonavitPoints) return {type:'plan_2_contributions',priority:'high',answerKey:'plan_2_contributions'};
@@ -51,6 +52,7 @@ export function directAnswerText(request){
   if(!request) return null;
   if(request.answerKey==='identity') return 'Me llamo Mia, soy la asistente virtual de MARTCOM. 😊';
   if(request.answerKey==='process_time') return 'Una vez que recibimos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. El tiempo puede variar según la revisión del caso.';
+  if(request.answerKey==='medical_access_scope') return 'El Plan 1 te permite contar con servicio médico del IMSS una vez que tu alta esté vigente. El acceso y las prestaciones se brindan conforme a los derechos, reglas y condiciones que determine el propio IMSS; por eso no sería correcto decirte que es “total” para cualquier servicio o situación. Si me dices qué atención te interesa —consultas, medicamentos, hospitalización o beneficiarios— te explico esa parte.';
   if(request.answerKey==='plan_2_contributions') return 'En el Plan 2, la aportación a AFORE se maneja de forma alternada: un mes es de 5.5% y el siguiente de 10%, repitiendo ese esquema. En INFONAVIT, la acumulación estimada es de entre 200 y 250 puntos. Si quieres, también puedo explicarte cómo se integra este beneficio con el resto del Plan 2.';
   if(request.answerKey==='registered_salary') return 'Ambos planes manejan un salario diario registrado de $480 MXN.';
   if(request.answerKey==='pension_impact') return 'Seguir cotizando semanas puede ayudarte a continuar construyendo tu historial ante el IMSS, pero no puedo asegurarte que tu pensión aumente solo por contratar la afiliación. El monto de una pensión depende de varios datos de tu historial y régimen. Si tu objetivo es pensión, podemos revisar primero tu caso para orientarte sin prometer un incremento que todavía no conocemos.';
