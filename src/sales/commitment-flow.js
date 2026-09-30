@@ -38,7 +38,7 @@ export function commitmentDecision(memory = {}, combinedText = "") {
     const interestedPlan = explicit ? (/^(2|dos)$/.test(explicit) ? "plan_2" : "plan_1") : plan;
     if (!interestedPlan) return null;
     return {
-      reply: `Perfecto. Veo que te interesa ${planLabel(interestedPlan)}${planPrice(interestedPlan) ? ` de ${planPrice(interestedPlan)}` : ""}. Si ya deseas adquirirlo, podemos iniciar tu trámite y abrir tu expediente. ¿Quieres que comencemos?`,
+      reply: `Perfecto. Veo que te interesa ${planLabel(interestedPlan)}${planPrice(interestedPlan) ? ` de ${planPrice(interestedPlan)}` : ""}. Si deseas continuar con la contratación, puedo guiarte con el siguiente paso. ¿Quieres que comencemos?`,
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
       commitment: "interested",
