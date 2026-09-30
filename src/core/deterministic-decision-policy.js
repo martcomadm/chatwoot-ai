@@ -13,6 +13,7 @@ const FACT_LOCKED_TYPES = new Set([
   "clarify_quote",
   "explain_curp",
   "operational_model",
+  "pension_impact",
 ]);
 
 export function directAnswerDecision({ judgment, orchestration }) {
