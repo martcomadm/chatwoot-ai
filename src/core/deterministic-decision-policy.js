@@ -3,6 +3,7 @@ const FACT_LOCKED_TYPES = new Set([
   "process_time",
   "medical_access_scope",
   "medical_benefit_followup",
+  "medical_specific_procedure",
   "plan_2_contributions",
   "registered_salary",
   "requirements",
