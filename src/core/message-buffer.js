@@ -37,6 +37,19 @@ export class MessageBuffer {
     return true;
   }
 
+  resetConversation(id) {
+    const keyPrefix=`${id}:`;
+    const state=this.states.get(id);
+    if(state?.timer) clearTimeout(state.timer);
+    // Pending snapshots from before a LAB reset must never be processed as a new turn.
+    // An already-running processor cannot be cancelled here, but clearing queued state
+    // prevents delayed webhook/conversation_updated work from surviving the reset.
+    if(state && !state.processing) this.states.delete(id);
+    else if(state){ state.ids.clear(); state.sources.clear(); state.webhookMessages.clear(); state.payload=null; state.dirty=false; }
+    for(const key of [...this.seen.keys()]) if(key.startsWith(keyPrefix)) this.seen.delete(key);
+    return true;
+  }
+
   async flush(id) {
     const state = this.state(id);
     if (state.processing) { state.dirty = true; return; }
