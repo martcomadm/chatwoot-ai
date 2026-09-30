@@ -2,7 +2,7 @@ import express from "express";
 import { operationsPage } from "./operations-page-fixed.js";
 import { saleDetailPage } from "./sale-detail-page.js";
 
-export function createOperationsRouter({config,saleStore,workflow,memories,inspectorEvents}){
+export function createOperationsRouter({config,saleStore,workflow,memories,inspectorEvents,buffer}){
   const router=express.Router();
   function authorized(req){const expected=config.operations?.token;if(!expected)return false;return req.get("x-operations-token")===expected||req.query.token===expected}
   function guard(req,res,next){if(!authorized(req))return res.status(401).json({error:"Token de Operations inválido"});next()}
@@ -19,6 +19,9 @@ export function createOperationsRouter({config,saleStore,workflow,memories,inspe
       if(!Number.isInteger(conversationId)||conversationId<=0)return res.status(400).json({error:"conversation_id inválido"});
       if(req.body?.confirm!==`RESET ${conversationId}`)return res.status(400).json({error:`Confirmación requerida: RESET ${conversationId}`});
       const previousMemory=memories?.get(conversationId);
+      // Purge delayed webhook work first. Otherwise a message queued before the reset
+      // can run afterwards and reconstruct old conversational facts into fresh memory.
+      buffer?.resetConversation?.(conversationId);
       const removedSales=saleStore.deleteByConversationId(conversationId);
       await memories?.clear(conversationId);
       await inspectorEvents?.record(conversationId,"lab.conversation_reset",{conversation_id:conversationId,removed_sale_ids:removedSales.map(s=>s.sale_id),had_memory:Boolean(previousMemory?.actualizado_en),requested_by:"operations_lab"});
