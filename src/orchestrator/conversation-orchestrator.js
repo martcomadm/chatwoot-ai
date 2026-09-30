@@ -20,6 +20,10 @@ export function detectDirectRequest(text){
   // Pension outcome is case-specific. Detect the question so Mia always answers
   // instead of letting a stale discovery planner swallow the customer turn.
   if(/\b(?:mi pension|la pension)\b.{0,35}\b(?:aumenta|sube|incrementa|mejora|seria mayor|sera mayor)\b|\b(?:aumenta|sube|incrementa|mejora)\b.{0,35}\b(?:mi pension|la pension)\b/.test(v)) return {type:'pension_impact',priority:'high',answerKey:'pension_impact'};
+  // "¿Qué necesitas para revisar mi caso?" is a request to begin case review,
+  // not a request to hear the previously recommended plan again.
+  const asksCaseReview=/\b(?:para|pa)\s+(?:revisar|checar|ver|evaluar|analizar)\s+(?:mi|el)\s+caso\b.{0,45}\b(?:que necesitas|que ocupas|que te paso|que te doy|que requieres|que hace falta)\b|\b(?:que necesitas|que ocupas|que te paso|que te doy|que requieres|que hace falta)\b.{0,45}\b(?:revisar|checar|ver|evaluar|analizar)\s+(?:mi|el)\s+caso\b/.test(v);
+  if(asksCaseReview) return {type:'case_review',priority:'high',answerKey:'case_review'};
   if(isRequirementsQuestion(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
   const asksRegisteredSalary=/\b(?:que|cual|cuanto|de cuanto)\b.{0,35}\b(?:salario|sueldo)\b.{0,25}\b(?:cotizado|registrado|maneja|manejan|tiene|es)\b|\b(?:salario|sueldo)\b.{0,35}\b(?:cotizado|registrado|maneja|manejan)\b/.test(v);
   if(asksRegisteredSalary) return {type:'registered_salary',priority:'high',answerKey:'registered_salary'};
@@ -45,6 +49,7 @@ export function directAnswerText(request){
   if(request.answerKey==='plan_2_contributions') return 'En el Plan 2, la aportación a AFORE se maneja de forma alternada: un mes es de 5.5% y el siguiente de 10%, repitiendo ese esquema. En INFONAVIT, la acumulación estimada es de entre 200 y 250 puntos. Si quieres, también puedo explicarte cómo se integra este beneficio con el resto del Plan 2.';
   if(request.answerKey==='registered_salary') return 'Ambos planes manejan un salario diario registrado de $480 MXN.';
   if(request.answerKey==='pension_impact') return 'Seguir cotizando semanas puede ayudarte a continuar construyendo tu historial ante el IMSS, pero no puedo asegurarte que tu pensión aumente solo por contratar la afiliación. El monto de una pensión depende de varios datos de tu historial y régimen. Si tu objetivo es pensión, podemos revisar primero tu caso para orientarte sin prometer un incremento que todavía no conocemos.';
+  if(request.answerKey==='case_review') return 'Para empezar a revisar tu caso, compárteme tu NSS si lo tienes a la mano. Si no lo tienes, no te preocupes: con tu CURP podemos localizarlo y continuar sin atrasar la revisión.';
   if(request.answerKey==='requirements') return 'Para iniciar necesitamos CURP, NSS e INE del titular. La Constancia de Situación Fiscal es opcional al inicio y se solicitará a los 3 meses de que ya estés con nosotros. Si todavía estás revisando la opción, no necesitas enviar tus documentos aún.';
   if(request.answerKey==='services' && request.plan==='plan_1') return 'El Plan 1 cuesta $1,100 MXN e incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Si quieres, también puedo explicarte algún beneficio en particular.';
   if(request.answerKey==='services' && request.plan==='plan_2') return 'El Plan 2 cuesta $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT; también contempla incapacidades conforme al caso.';
