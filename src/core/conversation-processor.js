@@ -4,7 +4,7 @@ import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
-import { progressiveOpeningDecision, compactPlanRecommendation, contextualPlanExplanation, disclosureViolations } from "../sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations } from "../sales/progressive-disclosure.js";
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
@@ -84,6 +84,7 @@ const openingDecision=progressiveOpeningDecision(memory,combinedText);
 const needDecision=needGuardDecision(memory,combinedText);
 const contextualExplanation=contextualPlanExplanation(base,combinedText);
 const compactRecommendation=compactPlanRecommendation(memory,combinedText);
+const priceObjection=priceObjectionDecision(memory,combinedText);
 const directDecision=directAnswerDecision({judgment,orchestration});
 const commitment=commitmentDecision(memory,combinedText);
 const advisoryTurn=isAdvisoryTurn(combinedText);
@@ -91,7 +92,8 @@ if(advisoryTurn){
   planner={...planner,action:"asesoria_conversacional",question_key:null,specialized:true,advisory:true,customer_question_priority:true};
   await this.record(conversationId,"advisory_turn",{text:combinedText,commercial_need:memory.commercial_need||null});
 }
-if(directDecision)decision=directDecision;
+if(priceObjection)decision=protectDeterministicDecision(priceObjection,"price_objection");
+else if(directDecision)decision=directDecision;
 else if(contextualExplanation)decision=protectDeterministicDecision(contextualExplanation,"contextual_plan_explanation");
 else if(commitment)decision=protectDeterministicDecision(commitment,`commitment:${commitment.commitment}`);
 else if(memory.sales_cycle?.authorized&&onboardingDecision)decision=protectDeterministicDecision(onboardingDecision,"onboarding");
