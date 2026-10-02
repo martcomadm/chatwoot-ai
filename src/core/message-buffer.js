@@ -5,6 +5,7 @@ export class MessageBuffer {
     this.states = new Map();
     this.seen = new Map();
     this.seenTtlMs = 15 * 60 * 1000;
+    this.processingIds = new Set();
   }
 
   cleanupSeen() {
@@ -22,7 +23,7 @@ export class MessageBuffer {
     if (messageId) {
       this.cleanupSeen();
       const key = `${id}:${messageId}`;
-      if (this.seen.has(key)) return false;
+      if (this.seen.has(key) || this.processingIds.has(key)) return false;
       this.seen.set(key, Date.now());
     }
 
@@ -36,6 +37,19 @@ export class MessageBuffer {
     return true;
   }
 
+  resetConversation(id) {
+    const keyPrefix=`${id}:`;
+    const state=this.states.get(id);
+    if(state?.timer) clearTimeout(state.timer);
+    // Pending snapshots from before a LAB reset must never be processed as a new turn.
+    // An already-running processor cannot be cancelled here, but clearing queued state
+    // prevents delayed webhook/conversation_updated work from surviving the reset.
+    if(state && !state.processing) this.states.delete(id);
+    else if(state){ state.ids.clear(); state.sources.clear(); state.webhookMessages.clear(); state.payload=null; state.dirty=false; }
+    for(const key of [...this.seen.keys()]) if(key.startsWith(keyPrefix)) this.seen.delete(key);
+    return true;
+  }
+
   async flush(id) {
     const state = this.state(id);
     if (state.processing) { state.dirty = true; return; }
@@ -43,8 +57,10 @@ export class MessageBuffer {
     state.timer = null;
     const snapshot = { ids: [...state.ids], sources: [...state.sources], payload: state.payload, webhookMessages: new Map(state.webhookMessages) };
     state.ids.clear(); state.sources.clear(); state.dirty = false;
+    for (const messageId of snapshot.ids) this.processingIds.add(`${id}:${messageId}`);
     try { await this.processor(id, snapshot); }
     finally {
+      for (const messageId of snapshot.ids) this.processingIds.delete(`${id}:${messageId}`);
       state.processing = false;
       for (const messageId of snapshot.ids) state.webhookMessages.delete(String(messageId));
       if (state.dirty || state.ids.size) {

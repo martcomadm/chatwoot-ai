@@ -7,7 +7,7 @@ import { conversationProgress, handoffMetrics, rotationOverview, slotStates } fr
 import { conversationIdOf, inboxIdOf, isContact, isIncoming, messageOf, messagesOf } from "./utils/conversation.js";
 import { buildAnalytics } from "./inspector/analytics-service.js";
 
-export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig }) {
+export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }) {
   const router = express.Router();
   const inspectorPublicPath = fileURLToPath(new URL("./inspector/public/", import.meta.url));
   router.use("/inspector/assets", express.static(inspectorPublicPath, {
@@ -213,7 +213,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     res.json({ deleted: true, conversationId: id });
   });
 
-  router.post("/webhook/chatwoot", (req, res) => {
+  router.post("/webhook/chatwoot", async (req, res) => {
     if (config.webhookSecret && req.query.secret !== config.webhookSecret) return res.status(401).json({ error: "unauthorized" });
     res.status(200).json({ received: true });
     const event = String(req.body?.event || "");
@@ -222,8 +222,36 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
 
     if (event === "message_created") {
       const message = messageOf(req.body);
-      if (!message?.id || inboxIdOf(req.body) !== config.chatwoot.inboxId || !isIncoming(message) || message.private === true || !isContact(message)) return;
-      buffer.enqueue(id, message, "message_created", req.body);
+      const attachmentList = Array.isArray(message?.attachments) ? message.attachments : [];
+      console.log("INE TRACE webhook", JSON.stringify({
+        conversation: id,
+        message: message?.id ? String(message.id) : null,
+        inbox: inboxIdOf(req.body) || null,
+        message_type: message?.message_type ?? null,
+        sender_type: message?.sender_type || message?.sender?.type || null,
+        private: message?.private === true,
+        attachments: attachmentList.length,
+        attachment_keys: attachmentList.map(item => Object.keys(item || {})),
+        attachment_types: attachmentList.map(item => String(item?.file_type || item?.content_type || item?.extension || "")),
+        attachment_has_url: attachmentList.map(item => Boolean(item?.data_url || item?.download_url || item?.file_url || item?.url)),
+        payload_keys: Object.keys(req.body || {}),
+        message_keys: message && typeof message === "object" ? Object.keys(message) : [],
+      }));
+      if (!message?.id || inboxIdOf(req.body) !== config.chatwoot.inboxId || !isIncoming(message) || message.private === true || !isContact(message)) {
+        console.log("INE TRACE webhook_rejected", JSON.stringify({
+          conversation: id,
+          message: message?.id ? String(message.id) : null,
+          has_id: Boolean(message?.id),
+          inbox_ok: inboxIdOf(req.body) === config.chatwoot.inboxId,
+          incoming: isIncoming(message),
+          contact: isContact(message),
+          private: message?.private === true,
+          attachments: attachmentList.length,
+        }));
+        return;
+      }
+      const queued = buffer.enqueue(id, message, "message_created", req.body);
+      console.log("INE TRACE buffer_enqueue", JSON.stringify({ conversation: id, message: String(message.id), attachments: attachmentList.length, queued }));
     } else if (event === "conversation_updated") {
       const conversation = req.body?.conversation || req.body;
       const inbox = Number(conversation?.inbox_id || conversation?.inbox?.id || inboxIdOf(req.body));
@@ -233,12 +261,26 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
       const messages = messagesOf(conversation);
       for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
-        if (message && isIncoming(message) && !message.private && isContact(message)) {
+        if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {
           buffer.enqueue(id, message, "conversation_updated", req.body);
           return;
         }
       }
-      console.log(`Actualización ${id} recibida sin mensaje entrante utilizable; no se consulta Chatwoot.`);
+      try {
+        const fresh = await chatwoot.getMessages(id);
+        const freshMessages = Array.isArray(fresh?.payload) ? fresh.payload : Array.isArray(fresh) ? fresh : messagesOf(fresh);
+        for (let index = freshMessages.length - 1; index >= 0; index -= 1) {
+          const message = freshMessages[index];
+          if (message && message.id && isIncoming(message) && !message.private && isContact(message) && !memories.hasProcessed(id, message.id)) {
+            buffer.enqueue(id, message, "conversation_updated_recovery", req.body);
+            console.log(`Actualización ${id}: mensaje entrante ${message.id} recuperado desde Chatwoot.`);
+            return;
+          }
+        }
+        console.log(`Actualización ${id} recibida sin mensaje entrante nuevo utilizable, incluso tras consultar Chatwoot.`);
+      } catch (error) {
+        console.error(`No se pudo recuperar la conversación ${id} tras conversation_updated:`, error?.message || error);
+      }
     }
   });
 

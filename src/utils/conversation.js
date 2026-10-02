@@ -1,5 +1,16 @@
 export const arrays = (a = [], b = [], max = 100) => [...new Set([...(a || []), ...(b || [])])].slice(-max);
-export const messageOf = payload => payload?.message || payload;
+export const messageOf = payload => {
+  const message = payload?.message || payload;
+  if (!message || typeof message !== "object") return message;
+  const attachments = Array.isArray(message.attachments) && message.attachments.length
+    ? message.attachments
+    : Array.isArray(payload?.attachments) && payload.attachments.length
+      ? payload.attachments
+      : Array.isArray(payload?.message?.attachments)
+        ? payload.message.attachments
+        : [];
+  return attachments.length ? { ...message, attachments } : message;
+};
 export const conversationIdOf = payload => Number(payload?.conversation?.id ?? payload?.message?.conversation_id ?? payload?.conversation_id ?? payload?.id);
 export const inboxIdOf = payload => Number(payload?.conversation?.inbox_id ?? payload?.conversation?.inbox?.id ?? payload?.inbox?.id ?? payload?.message?.inbox_id);
 export const isIncoming = message => message?.message_type === "incoming" || message?.message_type === 0;
@@ -21,7 +32,7 @@ export function historyOf(conversation, maxHistory = 50) {
     .filter(message => !message.private && message.content)
     .slice(-maxHistory)
     .map(message => `${isIncoming(message) ? "CLIENTE" : "AGENTE"}: ${String(message.content).trim()}`)
-    .join("\n");
+    .join("\\n");
 }
 
 export function localHour(timezone) {

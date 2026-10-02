@@ -14,8 +14,13 @@ export function detectHumanPreference(text){
 
 export function detectQuestion(text){
   const v=norm(text);
+  if(/\b(?:que|cual|cuanto|de cuanto)\b.{0,35}\b(?:salario|sueldo)\b.{0,25}\b(?:cotizado|registrado|maneja|manejan|tiene|es)\b|\b(?:salario|sueldo)\b.{0,35}\b(?:cotizado|registrado|maneja|manejan)\b/.test(v)) return {type:'registered_salary',answerKey:'registered_salary'};
   if(/\b(cuanto (?:cuesta|cobran?|sale)|precio|costo|mensualidad|aproximad[oa])\b/.test(v)) return {type:'price',answerKey:'price'};
-  if(/\b(que ofrecen|que incluye|que manejan|beneficios?|planes?|paquetes?|servicios?)\b/.test(v)) return {type:'services',answerKey:'services'};
+  if(/\bque incluye (?:el )?plan\s*(1|uno)\b/.test(v)) return {type:'services_plan_1',answerKey:'services_plan_1'};
+  if(/\bque incluye (?:el )?plan\s*(2|dos)\b/.test(v)) return {type:'services_plan_2',answerKey:'services_plan_2'};
+  // Requiere intención interrogativa real: una mención declarativa de Plan 1/2
+  // pertenece al commitment-flow.
+  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:beneficios|planes|paquetes|servicios)|que (?:beneficios|planes|paquetes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el )?plan)\b/.test(v)) return {type:'services',answerKey:'services'};
   if(/\b(donde (?:estan|se encuentran|se ubican)|ubicacion|oficinas?|direccion|direcci[oó]n|razon social|confiable|estafa|fraude|son reales)\b/.test(v)) return {type:'trust',answerKey:'trust'};
   if(/cotizaci[oó]n de qu[eé]|qu[eé] cotizaci[oó]n|a qu[eé] te refieres con cotizaci[oó]n/.test(v)) return {type:'clarify_quote',answerKey:'clarify_quote'};
   if(/(?:que|qu[eé]) (?:es|significa) (?:el )?curp|en qu[eé] consiste (?:el )?curp|curp es la fecha/.test(v)) return {type:'explain_curp',answerKey:'explain_curp'};
@@ -36,9 +41,12 @@ export function controlledAnswer(key,memory={}){
     || memory?.intereses?.semanas_cotizadas
     || /semanas/i.test(String(memory?.necesidad_principal||""));
   const answers={
+    registered_salary:'Ambos planes manejan un salario diario registrado de $480 MXN.',
     price:isWeeksQuote
       ? 'El costo depende de la opción y del salario de registro. Como buscas completar semanas, necesito revisar unos datos mínimos para darte una cotización correcta y no inventarte una cifra.'
       : 'El costo depende del plan y del salario con el que se realice el registro. No quiero darte una cifra incorrecta sin revisar qué opción corresponde a tu caso.',
+    services_plan_1:'El Plan 1 cuesta $1,100 MXN e incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Si quieres, también puedo explicarte algún beneficio en particular.',
+    services_plan_2:'El Plan 2 cuesta $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT; también contempla incapacidades conforme al caso.',
     services:'Manejamos opciones que pueden incluir servicio médico, cotización de semanas y beneficiarios; también existe una opción que puede contemplar aportaciones relacionadas con AFORE e INFONAVIT según el caso.',
     trust:'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, es totalmente válido hacerlo primero.',
     clarify_quote:'Me refiero a la cotización de la opción de afiliación que corresponda a tu caso: el plan, el salario de registro y los beneficios que buscas.',
@@ -52,7 +60,11 @@ export function analyzeJudgment(text,memory={}){
   const question=detectQuestion(text);
   const objection=detectObjection(text);
   const humanPreference=detectHumanPreference(text);
+  const advisoryRequest=/\b(?:quiero|necesito|busco|quisiera|me gustaria)\s+(?:una\s+)?(?:asesoria|orientacion|informacion)\b|\b(?:asesorame|orientame)\b/i.test(norm(text));
   const previous=memory?.judgment||{};
+  // human_preference is turn-scoped. A previous handoff-like interpretation must
+  // never survive into a later answer such as "no, no tengo".
+  const currentHumanPreference=Boolean(humanPreference);
   const priceRequests=Number(previous.price_requests||0)+(question?.type==='price'?1:0);
   const trustSignals=Number(previous.trust_signals||0)+((question?.type==='trust'||objection?.type==='trust')?1:0);
   const shouldHandoffPrice=question?.type==='price' && (priceRequests>=3 || objection?.type==='data_before_price');
@@ -68,6 +80,9 @@ export function analyzeJudgment(text,memory={}){
       priority:humanPreference?'critical':objection?.severity==='high'?'high':question?'high':'normal',
       resume_planner:!humanPreference&&!shouldHandoffPrice&&!shouldHandoffSensitive
     },
+    // Pedir "asesoría" u "orientación" es una intención conversacional para Mia,
+    // no una solicitud de transferencia. Solo transferimos si el cliente pide
+    // explícitamente una persona/asesor humano o se activa otra causa controlada.
     shouldHandoff:humanPreference||shouldHandoffPrice||shouldHandoffSensitive,
     handoffReason:humanPreference
       ?'El cliente pidió o manifestó preferencia por atención humana.'
@@ -83,7 +98,8 @@ export function analyzeJudgment(text,memory={}){
         trust_signals:trustSignals,
         last_question_type:question?.type||previous.last_question_type||null,
         last_objection:objection?.type||previous.last_objection||null,
-        human_preference:Boolean(previous.human_preference||humanPreference),
+        human_preference:currentHumanPreference,
+        advisory_request:Boolean(previous.advisory_request||advisoryRequest),
         interrupt_type:humanPreference?'human_preference':objection?.type||question?.type||previous.interrupt_type||null,
         interrupt_active:Boolean(question||objection||humanPreference),
       }
