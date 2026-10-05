@@ -52,6 +52,9 @@ try {
   // haya cambiado la asignación del chat. El processor mantiene el resto de guardas.
   app.use(async (req, res, next) => {
     if (req.method !== "POST" || req.path !== "/webhook/chatwoot") return next();
+    // Validar el secreto ANTES de consultar Chatwoot o el SaleStore: sin esto,
+    // cualquiera podía provocar llamadas a la API de Chatwoot con webhooks falsos.
+    if (config.webhookSecret && req.query.secret !== config.webhookSecret) return res.status(401).json({ error: "unauthorized" });
     if (String(req.body?.event || "") !== "message_created") return next();
     if (webhookEventAllowedForAgent(req.body, config.chatwoot.agentId)) return next();
 
