@@ -6,6 +6,8 @@ import { buildDiagnostics } from "./inspector/diagnostics-service.js";
 import { conversationProgress, handoffMetrics, rotationOverview, slotStates } from "./inspector/operations-service.js";
 import { conversationIdOf, inboxIdOf, isContact, isIncoming, messageOf, messagesOf } from "./utils/conversation.js";
 import { buildAnalytics } from "./inspector/analytics-service.js";
+import { trace } from "./utils/debug-trace.js";
+import { APP_VERSION } from "./version.js";
 
 export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }) {
   const router = express.Router();
@@ -30,7 +32,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
   router.get("/inspector/api/health", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
     const diagnostics = buildDiagnostics({ config, memories, inspectorEvents });
-    res.json({ status: "ok", overall: diagnostics.overall, version: "3.3.2.1", inspectorVersion: "1.6", architecture: "modular", lastEventAt: inspectorEvents.stats?.().lastEventAt || null, autoHandoff: config.handoff.enabled, diagnostics });
+    res.json({ status: "ok", overall: diagnostics.overall, version: APP_VERSION, inspectorVersion: "1.6", architecture: "modular", lastEventAt: inspectorEvents.stats?.().lastEventAt || null, autoHandoff: config.handoff.enabled, diagnostics });
   });
   router.get("/inspector/api/dashboard", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
@@ -182,7 +184,8 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
 
   router.get("/", (_req, res) => res.json({
     service: "martcom-ai-sales-intelligence",
-    version: "3.2.2",
+    version: APP_VERSION,
+    app_env: config.appEnv,
     status: "ok",
     architecture: "modular",
     memory_file: config.storage.memoryFile,
@@ -199,7 +202,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     agent_id: config.chatwoot.agentId,
   }));
 
-  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.2.2", timestamp: new Date().toISOString() }));
+  router.get("/health", (_req, res) => res.json({ status: "ok", version: APP_VERSION, timestamp: new Date().toISOString() }));
   // La memoria contiene datos personales (nombre, CURP, NSS): exige token del Inspector.
   router.get("/memory/:conversationId", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
@@ -227,7 +230,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     if (event === "message_created") {
       const message = messageOf(req.body);
       const attachmentList = Array.isArray(message?.attachments) ? message.attachments : [];
-      console.log("INE TRACE webhook", JSON.stringify({
+      trace("webhook",({
         conversation: id,
         message: message?.id ? String(message.id) : null,
         inbox: inboxIdOf(req.body) || null,
@@ -242,7 +245,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
         message_keys: message && typeof message === "object" ? Object.keys(message) : [],
       }));
       if (!message?.id || inboxIdOf(req.body) !== config.chatwoot.inboxId || !isIncoming(message) || message.private === true || !isContact(message)) {
-        console.log("INE TRACE webhook_rejected", JSON.stringify({
+        trace("webhook_rejected",({
           conversation: id,
           message: message?.id ? String(message.id) : null,
           has_id: Boolean(message?.id),
@@ -255,7 +258,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
         return;
       }
       const queued = buffer.enqueue(id, message, "message_created", req.body);
-      console.log("INE TRACE buffer_enqueue", JSON.stringify({ conversation: id, message: String(message.id), attachments: attachmentList.length, queued }));
+      trace("buffer_enqueue",({ conversation: id, message: String(message.id), attachments: attachmentList.length, queued }));
     } else if (event === "conversation_updated") {
       const conversation = req.body?.conversation || req.body;
       const inbox = Number(conversation?.inbox_id || conversation?.inbox?.id || inboxIdOf(req.body));
