@@ -200,13 +200,17 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
   }));
 
   router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.2.2", timestamp: new Date().toISOString() }));
+  // La memoria contiene datos personales (nombre, CURP, NSS): exige token del Inspector.
   router.get("/memory/:conversationId", (req, res) => {
+    if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
     const id = Number(req.params.conversationId);
     if (!id) return res.status(400).json({ error: "conversation_id inválido" });
     res.json(memories.get(id));
   });
   router.delete("/memory/:conversationId", async (req, res) => {
-    if (config.webhookSecret && req.query.secret !== config.webhookSecret) return res.status(401).json({ error: "unauthorized" });
+    // Antes, sin WEBHOOK_SECRET configurado cualquiera podía borrar memoria.
+    const secretOk = Boolean(config.webhookSecret) && req.query.secret === config.webhookSecret;
+    if (!secretOk && !inspectorAdminAuthorized(req)) return res.status(401).json({ error: "unauthorized" });
     const id = Number(req.params.conversationId);
     if (!id) return res.status(400).json({ error: "conversation_id inválido" });
     await memories.clear(id);
