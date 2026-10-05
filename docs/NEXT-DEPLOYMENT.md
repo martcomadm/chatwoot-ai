@@ -5,17 +5,17 @@ Desplegar `chatwoot-ai-next` sin modificar ni compartir estado con `chatwoot-ai`
 
 ## Reglas no negociables
 - Producción (`chatwoot-ai`) permanece intacta.
-- NEXT usa un Inbox de laboratorio distinto de Inbox 6.
+- NEXT usa preferentemente un Inbox de laboratorio distinto de Inbox 6. Inbox 6 (compartido con producción) solo se permite con el usuario LAB `53`; en ese caso NEXT procesa únicamente conversaciones asignadas a ese usuario.
 - NEXT usa un usuario/agente IA distinto al AXEL IA de producción cuando sea posible.
 - NEXT usa webhook propio y secreto propio.
 - NEXT monta un volumen propio en `/app/data-next`.
 - Nunca montar el volumen de producción en NEXT.
 - `APP_ENV=next` y `ALLOWED_INBOX_IDS` son obligatorios.
-- El proceso falla al arrancar si se configura Inbox 6, un inbox no autorizado o almacenamiento fuera de `NEXT_DATA_DIR`.
+- El proceso falla al arrancar si se configura Inbox 6 con un usuario distinto de `53`, el usuario `12` (AXEL IA de producción), un inbox no autorizado o almacenamiento fuera de `NEXT_DATA_DIR`.
 
 ## 1. Preparar Chatwoot
 1. Crear un Inbox exclusivo de laboratorio, por ejemplo `MARTCOM NEXT LAB`.
-2. Anotar su ID. Debe ser diferente de `6`.
+2. Anotar su ID. Debe ser diferente de `6` (salvo el esquema compartido con el usuario LAB `53`).
 3. Crear/seleccionar un usuario IA exclusivo de pruebas, por ejemplo `Mia de MARTCOM - NEXT`.
 4. Añadirlo únicamente al Inbox de laboratorio necesario para las pruebas.
 5. Obtener un token de acceso apropiado para NEXT. No documentarlo en Git.
@@ -58,7 +58,9 @@ CHATWOOT_INBOX_ID=<ID_INBOX_LAB>
 ALLOWED_INBOX_IDS=<ID_INBOX_LAB>
 ```
 
-`CHATWOOT_INBOX_ID` y `ALLOWED_INBOX_IDS` deben contener el inbox de laboratorio y nunca `6`.
+`CHATWOOT_INBOX_ID` y `ALLOWED_INBOX_IDS` deben contener el inbox de laboratorio. Solo pueden ser `6` si `CHATWOOT_AI_AGENT_ID=53`.
+
+`INSPECTOR_TOKEN` es obligatorio para consultar `GET /memory/:id` (contiene CURP/NSS). `DEBUG_TRACE=1` activa las trazas `INE TRACE`; dejarlo vacío en operación normal.
 
 Usar tokens/secrets exclusivos para NEXT. No copiar secrets a documentación, capturas o commits.
 
@@ -82,8 +84,8 @@ Si el proceso no inicia, no eliminar los guards: corregir la configuración.
 ## 6. Pruebas negativas obligatorias
 Antes de conectar el webhook, probar temporalmente y confirmar que el contenedor falla al iniciar con:
 1. `APP_ENV=production`.
-2. `CHATWOOT_INBOX_ID=6`.
-3. `ALLOWED_INBOX_IDS=6`.
+2. `CHATWOOT_INBOX_ID=6` con un `CHATWOOT_AI_AGENT_ID` distinto de `53`.
+3. `CHATWOOT_AI_AGENT_ID=12`.
 4. `CHATWOOT_INBOX_ID` distinto del permitido.
 5. `NEXT_DATA_DIR=/app/data`.
 
@@ -125,7 +127,7 @@ No considerar NEXT listo para piloto hasta que:
 - guards negativos funcionen.
 - smoke test completo pase.
 - no exista escritura en volumen de producción.
-- no exista respuesta en Inbox 6.
+- no exista respuesta en Inbox 6 fuera de conversaciones asignadas al usuario LAB `53`.
 - no se compartan usuario IA/webhook/secret/volumen por accidente.
 - se haya revisado Inspector y Operations con un expediente de prueba completo.
 
