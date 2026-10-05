@@ -128,6 +128,11 @@ export function priceObjectionDecision(memory = {}, combinedText = "") {
 
 export function compactPlanRecommendation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
+  // Never turn a price objection back into a generic plan pitch. This guard is
+  // intentionally duplicated at the recommendation boundary so future changes
+  // in processor priority cannot regress this behavior.
+  const objectionDecision = priceObjectionDecision(memory, combinedText);
+  if (objectionDecision) return objectionDecision;
   const directValue = norm(combinedText);
   const asksPlan2Option = /\b(?:tienen|hay|manejan|ofrecen|existe|opcion|plan)\b.{0,50}\b(?:afore|infonavit)\b/.test(directValue) || /\b(?:afore|infonavit)\b.{0,50}\b(?:es posible|tienen|hay|manejan|ofrecen|opcion|plan)\b/.test(directValue);
   if (asksPlan2Option) {
