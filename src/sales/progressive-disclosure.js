@@ -63,7 +63,7 @@ function pendingQuestion(memory = {}) {
   return null;
 }
 
-function effectivePlan(memory = {}) {
+export function effectivePlan(memory = {}) {
   if (memory?.sales_cycle?.selected_plan) return memory.sales_cycle.selected_plan;
   if (memory?.sales_cycle?.recommended_plan) return memory.sales_cycle.recommended_plan;
   const need = memory?.commercial_need || {};

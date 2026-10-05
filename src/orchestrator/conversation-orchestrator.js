@@ -1,3 +1,5 @@
+import { effectivePlan } from '../sales/progressive-disclosure.js';
+
 function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
 
 function isRequirementsQuestion(v){
@@ -44,7 +46,7 @@ export function detectDirectRequest(text){
   // Solo es pregunta de servicios cuando el cliente realmente pregunta por ellos.
   // Menciones declarativas como "me quedo con el Plan 1" o "quiero el Plan 1"
   // pertenecen al commitment-flow y no deben convertirse en catálogo de planes.
-  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el )?plan)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
+  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el |los )?plan(?:es)?)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
   if(/\b(precio|cuanto cuesta|cuanto cobra|mensualidad|costo|cuanto sale)\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
   if(/\b(quiero vender|quiero revender|quiero comercializar|quiero distribuir|quiero ofrecer (el|su) servicio|vender las afiliaciones|vender afiliaciones|ser distribuidor|ser proveedor|quiero ser asesor|ser asesor comercial|trabajar como asesor|integrarme como asesor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones|ofrecer afiliaciones a (mis )?clientes|generar afiliaciones para terceros)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
   return null;
@@ -63,8 +65,8 @@ export function directAnswerText(request){
   if(request.answerKey==='case_review') return 'Para empezar a revisar tu caso, compárteme tu NSS si lo tienes a la mano. Si no lo tienes, no te preocupes: con tu CURP podemos localizarlo y continuar sin atrasar la revisión.';
   if(request.answerKey==='case_review_curp') return 'Perfecto, ya tengo tu CURP. Con este dato podemos localizar tu NSS y continuar con la revisión de tu caso. No necesitas volver a enviarme la información anterior.';
   if(request.answerKey==='requirements') return 'Para iniciar necesitamos CURP, NSS e INE del titular. La Constancia de Situación Fiscal es opcional al inicio y se solicitará a los 3 meses de que ya estés con nosotros. Si todavía estás revisando la opción, no necesitas enviar tus documentos aún.';
-  if(request.answerKey==='services' && request.plan==='plan_1') return 'El Plan 1 cuesta $1,100 MXN e incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Si quieres, también puedo explicarte algún beneficio en particular.';
-  if(request.answerKey==='services' && request.plan==='plan_2') return 'El Plan 2 cuesta $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT; también contempla incapacidades conforme al caso.';
+  if(request.answerKey==='services' && request.plan==='plan_1') return 'El Plan 1 tiene un costo de $1,100 MXN e incluye:\n• Servicio médico del IMSS: consultas, medicamentos, estudios clínicos, cirugías, hospitalización, especialidades, maternidad y guardería cuando corresponda.\n• Seguir cotizando semanas con un salario diario registrado de $480 MXN.\n• Registrar como beneficiarios a tu pareja, hijos menores de 16 años y padres, sujeto a validación del IMSS.\nTodo conforme a las reglas del IMSS. ¿Hay algún beneficio en particular que quieras que te explique?';
+  if(request.answerKey==='services' && request.plan==='plan_2') return 'El Plan 2 tiene un costo de $1,500 MXN e incluye todo lo del Plan 1 (servicio médico del IMSS, semanas cotizadas con salario diario registrado de $480 MXN y beneficiarios) y además:\n• Aportaciones a tu AFORE.\n• Puntos para crédito INFONAVIT, conforme a sus reglas (no garantiza la aprobación ni el monto del crédito).\n• Incapacidades conforme a las reglas del IMSS.\n¿Quieres que te explique cómo funcionan las aportaciones a AFORE?';
   if(request.answerKey==='services') return 'Tenemos dos opciones: Plan 1 por $1,100 MXN, enfocado en servicio médico, semanas cotizadas y beneficiarios; y Plan 2 por $1,500 MXN, que además contempla AFORE, INFONAVIT e incapacidades conforme al caso. Ambos manejan un salario diario registrado de $480 MXN.';
   if(request.answerKey==='price') return 'El Plan 1 tiene un costo de $1,100 MXN y el Plan 2 de $1,500 MXN. Ambos manejan un salario diario registrado de $480 MXN; el Plan 2 además contempla AFORE, INFONAVIT e incapacidades conforme al caso.';
   if(request.answerKey==='trust') return 'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, con gusto podemos ayudarte a hacerlo.';
@@ -72,8 +74,21 @@ export function directAnswerText(request){
   return null;
 }
 
+// Preguntas de catálogo ("¿qué planes tienen?", "¿qué ofrecen?", "diferencia entre planes")
+// piden ambos planes. "¿Qué incluye?" / "explícame lo que incluye" sin número se refiere
+// al plan del que ya se está hablando: antes respondía el catálogo genérico de dos planes
+// justo después de que Mia ofreciera explicar el Plan 1.
+function asksPlanCatalog(text){
+  const v=norm(text);
+  return /\b(planes|paquetes|opciones|que ofrecen|que manejan|diferencia|diferencias|cuales son|comparar|compara)\b/.test(v);
+}
+
 export function orchestrateConversation(text,memory={}){
-  const direct=detectDirectRequest(text);
+  let direct=detectDirectRequest(text);
+  if(direct?.answerKey==='services'&&!direct.plan&&!asksPlanCatalog(text)){
+    const plan=effectivePlan(memory);
+    if(plan==='plan_1'||plan==='plan_2') direct={...direct,plan,planFrom:'conversation'};
+  }
   return {
     directRequest:direct,
     directAnswer:directAnswerText(direct),
