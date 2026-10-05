@@ -90,14 +90,14 @@ else if(memory.sales_cycle?.authorized&&onboardingDecision)decision=protectDeter
 else if(openingDecision&&!advisoryTurn)decision=protectDeterministicDecision(openingDecision,"progressive_opening");
 else if(needDecision&&!advisoryTurn)decision=protectDeterministicDecision(needDecision,"need_discovery");
 else if(compactRecommendation&&!advisoryTurn)decision=protectDeterministicDecision(compactRecommendation,"compact_plan_recommendation");
-else decision=await this.ai.generateDecision(conversation,currentLabels,memory,planner,combinedText);
-if(!isDeterministicDecision(decision)&&!answered(combinedText,decision))decision=fallbackDecision(memory,planner);
+else decision={...(await this.ai.generateDecision(conversation,currentLabels,memory,planner,combinedText)||{}),__source:"llm"};
+if(!isDeterministicDecision(decision)&&!answered(combinedText,decision))decision={...fallbackDecision(memory,planner),__source:"fallback"};
 if(!isDeterministicDecision(decision))decision=enforcePreAuthorizationDecision(decision,memory);
 if(!isDeterministicDecision(decision))decision=suppressRecommendationWithoutNeed(decision,memory);
-const violations=disclosureViolations(decision,memory,combinedText);if(violations.length&&!isDeterministicDecision(decision))decision=fallbackDecision(memory,planner);
-const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecision(decision))decision=await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons||[]);
-if(!decision?.reply)decision=fallbackDecision(memory,planner);
-const decisionState={nss_resolution:decision?.nss_resolution||null,onboarding_requirement:decision?.onboarding_requirement||null};
+const violations=disclosureViolations(decision,memory,combinedText);if(violations.length&&!isDeterministicDecision(decision))decision={...fallbackDecision(memory,planner),__source:"fallback"};
+const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecision(decision))decision={...(await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons||[])||{}),__source:"llm_repair"};
+if(!decision?.reply)decision={...fallbackDecision(memory,planner),__source:"fallback"};
+const decisionSource=decision?.__source||"unknown";const decisionState={nss_resolution:decision?.nss_resolution||null,onboarding_requirement:decision?.onboarding_requirement||null};
 decision=stripDecisionMetadata(decision);
 // Final dedupe barrier: Chatwoot can deliver the same customer turn through
 // message_created and conversation_updated (or even to overlapping app instances).
@@ -108,10 +108,10 @@ let duplicateReply=false;
 try{
   const fresh=await this.chatwoot.getMessages(conversationId);
   const recent=Array.isArray(fresh?.payload)?fresh.payload:Array.isArray(fresh)?fresh:messagesOf(fresh);
-  const normalizedReply=String(decision.reply||"").replace(/\\s+/g," ").trim();
+  const normalizedReply=String(decision.reply||"").replace(/\s+/g," ").trim();
   duplicateReply=recent.slice(-12).some(message=>{
     const outgoing=message?.message_type==="outgoing"||message?.message_type===1;
-    const same=String(message?.content||"").replace(/\\s+/g," ").trim()===normalizedReply;
+    const same=String(message?.content||"").replace(/\s+/g," ").trim()===normalizedReply;
     const created=Number(message?.created_at||0);
     const recentEnough=!created||Math.abs(Date.now()/1000-created)<=90;
     return outgoing&&message?.private!==true&&same&&recentEnough;
@@ -129,6 +129,6 @@ memory={...memory,ultima_respuesta_agente:decision.reply,ultima_pregunta:decisio
 if(decisionState.nss_resolution){memory={...memory,nss_resolution:decisionState.nss_resolution,operations:{...(memory.operations||{}),nss_resolution:decisionState.nss_resolution}};}
 await this.memories.set(conversationId,memory);
 await this.memories.markProcessedMany(conversationId,messageIds);
-await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,decision_source:decision.__source||null});
+await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,decision_source:decisionSource});
 }
 }
