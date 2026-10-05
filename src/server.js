@@ -38,6 +38,8 @@ try {
   const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId });
   workflowBridge.start();
   workflowBridge.reconcileCompletedSales().catch(error=>console.error("NEXT reconciliación de completados:",error));
+  workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error));
+  setInterval(()=>workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error)),15*60*1000).unref();
   const ai = new AiServices(openai, { ...config.openai, ...config.ai });
   const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot));
