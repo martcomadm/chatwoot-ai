@@ -7,6 +7,21 @@ function clone(value) { return structuredClone(value); }
 function now() { return new Date().toISOString(); }
 function definedPatch(input = {}) { return Object.fromEntries(Object.entries(input).filter(([,value]) => value !== null && value !== undefined)); }
 
+const BLOB_FIELDS = Object.freeze([["validity", "document_base64"], ["payment", "accounts_image_base64"]]);
+
+// Vista pública de un expediente para la API y el tiempo real (SSE): reemplaza los
+// documentos en base64 (hasta 10 MB) por un indicador y su tamaño aproximado.
+export function publicSale(sale) {
+  if (!sale || typeof sale !== "object") return sale;
+  const result = { ...sale };
+  for (const [section, field] of BLOB_FIELDS) {
+    const value = sale[section]?.[field];
+    if (value == null) continue;
+    result[section] = { ...sale[section], [field]: null, [`${field.replace(/_base64$/, "")}_pending`]: true, [`${field.replace(/_base64$/, "")}_bytes`]: Math.floor(String(value).length * 3 / 4) };
+  }
+  return result;
+}
+
 export class SaleStore extends EventEmitter {
   constructor(file) { super(); this.file = file; this.data = { sequence: 0, sales: {} }; this.load(); }
   load() {
@@ -20,7 +35,17 @@ export class SaleStore extends EventEmitter {
   nextId() { this.data.sequence += 1; const date = new Date().toISOString().slice(0, 10).replaceAll("-", ""); return `MART-${date}-${String(this.data.sequence).padStart(5, "0")}`; }
   list(filter = {}) { let items = Object.values(this.data.sales).map(clone); if (filter.status) items = items.filter(item => item.status === filter.status); if (filter.queue) items = items.filter(item => item.queue === filter.queue); return items.sort((a,b) => String(b.updated_at).localeCompare(String(a.updated_at))); }
   get(id) { return this.data.sales[id] ? clone(this.data.sales[id]) : null; }
-  findByConversationId(conversationId) { const id = Number(conversationId); return this.list().find(item => Number(item.conversation_id) === id) || null; }
+  // Se llama en cada webhook: busca sin clonar todos los expedientes (que pueden
+  // traer documentos en base64) y devuelve el más reciente de esa conversación.
+  findByConversationId(conversationId) {
+    const id = Number(conversationId);
+    let found = null;
+    for (const item of Object.values(this.data.sales)) {
+      if (Number(item.conversation_id) !== id) continue;
+      if (!found || String(item.updated_at).localeCompare(String(found.updated_at)) > 0) found = item;
+    }
+    return found ? clone(found) : null;
+  }
   deleteByConversationId(conversationId) {
     const id = Number(conversationId);
     const removed = Object.values(this.data.sales).filter(item => Number(item.conversation_id) === id).map(item => clone(item));
