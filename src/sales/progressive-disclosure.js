@@ -115,7 +115,7 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
 export function priceObjectionDecision(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
   const value = norm(combinedText);
-  const objection = /\\b(?:caro|cara|costoso|costosa|barato|barata|descuento|rebaja|economico|economica|presupuesto|no me alcanza|fuera de mi presupuesto|bajar(?:me)? el precio|mejor precio|mas barato|menos caro|precio elevado|precio alto)\\b/.test(value);
+  const objection = /\b(?:caro|cara|costoso|costosa|barato|barata|descuento|rebaja|economico|economica|presupuesto|no me alcanza|fuera de mi presupuesto|bajar(?:me)? el precio|mejor precio|mas barato|menos caro|precio elevado|precio alto)\b/.test(value);
   if (!objection) return null;
   const plan = effectivePlan(memory);
   const price = plan === "plan_2" ? "$1,500 MXN" : plan === "plan_1" ? "$1,100 MXN" : null;
