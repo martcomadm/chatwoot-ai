@@ -10,11 +10,11 @@ test("generic IMSS information opening gets a short conversational response", ()
   assert.equal(d.question_key, "tiene_imss");
   assert.match(d.reply, /servicio médico/i);
   assert.match(d.reply, /actualmente cuentas con IMSS/i);
-  assert.doesNotMatch(d.reply, /Plan 1|Plan 2|1,100|1,500|5\.15|48 horas|\$480/i);
+  assert.doesNotMatch(d.reply, /Plan 1|Plan 2|1,100|1,500|5\.5|48 horas|\$480/i);
 });
 
 test("catalog dump is rejected during a generic opening", () => {
-  const reply = "Ofrecemos Plan 1 $1,100 y Plan 2 $1,500 con AFORE 5.15%, salario diario $480 y proceso de 48 horas.";
+  const reply = "Ofrecemos Plan 1 $1,100 y Plan 2 $1,500 con AFORE 5.5%, salario diario $480 y proceso de 48 horas.";
   const reasons = disclosureViolations(reply, { memory: fresh, combinedText: "Quiero información sobre afiliación IMSS" });
   assert.ok(reasons.includes("catalogo_completo_prematuro"));
   assert.ok(reasons.includes("precio_no_solicitado_en_apertura"));

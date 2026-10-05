@@ -20,7 +20,7 @@ Desarrollar una segunda evolución de MARTCOM AI sin modificar ni desplegar camb
 ### Plan 2 — $1,500 MXN
 - Salario diario registrado: $480 MXN.
 - Incluye la base de servicio médico y semanas.
-- Referencia operativa AFORE: 5.15%.
+- Aportación AFORE alternada: un mes 5.5% y el siguiente 10%.
 - INFONAVIT conforme a reglas aplicables.
 - Incapacidades conforme a reglas del IMSS.
 

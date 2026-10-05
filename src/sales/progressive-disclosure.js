@@ -4,7 +4,7 @@ function norm(value) {
 
 const PRICE_RE = /(?:\$\s*1[,.]?100|\$\s*1[,.]?500|1[,.]?100\s*(?:mxn|pesos)?|1[,.]?500\s*(?:mxn|pesos)?)/i;
 const BOTH_PLANS_RE = /plan\s*1[\s\S]{0,500}plan\s*2|plan\s*2[\s\S]{0,500}plan\s*1/i;
-const DETAIL_RE = /(?:salario diario|\$\s*480|5[.,]15\s*%|48\s*horas|incapacidades|documentaci[oó]n)/i;
+const DETAIL_RE = /(?:salario diario|\$\s*480|5[.,]5\s*%|10\s*%|48\s*horas|incapacidades|documentaci[oó]n)/i;
 const PRICE_QUESTION_RE = /\b(precio|precios|cuanto cuesta|cuanto sale|costo|costos|planes|plan 1|plan 2)\b/;
 const DIRECT_DETAIL_RE = /\b(que incluye|beneficios|diferencia|como funciona|salario diario|incapacidad|tiempo|cuanto tarda|requisitos|documentos)\b/;
 const DETAIL_TOPIC_RE = /\b(afore|infonavit)\b/;

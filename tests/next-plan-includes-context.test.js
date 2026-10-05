@@ -62,3 +62,14 @@ test("conversación completa: tras la objeción de precio, Mia explica el Plan 1
   assert.match(sent[0], /^El Plan 1 tiene un costo de \$1,100 MXN/);
   assert.doesNotMatch(sent[0], /Tenemos dos opciones/);
 });
+
+test("AFORE del Plan 2 es consistente: 5.5% y 10% alternado, nunca 5.15%", async () => {
+  const { MARTCOM_KNOWLEDGE } = await import("../src/knowledge/martcom.js");
+  const plan2 = orchestrateConversation("¿qué incluye el plan 2?", {}).directAnswer;
+  const contributions = orchestrateConversation("¿cuánto aportan a la afore?", {}).directAnswer;
+  for (const text of [MARTCOM_KNOWLEDGE, plan2, contributions]) {
+    assert.match(text, /5\.5%/);
+    assert.match(text, /10%/);
+    assert.doesNotMatch(text, /5\.15/);
+  }
+});
