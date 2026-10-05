@@ -1,3 +1,5 @@
+import { negatesCommitment } from "./commitment-negation.js";
+
 function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
@@ -13,7 +15,7 @@ export function commitmentDecision(memory = {}, combinedText = "") {
   const text = norm(combinedText);
   const cycle = memory.sales_cycle || {};
   const plan = cycle.selected_plan || cycle.recommended_plan || null;
-  if (!text || cycle.authorized) return null;
+  if (!text || cycle.authorized || negatesCommitment(text)) return null;
 
   if (START_RE.test(text) && plan) {
     return {

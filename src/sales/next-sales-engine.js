@@ -1,3 +1,5 @@
+import { negatesCommitment } from "./commitment-negation.js";
+
 function norm(value) {
   return String(value ?? "")
     .trim()
@@ -11,7 +13,9 @@ function hasAny(text, patterns) {
 }
 
 const AUTHORIZATION_PATTERNS = [
-  /\b(?:quiero|deseo|podemos|quiero que)\s+(?:contratar|iniciar|hacerlo|proceder|continuar|empezar)(?:\b|\s+(?:con\s+)?(?:el )?(?:tramite|proceso|alta))/,
+  // El verbo solo cuenta si cierra la frase ("quiero iniciar.") o va seguido del trámite/plan
+  // ("quiero iniciar el trámite"). "Quiero empezar a entender bien" NO es autorización.
+  /\b(?:quiero|deseo|podemos|quiero que)\s+(?:contratar|contratarlo|iniciar|hacerlo|proceder|continuar|empezar)(?=\s*(?:$|[.,;!?])|\s+(?:ya|ahora|hoy|por favor)\b|\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta|plan|contratacion|afiliacion)\b)/,
   /\badelante con (el )?(tramite|proceso|alta)\b/,
   /\b(iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
   /\bme interesa (contratarlo|hacerlo|iniciar|proceder)\b/,
@@ -83,6 +87,7 @@ export const SALES_STAGES = Object.freeze([
 
 export function detectExplicitPlanSelection(text) {
   const value = norm(text);
+  if (negatesCommitment(value)) return null;
   const match = PLAN_SELECTION_PATTERNS.find(item => item.pattern.test(value));
   return match?.plan || null;
 }
@@ -106,13 +111,13 @@ export function detectPlanPreference(text) {
 
 export function detectAuthorization(text) {
   const value = norm(text);
-  if (!value || hasAny(value, PAUSE_PATTERNS)) return false;
+  if (!value || hasAny(value, PAUSE_PATTERNS) || negatesCommitment(value)) return false;
   return hasAny(value, AUTHORIZATION_PATTERNS);
 }
 
 export function detectAltaInterest(text) {
   const value = norm(text);
-  if (!value || hasAny(value, PAUSE_PATTERNS)) return false;
+  if (!value || hasAny(value, PAUSE_PATTERNS) || negatesCommitment(value)) return false;
   return hasAny(value, ALTA_INTEREST_PATTERNS);
 }
 
@@ -137,7 +142,8 @@ export function analyzeNextSale(text, memory = {}) {
   // operativa. NEXT solo abre expediente después de que ya existe contexto de plan/propuesta.
   const authorized = authorizationPhrase && commercialContextReady(memory);
   const priceObjection = hasAny(value, PRICE_OBJECTION_PATTERNS);
-  const interest = altaInterest || authorizationPhrase || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS);
+  const rejected = negatesCommitment(value);
+  const interest = !rejected && (altaInterest || authorizationPhrase || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS));
 
   let stage = previous.stage || "exploring";
   if (detectedPlan && ["exploring", "qualified"].includes(stage)) stage = "plan_recommended";
