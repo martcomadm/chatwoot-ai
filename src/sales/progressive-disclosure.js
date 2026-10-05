@@ -89,13 +89,13 @@ function priorAgentOfferedExplanation(memory = {}) {
 export function contextualPlanExplanation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
   const value = norm(combinedText);
-  const explicitExplanationRequest = /\b(?:explicame|cuentame|dime)\b.{0,30}\b(?:como funciona|del plan|sobre el plan|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
+  const explicitExplanationRequest = /\b(?:explicame|cuentame|dime)\b.{0,40}\b(?:como funciona|que incluye|incluye|del plan|sobre el plan|beneficios|que trae|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:que incluye|que trae|que beneficios tiene|como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
   const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
   if (!explicitExplanationRequest && !contextualAffirmative) return null;
   const plan = effectivePlan(memory);
   if (plan === "plan_1") {
     return {
-      reply: "Claro. Con el Plan 1 puedes contar con servicio médico del IMSS y continuar cotizando semanas. También puedes registrar beneficiarios conforme a las reglas del IMSS. El costo es de $1,100 MXN y, una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si te interesa, puedo explicarte los requisitos para iniciar o resolver cualquier duda que tengas sobre el plan.",
+      reply: "Claro. El Plan 1 incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Se maneja con un salario diario registrado de $480 MXN y tiene un costo de $1,100 MXN. Una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si quieres, puedo explicarte qué atención médica puedes recibir o cuáles son los requisitos para iniciar.",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
