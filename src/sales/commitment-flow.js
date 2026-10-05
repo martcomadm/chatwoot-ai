@@ -1,4 +1,5 @@
 import { negatesCommitment } from "./commitment-negation.js";
+import { confirmsStart, genericInterest } from "./start-confirmation.js";
 
 function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
@@ -17,7 +18,7 @@ export function commitmentDecision(memory = {}, combinedText = "") {
   const plan = cycle.selected_plan || cycle.recommended_plan || null;
   if (!text || cycle.authorized || negatesCommitment(text)) return null;
 
-  if (START_RE.test(text) && plan) {
+  if ((START_RE.test(text) || confirmsStart(combinedText, memory)) && plan) {
     return {
       reply: `Perfecto. Confirmo que deseas iniciar el trámite con ${planLabel(plan)}${planPrice(plan) ? ` de ${planPrice(plan)}` : ""}. Voy a abrir tu expediente y comenzaremos con los datos y documentos necesarios.`,
       question_key: null,
@@ -32,6 +33,18 @@ export function commitmentDecision(memory = {}, combinedText = "") {
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
       commitment: "selected",
+    };
+  }
+
+  // "Sí me interesa" con un plan ya en conversación: avanzar al cierre en vez de
+  // volver a recomendar el mismo plan.
+  if (genericInterest(combinedText) && plan) {
+    return {
+      reply: `¡Qué bien! Entonces seguimos con ${planLabel(plan)}${planPrice(plan) ? ` de ${planPrice(plan)}` : ""}. ¿Quieres que iniciemos tu trámite? Si antes tienes alguna duda, con gusto te la resuelvo.`,
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+      commitment: "interested",
+      selected_plan: plan,
     };
   }
 
