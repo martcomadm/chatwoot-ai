@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-const src=fs.readFileSync(new URL("../src/core/conversation-processor.js",import.meta.url),"utf8");
+// El processor está formateado con espacios; estas aserciones comparan contra una
+// versión compacta (sin espacios alrededor de signos) para no depender del formato.
+const src=fs.readFileSync(new URL("../src/core/conversation-processor.js",import.meta.url),"utf8").replace(/\s+/g," ").replace(/ ?([^\w$ ]) ?/g,"$1");
 test("processor no conserva joined indefinido",()=>assert.doesNotMatch(src,/text:\s*joined/));
 test("processor integra patience antes de handoff",()=>assert.match(src,/conversation_patience_pause/));
 test("processor bloquea CURP NSS tras pregunta directa",()=>{

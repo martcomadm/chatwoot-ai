@@ -26,110 +26,352 @@ import { explicitHumanRequest } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
 
-const allowedLabels=new Set(["asignado","cerrado","chat_basura","cliente","embarazo","no_contesta","no_quiere_el_servicio","predictivo","proveedor","reasignado","rechazado","seguimiento","sin_atender","validacion","venta","ya_tiene_servicio"]);
-const protectedLabels=new Set(["asignado","predictivo","reasignado","cliente","venta"]);
-function batchFrom(conversation,snapshot,memories,conversationId){const all=messagesOf(conversation);const wanted=new Set(snapshot.ids||[]);const webhook=[...(snapshot.webhookMessages?.values?.()||[])];const webhookById=new Map(webhook.filter(m=>m?.id).map(m=>[String(m.id),m]));let batch=all.filter(m=>m?.id&&wanted.has(String(m.id))&&isIncoming(m)&&m.private!==true&&isContact(m)).map(m=>{const hook=webhookById.get(String(m.id));if(!hook)return m;const fetchedAttachments=Array.isArray(m.attachments)?m.attachments:[];const webhookAttachments=Array.isArray(hook.attachments)?hook.attachments:[];return {...hook,...m,attachments:webhookAttachments.length?webhookAttachments:fetchedAttachments};});if(!batch.length)batch=webhook.filter(m=>isIncoming(m)&&m.private!==true&&isContact(m));return batch.filter(m=>!memories.hasProcessed(conversationId,m.id));}
-function recoverCommercialContext(conversation,memory={}){if(memory?.sales_cycle?.selected_plan||memory?.sales_cycle?.recommended_plan)return memory;const recent=messagesOf(conversation).slice(-12).map(m=>String(m?.content||"")).join(" ").toLowerCase();const plan=/\bplan\s*(2|dos)\b/.test(recent)?"plan_2":/\bplan\s*(1|uno)\b/.test(recent)?"plan_1":null;if(!plan)return memory;return {...memory,sales_cycle:{...(memory.sales_cycle||{}),stage:memory.sales_cycle?.stage||"plan_recommended",recommended_plan:plan}};}
-export class ConversationProcessor{
-constructor({config,chatwoot,labels,memories,agentRotation,ai,inspectorEvents,handoffRouter,workflow}){this.config=config;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.agentRotation=agentRotation;this.ai=ai;this.inspectorEvents=inspectorEvents;this.handoffRouter=handoffRouter;this.workflow=workflow;}
-async record(id,type,data={}){try{await this.inspectorEvents?.record(id,type,data);}catch{}}
-async transfer(conversationId,conversation,reason,memory){await this.labels.mergeSafe(conversationId,[this.config.ai.validationLabel],[],conversation);const summary=await this.ai.handoffSummary(conversation,reason,memory);await this.chatwoot.sendMessage(conversationId,summary,true);await this.chatwoot.sendMessage(conversationId,"Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");let routed=null;if(typeof this.handoffRouter?.handoff==="function")routed=await this.handoffRouter.handoff(conversationId,{reason,memory});else if(typeof this.handoffRouter?.route==="function")routed=await this.handoffRouter.route({conversationId,reason,reservedAdvisor:memory?.advisor_affinity||null});await this.record(conversationId,"handoff",{reason,routed});return routed;}
-async transferToCustomerService(conversationId,conversation,reason,memory,specialized={}){await this.labels.mergeSafe(conversationId,[this.config.ai.validationLabel],[],conversation);const summary=await this.ai.handoffSummary(conversation,reason,memory);await this.chatwoot.sendMessage(conversationId,`MÍA → ATENCIÓN A CLIENTES\nMotivo: ${reason}\n\n${summary}`,true);await this.chatwoot.sendMessage(conversationId,"Para revisar correctamente esa parte de tu caso necesito apoyo de nuestro equipo de Atención a Clientes. Voy a canalizar tu conversación y les dejaré el contexto de lo que ya revisamos para que no tengas que repetir la información.");const teamId=Number(this.config.operations.customerServiceTeamId);const routed=await this.chatwoot.assignTeam(conversationId,teamId);await this.record(conversationId,"specialized_advice_handoff",{reason,kind:specialized?.kind||"specialized_advice",team_id:teamId,routed});return routed;}
-async registerPaymentProof(conversationId,batch,snapshot,combinedText){
-  const sale=this.workflow?.store?.findByConversationId?.(conversationId);
-  if(sale?.status!=="payment_requested")return false;
-  const proof=paymentProofAttachment(batch)||paymentProofAttachment([...(snapshot?.webhookMessages?.values?.()||[])]);
-  if(!proof)return false;
-  try{
-    this.workflow.receivePayment(sale.sale_id,{...proof,by:"Mia · comprobante recibido por Chatwoot",notes:combinedText||"Comprobante enviado por el cliente"});
-    await this.record(conversationId,"payment_proof_auto_detected",{sale_id:sale.sale_id,proof_name:proof.proof_name,attachment_id:proof.attachment_id,file_type:proof.file_type});
-    return true;
-  }catch(error){
-    await this.record(conversationId,"payment_proof_auto_detection_failed",{sale_id:sale.sale_id,error:error.message});
-    console.error("NEXT no pudo registrar comprobante automáticamente:",error);
-    return false;
+const allowedLabels = new Set(["asignado", "cerrado", "chat_basura", "cliente", "embarazo", "no_contesta", "no_quiere_el_servicio", "predictivo", "proveedor", "reasignado", "rechazado", "seguimiento", "sin_atender", "validacion", "venta", "ya_tiene_servicio"]);
+const protectedLabels = new Set(["asignado", "predictivo", "reasignado", "cliente", "venta"]);
+
+// Mensajes del cliente que este turno debe procesar: los ids del buffer, con los
+// adjuntos del webhook cuando la API de Chatwoot aún no los trae, y sin los ya procesados.
+function batchFrom(conversation, snapshot, memories, conversationId) {
+  const all = messagesOf(conversation);
+  const wanted = new Set(snapshot.ids || []);
+  const webhook = [...(snapshot.webhookMessages?.values?.() || [])];
+  const webhookById = new Map(webhook.filter(m => m?.id).map(m => [String(m.id), m]));
+  let batch = all
+    .filter(m => m?.id && wanted.has(String(m.id)) && isIncoming(m) && m.private !== true && isContact(m))
+    .map(m => {
+      const hook = webhookById.get(String(m.id));
+      if (!hook) return m;
+      const fetchedAttachments = Array.isArray(m.attachments) ? m.attachments : [];
+      const webhookAttachments = Array.isArray(hook.attachments) ? hook.attachments : [];
+      return { ...hook, ...m, attachments: webhookAttachments.length ? webhookAttachments : fetchedAttachments };
+    });
+  if (!batch.length) batch = webhook.filter(m => isIncoming(m) && m.private !== true && isContact(m));
+  return batch.filter(m => !memories.hasProcessed(conversationId, m.id));
+}
+
+// Si la memoria perdió el plan, lo recupera de los últimos 12 mensajes de la conversación.
+function recoverCommercialContext(conversation, memory = {}) {
+  if (memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.recommended_plan) return memory;
+  const recent = messagesOf(conversation).slice(-12).map(m => String(m?.content || "")).join(" ").toLowerCase();
+  const plan = /\bplan\s*(2|dos)\b/.test(recent) ? "plan_2" : /\bplan\s*(1|uno)\b/.test(recent) ? "plan_1" : null;
+  if (!plan) return memory;
+  return { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), stage: memory.sales_cycle?.stage || "plan_recommended", recommended_plan: plan } };
+}
+
+export class ConversationProcessor {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow }) {
+    this.config = config;
+    this.chatwoot = chatwoot;
+    this.labels = labels;
+    this.memories = memories;
+    this.agentRotation = agentRotation;
+    this.ai = ai;
+    this.inspectorEvents = inspectorEvents;
+    this.handoffRouter = handoffRouter;
+    this.workflow = workflow;
   }
-}
-async process(conversationId,snapshot){
-const conversation=await this.chatwoot.getConversation(conversationId);const webhookMessages=[...(snapshot?.webhookMessages?.values?.()||[])];if(webhookMessages.length){const byId=new Map(messagesOf(conversation).filter(m=>m?.id).map(m=>[String(m.id),m]));for(const wm of webhookMessages){if(!wm?.id)continue;const existing=byId.get(String(wm.id));const wa=Array.isArray(wm.attachments)?wm.attachments:[];if(existing&&wa.length)existing.attachments=wa;else if(!existing)conversation.messages=[...(conversation.messages||[]),wm];}}if(Number(conversation?.inbox_id||conversation?.inbox?.id)!==Number(this.config.chatwoot.inboxId))return;const assigneeId=Number(conversation?.meta?.assignee?.id||conversation?.assignee?.id||0);
-// Una conversación reasignada a otra persona solo se procesa para registrar el
-// comprobante de un expediente que espera pago (excepción acordada con server.js).
-// En ese caso Mia NUNCA responde: solo registra el comprobante y termina.
-const reassigned=Boolean(assigneeId&&assigneeId!==Number(this.config.chatwoot.agentId));
-if(reassigned&&this.workflow?.store?.findByConversationId?.(conversationId)?.status!=="payment_requested")return;
-let currentLabels=conversation?.labels||[];if(currentLabels.some(label=>stopLabels.has(label)))return;const batch=batchFrom(conversation,snapshot,this.memories,conversationId);trace("processor",({conversation:conversationId,snapshot_ids:(snapshot?.ids||[]).map(String),webhook_messages:webhookMessages.map(m=>({id:String(m?.id||""),attachments:Array.isArray(m?.attachments)?m.attachments.length:0})),batch:batch.map(m=>({id:String(m?.id||""),attachments:Array.isArray(m?.attachments)?m.attachments.length:0})),authorized:Boolean(this.memories.get(conversationId)?.sales_cycle?.authorized),expected:this.memories.get(conversationId)?.operations?.onboarding_next||this.memories.get(conversationId)?.operations?.onboarding_last_requested||null}));if(!batch.length)return;if(traceEnabled())await this.record(conversationId,"attachment_pipeline_debug",{snapshot_ids:(snapshot.ids||[]).map(String),webhook:[...(snapshot.webhookMessages?.values?.()||[])].map(m=>({id:String(m?.id||""),attachments:Array.isArray(m?.attachments)?m.attachments.length:0,keys:(m?.attachments||[]).map(x=>Object.keys(x||{})),type:(m?.attachments||[]).map(x=>String(x?.file_type||x?.content_type||"")),has_url:(m?.attachments||[]).map(x=>Boolean(x?.data_url||x?.download_url||x?.file_url||x?.url))})),batch:batch.map(m=>({id:String(m?.id||""),attachments:Array.isArray(m?.attachments)?m.attachments.length:0,keys:(m?.attachments||[]).map(x=>Object.keys(x||{})),type:(m?.attachments||[]).map(x=>String(x?.file_type||x?.content_type||"")),has_url:(m?.attachments||[]).map(x=>Boolean(x?.data_url||x?.download_url||x?.file_url||x?.url))}))});const messageIds=batch.map(m=>m.id);const combinedText=batch.map(m=>m.content||"").filter(Boolean).join("\n").trim();if(!combinedText&&!batch.some(hasAttachments)){await this.memories.markProcessedMany(conversationId,messageIds);return;}
-if(reassigned){await this.registerPaymentProof(conversationId,batch,snapshot,combinedText);await this.memories.markProcessedMany(conversationId,messageIds);return;}
 
-let base=recoverCommercialContext(conversation,this.memories.get(conversationId));const intent=classifyIntent(combinedText,base);const salesCyclePatch=analyzeNextSale(combinedText,base).patch;const fastPatch=extractFast(combinedText,base);const answerResolution=resolveAnswer(combinedText,base);const answerPatch={...(answerResolution.patch||{}),resolved_questions:[...(answerResolution.resolved||[])]};const activityPatch=contextualActivityPatch(combinedText,base);if(containsCurp(combinedText))fastPatch.curp_recibida=true;if(containsNss(combinedText))fastPatch.nss_recibido=true;const facts=extractConversationFacts(combinedText,base);const reliability=analyzeReliability(combinedText,base,{...fastPatch,...activityPatch,...facts.patch,intereses:{...(fastPatch.intereses||{}),...(facts.patch.intereses||{})},slots:{...(fastPatch.slots||{}),...(facts.patch.slots||{})}});const orchestration=orchestrateConversation(combinedText,base);const judgment=analyzeJudgment(combinedText,base);const patience=analyzePatience(combinedText,base);const negation=resolveNegationScope(combinedText);if(negation.status==="ambiguous"){judgment.shouldHandoff=false;judgment.directAnswer=negation.clarification;judgment.question={type:"clarify_interest",answerKey:null};}
-const llmPatch=await this.ai.extractAmbiguous(base,combinedText,conversation);llmPatch.contradicciones=[];let documentPatch={};const documentAttachments=batch.flatMap(m=>m.attachments||[]);trace("vision_gate",({conversation:conversationId,authorized:Boolean(base?.sales_cycle?.authorized),attachments:documentAttachments.length,expected:base?.operations?.onboarding_next||base?.operations?.onboarding_last_requested||null}));if(base?.sales_cycle?.authorized&&batch.some(hasAttachments)){try{trace("vision_start",({conversation:conversationId,attachments:documentAttachments.length}));documentPatch=await this.ai.extractDocumentData(documentAttachments);trace("vision_result",({conversation:conversationId,keys:Object.keys(documentPatch||{}),ine_recibida:Boolean(documentPatch?.ine_recibida),curp_recibida:Boolean(documentPatch?.curp_recibida),nss_recibido:Boolean(documentPatch?.nss_recibido)}));}catch(error){console.error("NEXT no pudo analizar documento:",error);}}let memory=mergeMemory(base,fastPatch,answerPatch,facts.patch,llmPatch,documentPatch,activityPatch,reliability.patch,judgment.patch,patience.patch,salesCyclePatch,{orchestration:{direct_request:judgment.question||orchestration.directRequest,direct_answer:judgment.directAnswer||orchestration.directAnswer}});memory.intent=intent;memory.contradicciones=reliability.contradictions;for(const message of batch)if(hasAttachments(message))memory.documentos_recibidos=arrays(memory.documentos_recibidos,message.attachments.map(a=>a?.file_type||a?.extension||"archivo"));await this.memories.set(conversationId,memory);
-if(await this.registerPaymentProof(conversationId,batch,snapshot,combinedText)){await this.memories.markProcessedMany(conversationId,messageIds);return;}
-if(patience.shouldPause){await this.record(conversationId,"conversation_patience_pause",{sensitive_state:patience.state||null,reply:patience.reply});await this.chatwoot.sendMessage(conversationId,patience.reply);await this.memories.markProcessedMany(conversationId,messageIds);return;}
-const b2b=orchestration.shouldHandoffB2B||memory.intent?.id==="PROVEEDOR";const frustrated=Number(memory.experiencia?.frustration_score||0)>=2||judgment.shouldHandoff;const specialized=specializedAdviceHandoff(combinedText,memory);if(explicitHumanRequest(combinedText)||b2b||frustrated||specialized){if(b2b)await this.labels.mergeSafe(conversationId,["proveedor",this.config.ai.validationLabel],[],conversation);const reason=explicitHumanRequest(combinedText)?"El cliente solicitó atención humana.":b2b?"Solicitud comercial de proveedor/asesor.":specialized?.reason||judgment.handoffReason||"El caso requiere intervención humana.";if(specialized&&Number(this.config.operations?.customerServiceTeamId)>0){await this.transferToCustomerService(conversationId,conversation,reason,memory,specialized);await this.memories.markProcessedMany(conversationId,messageIds);return;}await this.transfer(conversationId,conversation,reason,memory);await this.memories.markProcessedMany(conversationId,messageIds);return;}
-if(memory.sales_cycle?.authorized&&this.workflow){const expectedDocument=memory.operations?.onboarding_next||memory.operations?.onboarding_last_requested||null;const incoming=batch.flatMap(m=>(m.attachments||[]).map(a=>({...a})));if(incoming.length&&documentPatch?.ine_recibida===true){for(const a of incoming){a.file_name=`ine_${a.file_name||a.filename||a.name||"documento"}`;a.file_type=a.file_type||a.content_type||"image";}conversation.messages=[...(conversation.messages||[]),{id:`incoming-${Date.now()}`,created_at:Date.now()/1000,attachments:incoming}];await this.record(conversationId,"document_attachment_injected",{expected:expectedDocument,count:incoming.length,vision_ine:true});}const result=await ensureAuthorizedSale({workflow:this.workflow,memories:this.memories,inspectorEvents:this.inspectorEvents,conversationId,conversation,memory});memory=this.memories.get(conversationId);await this.record(conversationId,"authorized_sale_workflow",{sale_id:result.sale?.sale_id,status:result.sale?.status,documents_complete:result.sale?.documents?.complete,missing:result.sale?.documents?.missing||[]});if(traceEnabled())await this.record(conversationId,"document_sale_debug",{expected:expectedDocument,incoming_count:incoming.length,files:(result.sale?.documents?.files||[]).map(x=>({type:x?.type||null,message_id:x?.message_id||null,attachment_id:x?.attachment_id||null})),missing:result.sale?.documents?.missing||[]});}
-const sales=analyzeSales(memory);let planner=planNext({...memory,ventas:sales});const directRequest=judgment.question||orchestration.directRequest;if(directRequest)planner={...planner,direct_answer_first:true,direct_request:directRequest.type,customer_question_priority:true};
-if(directRequest&&["curp","nss"].includes(planner?.question_key))planner={...planner,question_key:null,customer_question_priority:true};if(!memory.sales_cycle?.authorized&&["curp","nss"].includes(planner?.question_key))planner={...planner,action:"continuar_venta",question_key:null,specialized:true};if(["curp","nss"].includes(planner?.question_key)&&sensitiveSlotSuppressed(memory,planner.question_key))planner={action:"esperar_o_continuar_sin_dato_sensible",question_key:null,specialized:true};if(memory.sales_cycle?.authorized)planner={action:"expediente_onboarding",question_key:memory.operations?.onboarding_next||null,specialized:true,operations:memory.operations};memory.ventas=sales;memory.flujo={fase:memory.sales_cycle?.authorized?"operaciones":"venta",siguiente_paso:planner.question_key};await this.memories.set(conversationId,memory);
+  async record(id, type, data = {}) {
+    try { await this.inspectorEvents?.record(id, type, data); } catch {}
+  }
 
-let decision;
-const onboardingDecision=buildOnboardingDecision(memory,combinedText);
-const openingDecision=progressiveOpeningDecision(memory,combinedText);
-const needDecision=needGuardDecision(memory,combinedText);
-const contextualExplanation=contextualPlanExplanation(base,combinedText);
-const compactRecommendation=compactPlanRecommendation(memory,combinedText);
-const priceObjection=priceObjectionDecision(memory,combinedText);
-const directDecision=directAnswerDecision({judgment,orchestration});
-const commitment=commitmentDecision(memory,combinedText);
-const advisoryTurn=isAdvisoryTurn(combinedText);
-if(advisoryTurn){
-  planner={...planner,action:"asesoria_conversacional",question_key:null,specialized:true,advisory:true,customer_question_priority:true};
-  await this.record(conversationId,"advisory_turn",{text:combinedText,commercial_need:memory.commercial_need||null});
-}
-if(priceObjection)decision=protectDeterministicDecision(priceObjection,"price_objection");
-else if(directDecision)decision=directDecision;
-else if(contextualExplanation)decision=protectDeterministicDecision(contextualExplanation,"contextual_plan_explanation");
-else if(commitment)decision=protectDeterministicDecision(commitment,`commitment:${commitment.commitment}`);
-else if(memory.sales_cycle?.authorized&&onboardingDecision)decision=protectDeterministicDecision(onboardingDecision,"onboarding");
-else if(openingDecision&&!advisoryTurn)decision=protectDeterministicDecision(openingDecision,"progressive_opening");
-else if(needDecision&&!advisoryTurn)decision=protectDeterministicDecision(needDecision,"need_discovery");
-else if(compactRecommendation&&!advisoryTurn)decision=protectDeterministicDecision(compactRecommendation,"compact_plan_recommendation");
-else decision={...(await this.ai.generateDecision(conversation,currentLabels,memory,planner,combinedText)||{}),__source:"llm"};
-if(!isDeterministicDecision(decision)&&!answered(combinedText,decision))decision={...fallbackDecision(memory,planner),__source:"fallback"};
-if(!isDeterministicDecision(decision))decision=enforcePreAuthorizationDecision(decision,memory);
-if(!isDeterministicDecision(decision))decision=suppressRecommendationWithoutNeed(decision,memory);
-const violations=disclosureViolations(decision,memory,combinedText);if(violations.length&&!isDeterministicDecision(decision))decision={...fallbackDecision(memory,planner),__source:"fallback"};
-const quality=checkReply(decision,memory);if(!quality.ok&&!isDeterministicDecision(decision))decision={...(await this.ai.repairDecision(conversation,memory,planner,combinedText,decision,quality.reasons||[])||{}),__source:"llm_repair"};
-if(!decision?.reply)decision={...fallbackDecision(memory,planner),__source:"fallback"};
-const decisionSource=decision?.__source||"unknown";const decisionState={nss_resolution:decision?.nss_resolution||null,onboarding_requirement:decision?.onboarding_requirement||null};
-decision=stripDecisionMetadata(decision);
-// Final dedupe barrier: Chatwoot can deliver the same customer turn through
-// message_created and conversation_updated (or even to overlapping app instances).
-// Before sending, consult the authoritative Chatwoot history and suppress an
-// identical recent outgoing reply. This is intentionally at the last possible
-// point so every decision path is protected, not only the opening greeting.
-let duplicateReply=false;
-try{
-  const fresh=await this.chatwoot.getMessages(conversationId);
-  const recent=Array.isArray(fresh?.payload)?fresh.payload:Array.isArray(fresh)?fresh:messagesOf(fresh);
-  const normalizedReply=String(decision.reply||"").replace(/\s+/g," ").trim();
-  duplicateReply=recent.slice(-12).some(message=>{
-    const outgoing=message?.message_type==="outgoing"||message?.message_type===1;
-    const same=String(message?.content||"").replace(/\s+/g," ").trim()===normalizedReply;
-    const created=Number(message?.created_at||0);
-    const recentEnough=!created||Math.abs(Date.now()/1000-created)<=90;
-    return outgoing&&message?.private!==true&&same&&recentEnough;
-  });
-}catch(error){
-  console.error(`NEXT no pudo verificar deduplicación de respuesta en conversación ${conversationId}:`,error?.message||error);
-}
-if(duplicateReply){
-  await this.record(conversationId,"duplicate_reply_suppressed",{reply:decision.reply,message_ids:messageIds.map(String)});
-  await this.memories.markProcessedMany(conversationId,messageIds);
-  return;
-}
-await this.chatwoot.sendMessage(conversationId,decision.reply);
-memory={...memory,ultima_respuesta_agente:decision.reply,ultima_pregunta:decision.question_key||null};
-if(decisionState.nss_resolution){memory={...memory,nss_resolution:decisionState.nss_resolution,operations:{...(memory.operations||{}),nss_resolution:decisionState.nss_resolution}};}
-await this.memories.set(conversationId,memory);
-await this.memories.markProcessedMany(conversationId,messageIds);
-await this.record(conversationId,"ai_reply_sent",{reply:decision.reply,decision_source:decisionSource});
-}
+  // Handoff a un asesor humano: nota privada con resumen, aviso al cliente y asignación por rotación.
+  async transfer(conversationId, conversation, reason, memory) {
+    await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
+    const summary = await this.ai.handoffSummary(conversation, reason, memory);
+    await this.chatwoot.sendMessage(conversationId, summary, true);
+    await this.chatwoot.sendMessage(conversationId, "Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");
+    let routed = null;
+    if (typeof this.handoffRouter?.handoff === "function") routed = await this.handoffRouter.handoff(conversationId, { reason, memory });
+    else if (typeof this.handoffRouter?.route === "function") routed = await this.handoffRouter.route({ conversationId, reason, reservedAdvisor: memory?.advisor_affinity || null });
+    await this.record(conversationId, "handoff", { reason, routed });
+    return routed;
+  }
+
+  // Handoff especializado: canaliza la conversación al equipo de Atención a Clientes.
+  async transferToCustomerService(conversationId, conversation, reason, memory, specialized = {}) {
+    await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
+    const summary = await this.ai.handoffSummary(conversation, reason, memory);
+    await this.chatwoot.sendMessage(conversationId, `MÍA → ATENCIÓN A CLIENTES\nMotivo: ${reason}\n\n${summary}`, true);
+    await this.chatwoot.sendMessage(conversationId, "Para revisar correctamente esa parte de tu caso necesito apoyo de nuestro equipo de Atención a Clientes. Voy a canalizar tu conversación y les dejaré el contexto de lo que ya revisamos para que no tengas que repetir la información.");
+    const teamId = Number(this.config.operations.customerServiceTeamId);
+    const routed = await this.chatwoot.assignTeam(conversationId, teamId);
+    await this.record(conversationId, "specialized_advice_handoff", { reason, kind: specialized?.kind || "specialized_advice", team_id: teamId, routed });
+    return routed;
+  }
+
+  // Registra un comprobante de pago si el expediente lo espera. Devuelve true si lo registró.
+  async registerPaymentProof(conversationId, batch, snapshot, combinedText) {
+    const sale = this.workflow?.store?.findByConversationId?.(conversationId);
+    if (sale?.status !== "payment_requested") return false;
+    const proof = paymentProofAttachment(batch) || paymentProofAttachment([...(snapshot?.webhookMessages?.values?.() || [])]);
+    if (!proof) return false;
+    try {
+      this.workflow.receivePayment(sale.sale_id, { ...proof, by: "Mia · comprobante recibido por Chatwoot", notes: combinedText || "Comprobante enviado por el cliente" });
+      await this.record(conversationId, "payment_proof_auto_detected", { sale_id: sale.sale_id, proof_name: proof.proof_name, attachment_id: proof.attachment_id, file_type: proof.file_type });
+      return true;
+    } catch (error) {
+      await this.record(conversationId, "payment_proof_auto_detection_failed", { sale_id: sale.sale_id, error: error.message });
+      console.error("NEXT no pudo registrar comprobante automáticamente:", error);
+      return false;
+    }
+  }
+
+  async process(conversationId, snapshot) {
+    // ── 1. Cargar la conversación y mezclar adjuntos que solo trae el webhook ──
+    const conversation = await this.chatwoot.getConversation(conversationId);
+    const webhookMessages = [...(snapshot?.webhookMessages?.values?.() || [])];
+    if (webhookMessages.length) {
+      const byId = new Map(messagesOf(conversation).filter(m => m?.id).map(m => [String(m.id), m]));
+      for (const wm of webhookMessages) {
+        if (!wm?.id) continue;
+        const existing = byId.get(String(wm.id));
+        const wa = Array.isArray(wm.attachments) ? wm.attachments : [];
+        if (existing && wa.length) existing.attachments = wa;
+        else if (!existing) conversation.messages = [...(conversation.messages || []), wm];
+      }
+    }
+
+    // ── 2. Guardas de aislamiento: inbox, asignación y etiquetas de alto ──
+    if (Number(conversation?.inbox_id || conversation?.inbox?.id) !== Number(this.config.chatwoot.inboxId)) return;
+    const assigneeId = Number(conversation?.meta?.assignee?.id || conversation?.assignee?.id || 0);
+    // Una conversación reasignada a otra persona solo se procesa para registrar el
+    // comprobante de un expediente que espera pago (excepción acordada con server.js).
+    // En ese caso Mia NUNCA responde: solo registra el comprobante y termina.
+    const reassigned = Boolean(assigneeId && assigneeId !== Number(this.config.chatwoot.agentId));
+    if (reassigned && this.workflow?.store?.findByConversationId?.(conversationId)?.status !== "payment_requested") return;
+    let currentLabels = conversation?.labels || [];
+    if (currentLabels.some(label => stopLabels.has(label))) return;
+
+    // ── 3. Armar el lote de mensajes nuevos del cliente ──
+    const batch = batchFrom(conversation, snapshot, this.memories, conversationId);
+    trace("processor", ({
+      conversation: conversationId,
+      snapshot_ids: (snapshot?.ids || []).map(String),
+      webhook_messages: webhookMessages.map(m => ({ id: String(m?.id || ""), attachments: Array.isArray(m?.attachments) ? m.attachments.length : 0 })),
+      batch: batch.map(m => ({ id: String(m?.id || ""), attachments: Array.isArray(m?.attachments) ? m.attachments.length : 0 })),
+      authorized: Boolean(this.memories.get(conversationId)?.sales_cycle?.authorized),
+      expected: this.memories.get(conversationId)?.operations?.onboarding_next || this.memories.get(conversationId)?.operations?.onboarding_last_requested || null,
+    }));
+    if (!batch.length) return;
+    if (traceEnabled()) await this.record(conversationId, "attachment_pipeline_debug", {
+      snapshot_ids: (snapshot.ids || []).map(String),
+      webhook: [...(snapshot.webhookMessages?.values?.() || [])].map(m => ({
+        id: String(m?.id || ""),
+        attachments: Array.isArray(m?.attachments) ? m.attachments.length : 0,
+        keys: (m?.attachments || []).map(x => Object.keys(x || {})),
+        type: (m?.attachments || []).map(x => String(x?.file_type || x?.content_type || "")),
+        has_url: (m?.attachments || []).map(x => Boolean(x?.data_url || x?.download_url || x?.file_url || x?.url)),
+      })),
+      batch: batch.map(m => ({
+        id: String(m?.id || ""),
+        attachments: Array.isArray(m?.attachments) ? m.attachments.length : 0,
+        keys: (m?.attachments || []).map(x => Object.keys(x || {})),
+        type: (m?.attachments || []).map(x => String(x?.file_type || x?.content_type || "")),
+        has_url: (m?.attachments || []).map(x => Boolean(x?.data_url || x?.download_url || x?.file_url || x?.url)),
+      })),
+    });
+    const messageIds = batch.map(m => m.id);
+    const combinedText = batch.map(m => m.content || "").filter(Boolean).join("\n").trim();
+    if (!combinedText && !batch.some(hasAttachments)) {
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+    if (reassigned) {
+      await this.registerPaymentProof(conversationId, batch, snapshot, combinedText);
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+
+    // ── 4. Análisis determinista del turno ──
+    let base = recoverCommercialContext(conversation, this.memories.get(conversationId));
+    const intent = classifyIntent(combinedText, base);
+    const salesCyclePatch = analyzeNextSale(combinedText, base).patch;
+    const fastPatch = extractFast(combinedText, base);
+    const answerResolution = resolveAnswer(combinedText, base);
+    const answerPatch = { ...(answerResolution.patch || {}), resolved_questions: [...(answerResolution.resolved || [])] };
+    const activityPatch = contextualActivityPatch(combinedText, base);
+    if (containsCurp(combinedText)) fastPatch.curp_recibida = true;
+    if (containsNss(combinedText)) fastPatch.nss_recibido = true;
+    const facts = extractConversationFacts(combinedText, base);
+    const reliability = analyzeReliability(combinedText, base, {
+      ...fastPatch,
+      ...activityPatch,
+      ...facts.patch,
+      intereses: { ...(fastPatch.intereses || {}), ...(facts.patch.intereses || {}) },
+      slots: { ...(fastPatch.slots || {}), ...(facts.patch.slots || {}) },
+    });
+    const orchestration = orchestrateConversation(combinedText, base);
+    const judgment = analyzeJudgment(combinedText, base);
+    const patience = analyzePatience(combinedText, base);
+    const negation = resolveNegationScope(combinedText);
+    if (negation.status === "ambiguous") {
+      judgment.shouldHandoff = false;
+      judgment.directAnswer = negation.clarification;
+      judgment.question = { type: "clarify_interest", answerKey: null };
+    }
+
+    // ── 5. Extracción con IA (texto ambiguo y, tras autorización, documentos) ──
+    const llmPatch = await this.ai.extractAmbiguous(base, combinedText, conversation);
+    llmPatch.contradicciones = [];
+    let documentPatch = {};
+    const documentAttachments = batch.flatMap(m => m.attachments || []);
+    trace("vision_gate", ({ conversation: conversationId, authorized: Boolean(base?.sales_cycle?.authorized), attachments: documentAttachments.length, expected: base?.operations?.onboarding_next || base?.operations?.onboarding_last_requested || null }));
+    if (base?.sales_cycle?.authorized && batch.some(hasAttachments)) {
+      try {
+        trace("vision_start", ({ conversation: conversationId, attachments: documentAttachments.length }));
+        documentPatch = await this.ai.extractDocumentData(documentAttachments);
+        trace("vision_result", ({ conversation: conversationId, keys: Object.keys(documentPatch || {}), ine_recibida: Boolean(documentPatch?.ine_recibida), curp_recibida: Boolean(documentPatch?.curp_recibida), nss_recibido: Boolean(documentPatch?.nss_recibido) }));
+      } catch (error) { console.error("NEXT no pudo analizar documento:", error); }
+    }
+
+    // ── 6. Consolidar memoria ──
+    let memory = mergeMemory(
+      base, fastPatch, answerPatch, facts.patch, llmPatch, documentPatch, activityPatch,
+      reliability.patch, judgment.patch, patience.patch, salesCyclePatch,
+      { orchestration: { direct_request: judgment.question || orchestration.directRequest, direct_answer: judgment.directAnswer || orchestration.directAnswer } },
+    );
+    memory.intent = intent;
+    memory.contradicciones = reliability.contradictions;
+    for (const message of batch) if (hasAttachments(message)) memory.documentos_recibidos = arrays(memory.documentos_recibidos, message.attachments.map(a => a?.file_type || a?.extension || "archivo"));
+    await this.memories.set(conversationId, memory);
+
+    // ── 7. Salidas tempranas: comprobante de pago, pausa por paciencia, handoff ──
+    if (await this.registerPaymentProof(conversationId, batch, snapshot, combinedText)) {
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+    if (patience.shouldPause) {
+      await this.record(conversationId, "conversation_patience_pause", { sensitive_state: patience.state || null, reply: patience.reply });
+      await this.chatwoot.sendMessage(conversationId, patience.reply);
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+    const b2b = orchestration.shouldHandoffB2B || memory.intent?.id === "PROVEEDOR";
+    const frustrated = Number(memory.experiencia?.frustration_score || 0) >= 2 || judgment.shouldHandoff;
+    const specialized = specializedAdviceHandoff(combinedText, memory);
+    if (explicitHumanRequest(combinedText) || b2b || frustrated || specialized) {
+      if (b2b) await this.labels.mergeSafe(conversationId, ["proveedor", this.config.ai.validationLabel], [], conversation);
+      const reason = explicitHumanRequest(combinedText) ? "El cliente solicitó atención humana."
+        : b2b ? "Solicitud comercial de proveedor/asesor."
+        : specialized?.reason || judgment.handoffReason || "El caso requiere intervención humana.";
+      if (specialized && Number(this.config.operations?.customerServiceTeamId) > 0) {
+        await this.transferToCustomerService(conversationId, conversation, reason, memory, specialized);
+        await this.memories.markProcessedMany(conversationId, messageIds);
+        return;
+      }
+      await this.transfer(conversationId, conversation, reason, memory);
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+
+    // ── 8. Venta autorizada: abrir/actualizar el expediente con los documentos recibidos ──
+    if (memory.sales_cycle?.authorized && this.workflow) {
+      const expectedDocument = memory.operations?.onboarding_next || memory.operations?.onboarding_last_requested || null;
+      const incoming = batch.flatMap(m => (m.attachments || []).map(a => ({ ...a })));
+      if (incoming.length && documentPatch?.ine_recibida === true) {
+        for (const a of incoming) {
+          a.file_name = `ine_${a.file_name||a.filename||a.name||"documento"}`;
+          a.file_type = a.file_type || a.content_type || "image";
+        }
+        conversation.messages = [...(conversation.messages || []), { id: `incoming-${Date.now()}`, created_at: Date.now() / 1000, attachments: incoming }];
+        await this.record(conversationId, "document_attachment_injected", { expected: expectedDocument, count: incoming.length, vision_ine: true });
+      }
+      const result = await ensureAuthorizedSale({ workflow: this.workflow, memories: this.memories, inspectorEvents: this.inspectorEvents, conversationId, conversation, memory });
+      memory = this.memories.get(conversationId);
+      await this.record(conversationId, "authorized_sale_workflow", { sale_id: result.sale?.sale_id, status: result.sale?.status, documents_complete: result.sale?.documents?.complete, missing: result.sale?.documents?.missing || [] });
+      if (traceEnabled()) await this.record(conversationId, "document_sale_debug", {
+        expected: expectedDocument,
+        incoming_count: incoming.length,
+        files: (result.sale?.documents?.files || []).map(x => ({ type: x?.type || null, message_id: x?.message_id || null, attachment_id: x?.attachment_id || null })),
+        missing: result.sale?.documents?.missing || [],
+      });
+    }
+
+    // ── 9. Planner: siguiente paso comercial u operativo ──
+    const sales = analyzeSales(memory);
+    let planner = planNext({ ...memory, ventas: sales });
+    const directRequest = judgment.question || orchestration.directRequest;
+    if (directRequest) planner = { ...planner, direct_answer_first: true, direct_request: directRequest.type, customer_question_priority: true };
+    if (directRequest && ["curp", "nss"].includes(planner?.question_key)) planner = { ...planner, question_key: null, customer_question_priority: true };
+    if (!memory.sales_cycle?.authorized && ["curp", "nss"].includes(planner?.question_key)) planner = { ...planner, action: "continuar_venta", question_key: null, specialized: true };
+    if (["curp", "nss"].includes(planner?.question_key) && sensitiveSlotSuppressed(memory, planner.question_key)) planner = { action: "esperar_o_continuar_sin_dato_sensible", question_key: null, specialized: true };
+    if (memory.sales_cycle?.authorized) planner = { action: "expediente_onboarding", question_key: memory.operations?.onboarding_next || null, specialized: true, operations: memory.operations };
+    memory.ventas = sales;
+    memory.flujo = { fase: memory.sales_cycle?.authorized ? "operaciones" : "venta", siguiente_paso: planner.question_key };
+    await this.memories.set(conversationId, memory);
+
+    // ── 10. Elegir la respuesta: reglas deterministas en orden de prioridad, luego IA ──
+    let decision;
+    const onboardingDecision = buildOnboardingDecision(memory, combinedText);
+    const openingDecision = progressiveOpeningDecision(memory, combinedText);
+    const needDecision = needGuardDecision(memory, combinedText);
+    const contextualExplanation = contextualPlanExplanation(base, combinedText);
+    const compactRecommendation = compactPlanRecommendation(memory, combinedText);
+    const priceObjection = priceObjectionDecision(memory, combinedText);
+    const directDecision = directAnswerDecision({ judgment, orchestration });
+    const commitment = commitmentDecision(memory, combinedText);
+    const advisoryTurn = isAdvisoryTurn(combinedText);
+    if (advisoryTurn) {
+      planner = { ...planner, action: "asesoria_conversacional", question_key: null, specialized: true, advisory: true, customer_question_priority: true };
+      await this.record(conversationId, "advisory_turn", { text: combinedText, commercial_need: memory.commercial_need || null });
+    }
+    if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
+    else if (directDecision) decision = directDecision;
+    else if (contextualExplanation) decision = protectDeterministicDecision(contextualExplanation, "contextual_plan_explanation");
+    else if (commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
+    else if (memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
+    else if (openingDecision && !advisoryTurn) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
+    else if (needDecision && !advisoryTurn) decision = protectDeterministicDecision(needDecision, "need_discovery");
+    else if (compactRecommendation && !advisoryTurn) decision = protectDeterministicDecision(compactRecommendation, "compact_plan_recommendation");
+    else decision = { ...(await this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText) || {}), __source: "llm" };
+
+    // ── 11. Guardas sobre respuestas de IA (las deterministas no se tocan) ──
+    if (!isDeterministicDecision(decision) && !answered(combinedText, decision)) decision = { ...fallbackDecision(memory, planner), __source: "fallback" };
+    if (!isDeterministicDecision(decision)) decision = enforcePreAuthorizationDecision(decision, memory);
+    if (!isDeterministicDecision(decision)) decision = suppressRecommendationWithoutNeed(decision, memory);
+    const violations = disclosureViolations(decision, memory, combinedText);
+    if (violations.length && !isDeterministicDecision(decision)) decision = { ...fallbackDecision(memory, planner), __source: "fallback" };
+    const quality = checkReply(decision, memory);
+    if (!quality.ok && !isDeterministicDecision(decision)) decision = { ...(await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, quality.reasons || []) || {}), __source: "llm_repair" };
+    if (!decision?.reply) decision = { ...fallbackDecision(memory, planner), __source: "fallback" };
+    const decisionSource = decision?.__source || "unknown";
+    const decisionState = { nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || null };
+    decision = stripDecisionMetadata(decision);
+
+    // ── 12. Deduplicar y enviar ──
+    // Final dedupe barrier: Chatwoot can deliver the same customer turn through
+    // message_created and conversation_updated (or even to overlapping app instances).
+    // Before sending, consult the authoritative Chatwoot history and suppress an
+    // identical recent outgoing reply. This is intentionally at the last possible
+    // point so every decision path is protected, not only the opening greeting.
+    let duplicateReply = false;
+    try {
+      const fresh = await this.chatwoot.getMessages(conversationId);
+      const recent = Array.isArray(fresh?.payload) ? fresh.payload : Array.isArray(fresh) ? fresh : messagesOf(fresh);
+      const normalizedReply = String(decision.reply || "").replace(/\s+/g, " ").trim();
+      duplicateReply = recent.slice(-12).some(message => {
+        const outgoing = message?.message_type === "outgoing" || message?.message_type === 1;
+        const same = String(message?.content || "").replace(/\s+/g, " ").trim() === normalizedReply;
+        const created = Number(message?.created_at || 0);
+        const recentEnough = !created || Math.abs(Date.now() / 1000 - created) <= 90;
+        return outgoing && message?.private !== true && same && recentEnough;
+      });
+    } catch (error) {
+      console.error(`NEXT no pudo verificar deduplicación de respuesta en conversación ${conversationId}:`, error?.message || error);
+    }
+    if (duplicateReply) {
+      await this.record(conversationId, "duplicate_reply_suppressed", { reply: decision.reply, message_ids: messageIds.map(String) });
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+    await this.chatwoot.sendMessage(conversationId, decision.reply);
+    memory = { ...memory, ultima_respuesta_agente: decision.reply, ultima_pregunta: decision.question_key || null };
+    if (decisionState.nss_resolution) {
+      memory = { ...memory, nss_resolution: decisionState.nss_resolution, operations: { ...(memory.operations || {}), nss_resolution: decisionState.nss_resolution } };
+    }
+    await this.memories.set(conversationId, memory);
+    await this.memories.markProcessedMany(conversationId, messageIds);
+    await this.record(conversationId, "ai_reply_sent", { reply: decision.reply, decision_source: decisionSource });
+  }
 }
