@@ -21,6 +21,8 @@ import { UserStore } from "./operations/access/user-store.js";
 import { SessionStore } from "./operations/access/session-store.js";
 import { OpsSettingsStore } from "./operations/access/settings-store.js";
 import { OpsAuditStore } from "./operations/access/audit-store.js";
+import { TurnLock } from "./core/turn-lock.js";
+import path from "node:path";
 
 try {
   const config = loadConfig();
@@ -49,7 +51,10 @@ try {
   workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error));
   setInterval(()=>workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error)),15*60*1000).unref();
   const ai = new AiServices(openai, { ...config.openai, ...config.ai });
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow });
+  const turnLock = new TurnLock(path.join(config.storage.dataDir, "turn-locks"));
+  turnLock.prune();
+  setInterval(() => turnLock.prune(), 6 * 60 * 60 * 1000).unref();
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot));
 
   const app = express();

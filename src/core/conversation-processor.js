@@ -59,7 +59,7 @@ function recoverCommercialContext(conversation, memory = {}) {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null }) {
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -69,6 +69,7 @@ export class ConversationProcessor {
     this.inspectorEvents = inspectorEvents;
     this.handoffRouter = handoffRouter;
     this.workflow = workflow;
+    this.turnLock = turnLock;
   }
 
   async record(id, type, data = {}) {
@@ -172,6 +173,11 @@ export class ConversationProcessor {
       })),
     });
     const messageIds = batch.map(m => m.id);
+    // Un mismo mensaje del cliente se atiende una sola vez, aunque llegue duplicado.
+    if (this.turnLock && !this.turnLock.claim(conversationId, messageIds)) {
+      await this.record(conversationId, "duplicate_turn_skipped", { message_ids: messageIds.map(String) });
+      return;
+    }
     const combinedText = batch.map(m => m.content || "").filter(Boolean).join("\n").trim();
     if (!combinedText && !batch.some(hasAttachments)) {
       await this.memories.markProcessedMany(conversationId, messageIds);
@@ -327,19 +333,68 @@ export class ConversationProcessor {
     else decision = { ...(await this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText) || {}), __source: "llm" };
 
     // ── 11. Guardas sobre respuestas de IA (las deterministas no se tocan) ──
-    if (!isDeterministicDecision(decision) && !answered(combinedText, decision)) decision = { ...fallbackDecision(memory, planner), __source: "fallback" };
-    if (!isDeterministicDecision(decision)) decision = enforcePreAuthorizationDecision(decision, memory);
-    if (!isDeterministicDecision(decision)) decision = suppressRecommendationWithoutNeed(decision, memory);
-    const violations = disclosureViolations(decision, memory, combinedText);
-    if (violations.length && !isDeterministicDecision(decision)) decision = { ...fallbackDecision(memory, planner), __source: "fallback" };
-    const quality = checkReply(decision, memory);
-    if (!quality.ok && !isDeterministicDecision(decision)) decision = { ...(await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, quality.reasons || []) || {}), __source: "llm_repair" };
-    if (!decision?.reply) decision = { ...fallbackDecision(memory, planner), __source: "fallback" };
+    // Firmas reales: answered(memory, key), checkReply(reply, {memory, questionKey, maxChars}),
+    // disclosureViolations(reply, {memory, combinedText}), enforcePreAuthorizationDecision(decision,
+    // {memory, planner, combinedText, fallbackDecision}). Llamarlas con otros argumentos hacía que
+    // toda respuesta de la IA se reemplazara por la pregunta de respaldo.
+    const fallback = () => ({ ...fallbackDecision(memory, planner, combinedText), __source: "fallback" });
+    const quality = reply => checkReply(reply, { memory, questionKey: decision?.question_key, maxChars: this.config.ai.maxReplyChars });
+    const applyCommercialGuards = () => {
+      if (isDeterministicDecision(decision)) return;
+      decision = enforcePreAuthorizationDecision(decision, { memory, planner, combinedText, fallbackDecision });
+      decision = suppressRecommendationWithoutNeed(decision, memory, combinedText);
+    };
+    const applyDisclosureGuard = () => {
+      if (isDeterministicDecision(decision)) return [];
+      const reasons = disclosureViolations(decision?.reply, { memory, combinedText });
+      if (reasons.length && openingDecision && !directDecision && !commitment) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
+      return reasons;
+    };
+    if (memory.sales_cycle?.authorized && decision) {
+      decision.handoff = false;
+      if (onboardingDecision && !directRequest && !commitment) decision.question_key = onboardingDecision.question_key;
+    }
+    if (directRequest && ["curp", "nss"].includes(decision?.question_key)) decision.question_key = null;
+    // Si la IA pregunta algo que el cliente ya respondió, usar la siguiente pregunta pendiente.
+    if (!isDeterministicDecision(decision) && decision?.question_key && answered(memory, decision.question_key) && !memory.sales_cycle?.authorized) decision = fallback();
+    applyCommercialGuards();
+    let disclosureReasons = applyDisclosureGuard();
+    let qualityCheck = quality(decision?.reply);
+    if (!qualityCheck.ok && !isDeterministicDecision(decision)) {
+      try { decision = { ...(await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, qualityCheck.reasons) || {}), __source: "llm_repair" }; }
+      catch { decision = fallback(); }
+      qualityCheck = quality(decision?.reply);
+    }
+    if (!qualityCheck.ok && !isDeterministicDecision(decision) && memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
+    else if (!qualityCheck.ok && !isDeterministicDecision(decision)) decision = fallback();
+    applyCommercialGuards();
+    disclosureReasons = applyDisclosureGuard();
     const decisionSource = decision?.__source || "unknown";
-    const decisionState = { nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || null };
-    decision = stripDecisionMetadata(decision);
+    const decisionState = { nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
+    decision = stripDecisionMetadata(decision || {});
+    decision.reply = String(decision.reply || "").trim().slice(0, this.config.ai.maxReplyChars || 850);
+    decision.add_labels = Array.isArray(decision.add_labels) ? decision.add_labels.filter(label => allowedLabels.has(label) && !["cliente", "venta", "cerrado", "no_contesta"].includes(label)) : [];
+    decision.remove_labels = Array.isArray(decision.remove_labels) ? decision.remove_labels.filter(label => allowedLabels.has(label) && !protectedLabels.has(label)) : [];
+    if (decision.add_labels.length || decision.remove_labels.length) currentLabels = await this.labels.mergeSafe(conversationId, decision.add_labels, decision.remove_labels, conversation);
 
-    // ── 12. Deduplicar y enviar ──
+    if (decision.handoff && !memory.sales_cycle?.authorized) {
+      await this.transfer(conversationId, conversation, decision.handoff_reason || "El caso requiere intervención humana.", memory);
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+    // Una respuesta vacía significa "no repetir la misma pregunta": no se envía nada.
+    if (!decision.reply) {
+      await this.record(conversationId, "empty_reply_skipped", { question_key: decision.question_key || null, decision_source: decisionSource });
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+
+    // ── 12. Presentarse, deduplicar y enviar ──
+    // Mia se presenta en su primera respuesta de la conversación, venga de la IA o de una regla.
+    const publicName = this.config.ai.publicName || "Mia de MARTCOM";
+    const firstReply = !memory.presentacion_realizada && !memory.ultima_respuesta_agente;
+    if (firstReply && !decision.reply.toLowerCase().includes(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${publicName}. ${decision.reply}`;
+
     // Final dedupe barrier: Chatwoot can deliver the same customer turn through
     // message_created and conversation_updated (or even to overlapping app instances).
     // Before sending, consult the authoritative Chatwoot history and suppress an
@@ -366,12 +421,20 @@ export class ConversationProcessor {
       return;
     }
     await this.chatwoot.sendMessage(conversationId, decision.reply);
-    memory = { ...memory, ultima_respuesta_agente: decision.reply, ultima_pregunta: decision.question_key || null };
+    memory = {
+      ...memory,
+      ultima_respuesta_agente: decision.reply,
+      ultima_pregunta: decision.question_key || null,
+      preguntas_realizadas: decision.question_key ? arrays(memory.preguntas_realizadas, [decision.question_key]) : memory.preguntas_realizadas,
+      presentacion_realizada: true,
+      asesor_presentacion: memory.asesor_presentacion || publicName,
+      operations: { ...(memory.operations || {}), onboarding_last_requested: decisionState.onboarding_requirement || memory.operations?.onboarding_last_requested || null },
+    };
     if (decisionState.nss_resolution) {
       memory = { ...memory, nss_resolution: decisionState.nss_resolution, operations: { ...(memory.operations || {}), nss_resolution: decisionState.nss_resolution } };
     }
     await this.memories.set(conversationId, memory);
     await this.memories.markProcessedMany(conversationId, messageIds);
-    await this.record(conversationId, "ai_reply_sent", { reply: decision.reply, decision_source: decisionSource });
+    await this.record(conversationId, "ai_reply_sent", { reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null });
   }
 }

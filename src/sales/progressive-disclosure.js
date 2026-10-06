@@ -23,6 +23,8 @@ export function customerAskedCommercialDetails(text) {
 
 export function isInformationOpening(text) {
   const value = norm(text);
+  // Botón "Información" del menú de WhatsApp y aperturas cortas equivalentes.
+  if (/^(?:hola[,.! ]*)?(?:buen(?:os|as)? (?:dias|tardes|noches)[,.! ]*)?(?:(?:mas |quiero |quisiera )?(?:informacion|info|informes))?[.!¡? ]*$/.test(value) && /informacion|info|informes/.test(value)) return true;
   return /\b(quiero|quisiera|necesito|me gustaria|dame|busco)\b.{0,35}\b(informacion|saber mas|orientacion)\b/.test(value)
     || /\binformacion\b.{0,30}\b(afiliacion|imss|caso|nss)\b/.test(value)
     || /\binformacion\b.{0,45}\b(?:revisar|revision)\b.{0,30}\b(?:caso|nss|imss)\b/.test(value);
