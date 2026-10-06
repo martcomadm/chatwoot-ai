@@ -5,4 +5,4 @@ import { readFileSync } from "node:fs";
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 export const CORE_VERSION = pkg.version;
-export const INSPECTOR_VERSION = "1.6.1";
+export const INSPECTOR_VERSION = "1.7.0";
