@@ -2,7 +2,7 @@
 var active=null,current=null,alertsOnly=false,dashboardData=null;
 var TOKEN_KEY='martcom_ai_inspector_token';
 function el(id){return document.getElementById(id)}
-function esc(v){return String(v==null?'No informado':v).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function esc(v){return String(v==null?'No informado':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function token(){var v=el('token').value.trim();if(v)sessionStorage.setItem(TOKEN_KEY,v);return v}
 function restoreToken(){var v=sessionStorage.getItem(TOKEN_KEY)||'';if(v)el('token').value=v}
 function pct(v){return v==null?'No informado':Math.round(Number(v)*100)+'%'}
@@ -59,107 +59,6 @@ function setRange(kind){
   else if(kind==='30'){var s2=new Date(now);s2.setDate(s2.getDate()-29);from=dateISO(s2);to=dateISO(now)}
   el('fromDate').value=from;el('toDate').value=to;
   document.querySelectorAll('[data-range]').forEach(function(b){b.classList.toggle('active',b.dataset.range===kind)});
-
-  el('controlBody').addEventListener('input',function(event){
-    if(event.target.id==='rotationSearch'){
-      CONTROL_STATE.search=event.target.value;
-      renderActiveRotation();
-      var s=el('rotationSearch');
-      if(s){s.focus();s.setSelectionRange(s.value.length,s.value.length)}
-      return;
-    }
-    var toggle=event.target.closest('[data-toggle-active]');
-    if(toggle){
-      var row=toggle.closest('.dynamic-agent-row');
-      var agent=currentGroupAgents().find(function(a){return Number(a.id)===Number(row.dataset.agentId)});
-      if(agent){agent.enabled=toggle.checked;markDirty();renderActiveRotation()}
-    }
-  });
-
-  var dragId=null;
-  el('controlBody').addEventListener('dragstart',function(event){
-    var row=event.target.closest('.dynamic-agent-row');
-    if(!row)return;
-    dragId=Number(row.dataset.agentId);
-    row.classList.add('dragging');
-    if(event.dataTransfer){
-      event.dataTransfer.effectAllowed='move';
-      event.dataTransfer.setData('text/plain',String(dragId));
-    }
-  });
-  el('controlBody').addEventListener('dragend',function(event){
-    var row=event.target.closest('.dynamic-agent-row');
-    if(row)row.classList.remove('dragging');
-    document.querySelectorAll('.dynamic-agent-row').forEach(function(r){r.classList.remove('drag-over')});
-  });
-  el('controlBody').addEventListener('dragover',function(event){
-    var row=event.target.closest('.dynamic-agent-row');
-    if(!row||dragId===null)return;
-    event.preventDefault();
-    row.classList.add('drag-over');
-  });
-  el('controlBody').addEventListener('dragleave',function(event){
-    var row=event.target.closest('.dynamic-agent-row');
-    if(row)row.classList.remove('drag-over');
-  });
-  el('controlBody').addEventListener('drop',function(event){
-    var target=event.target.closest('.dynamic-agent-row');
-    if(!target||dragId===null)return;
-    event.preventDefault();
-    var targetId=Number(target.dataset.agentId);
-    if(targetId===dragId)return;
-    var agents=currentGroupAgents().slice();
-    var from=agents.findIndex(function(a){return Number(a.id)===dragId});
-    var to=agents.findIndex(function(a){return Number(a.id)===targetId});
-    if(from<0||to<0)return;
-    var moved=agents.splice(from,1)[0];
-    agents.splice(to,0,moved);
-    CONTROL_STATE.data.groups[CONTROL_STATE.activeTab]=agents;
-    markDirty();
-    renderActiveRotation();
-    dragId=null;
-  });
-
-  el('closeAdvisorModal').addEventListener('click',function(event){event.preventDefault();event.stopPropagation();closeAdvisorModal()});
-  el('advisorModal').addEventListener('click',function(event){
-    if(event.target===el('advisorModal'))closeAdvisorModal();
-  });
-  el('advisorSearch').addEventListener('input',function(){
-    renderAdvisorModalList(CONTROL_STATE.data?.agents||[]);
-  });
-  el('advisorModalList').addEventListener('click',async function(event){
-    var del=event.target.closest('[data-delete-master]');
-    if(del){
-      try{await deleteMasterAdvisor(Number(del.dataset.deleteMaster))}catch(e){alert(e.message)}
-      return;
-    }
-
-    var btn=event.target.closest('[data-add-existing]');
-    if(!btn)return;
-    try{
-      await adminApi('/inspector/api/control/agents/copy',{
-        method:'POST',
-        body:JSON.stringify({targetGroup:CONTROL_STATE.activeTab,agentId:Number(btn.dataset.addExisting)})
-      });
-      closeAdvisorModal();
-      await loadControl();await refreshAll();
-    }catch(e){alert(e.message)}
-  });
-
-
-  document.addEventListener('keydown',function(event){
-    if(event.key!=='Escape')return;
-    if(!el('advisorModal').classList.contains('hidden')){
-      event.preventDefault();
-      closeAdvisorModal();
-      return;
-    }
-    if(!el('controlModal').classList.contains('hidden')){
-      event.preventDefault();
-      el('controlModal').classList.add('hidden');
-    }
-  });
-
   if(token())refreshAll();
 }
 var CONTROL_STATE={data:null,activeTab:'weekday',search:'',dirty:{}};
@@ -181,6 +80,12 @@ function filteredAgentsForActiveTab(){
   });
 }
 
+// rotationOverview() devuelve un array [{group:'weekday',nextAgent,lastAgentName,...}].
+function rotationFor(rotations,group){
+  if(Array.isArray(rotations))return rotations.find(function(r){return r&&r.group===group})||{};
+  return (rotations&&rotations[group])||{};
+}
+
 function renderActiveRotation(){
   if(!CONTROL_STATE.data)return;
   var groups=CONTROL_STATE.data.groups||{};
@@ -190,9 +95,9 @@ function renderActiveRotation(){
   var allAgents=groups[group]||[];
   var activeCount=allAgents.filter(function(a){return a.enabled!==false}).length;
   var inactiveCount=allAgents.length-activeCount;
-  var rot=(rotations.groups||rotations||{})[group]||{};
-  var nextName=rot.next?.name||rot.next_name||rot.next||'No informado';
-  var lastName=rot.last?.name||rot.last_name||rot.last||'No informado';
+  var rot=rotationFor(rotations,group);
+  var nextName=(rot.nextAgent&&rot.nextAgent.name)||'No informado';
+  var lastName=rot.lastAgentName||'No informado';
 
   el('rotationContent').innerHTML=
     '<div class="rotation-summary">'+
@@ -237,9 +142,9 @@ function renderExceptionsView(){
       '<div class="exception-cards">'+
         Object.keys(exceptions).sort().map(function(date){
           var enabled=(exceptions[date]||[]).filter(function(a){return a.enabled!==false});
-          return '<div class="exception-card"><div><b>'+date+'</b><small>'+enabled.length+' asesores activos</small></div>'+
+          return '<div class="exception-card"><div><b>'+esc(date)+'</b><small>'+enabled.length+' asesores activos</small></div>'+
             '<div class="exception-agents">'+enabled.map(function(a){return '<span>'+esc(a.name)+'</span>'}).join('')+'</div>'+
-            '<button data-delete-exception="'+date+'" class="danger-small">Eliminar</button></div>';
+            '<button data-delete-exception="'+esc(date)+'" class="danger-small">Eliminar</button></div>';
         }).join('')+
         (!Object.keys(exceptions).length?'<div class="empty compact">No hay excepciones configuradas.</div>':'')+
       '</div>'+
@@ -254,7 +159,7 @@ function renderAuditView(){
         (audit.length?audit.slice(0,100).map(function(a){
           var details=a.details||{};
           var info=details.group||details.targetGroup||details.date||details.sourceGroup||'';
-          return '<div class="audit-item"><time>'+fmtDate(a.timestamp)+'</time><b>'+esc(a.type)+'</b><span>'+esc(String(info))+'</span></div>';
+          return '<div class="audit-item"><time>'+esc(fmtDate(a.timestamp))+'</time><b>'+esc(a.type)+'</b><span>'+esc(String(info))+'</span></div>';
         }).join(''):'<div class="empty compact">Sin cambios registrados.</div>')+
       '</div></div>';
 }
@@ -301,6 +206,7 @@ function markDirty(){
 async function saveCurrentRotation(){
   var group=CONTROL_STATE.activeTab;
   if(!['weekday','saturday','sunday'].includes(group))return;
+  if(!confirmDiscard(group))return;
   await adminApi('/inspector/api/control/rotations/'+group,{
     method:'PUT',
     body:JSON.stringify({agents:currentGroupAgents()})
@@ -312,6 +218,7 @@ async function saveCurrentRotation(){
 
 async function dynamicMove(agentId,targetGroup){
   var sourceGroup=CONTROL_STATE.activeTab;
+  if(!confirmDiscard())return;
   if(!confirm('¿Mover este asesor de '+sourceGroup.toUpperCase()+' a '+targetGroup.toUpperCase()+'?'))return;
   await adminApi('/inspector/api/control/agents/move',{
     method:'POST',
@@ -324,7 +231,8 @@ async function removeFromCurrentGroup(agentId){
   var group=CONTROL_STATE.activeTab;
   var agent=currentGroupAgents().find(function(a){return Number(a.id)===Number(agentId)});
   if(!agent)return;
-  if(!confirm('¿Quitar a '+agent.name+' de '+group.toUpperCase()+'?\\n\\nSeguirá disponible en el catálogo para volver a agregarlo después.'))return;
+  if(!confirmDiscard())return;
+  if(!confirm('¿Quitar a '+agent.name+' de '+group.toUpperCase()+'?\n\nSeguirá disponible en el catálogo para volver a agregarlo después.'))return;
   await adminApi('/inspector/api/control/agents/remove',{
     method:'POST',
     body:JSON.stringify({group:group,agentId:Number(agentId)})
@@ -335,16 +243,18 @@ async function removeFromCurrentGroup(agentId){
 async function deleteMasterAdvisor(agentId){
   var agent=(CONTROL_STATE.data?.agents||[]).find(function(a){return Number(a.id)===Number(agentId)});
   var name=agent?.name||('ID '+agentId);
-  if(!confirm('¿Eliminar a '+name+' del catálogo maestro?\\n\\nSolo será posible si ya no pertenece a ningún turno ni excepción.'))return;
+  if(!confirmDiscard())return;
+  if(!confirm('¿Eliminar a '+name+' del catálogo maestro?\n\nSolo será posible si ya no pertenece a ningún turno ni excepción.'))return;
   await adminApi('/inspector/api/control/agents/'+Number(agentId),{method:'DELETE'});
   await loadControl();await refreshAll();
   renderAdvisorModalList(CONTROL_STATE.data?.agents||[]);
 }
 
 async function dynamicCopy(agentId,targetGroup){
+  if(!confirmDiscard())return;
   await adminApi('/inspector/api/control/agents/copy',{
     method:'POST',
-    body:JSON.stringify({sourceGroup:CONTROL_STATE.activeTab,targetGroup:targetGroup,agentId:Number(agentId)})
+    body:JSON.stringify({targetGroup:targetGroup,agentId:Number(agentId)})
   });
   await loadControl();await refreshAll();
 }
@@ -369,6 +279,7 @@ async function createAdvisorFromModal(){
   var name=(el('advisorNewName')?.value||'').trim();
   if(!Number.isFinite(id)||id<=0) return alert('Introduce un ID válido de Chatwoot');
   if(name.length<2) return alert('Introduce el nombre del asesor');
+  if(!confirmDiscard())return;
   await adminApi('/inspector/api/control/agents',{
     method:'POST',
     body:JSON.stringify({id:id,name:name})
@@ -393,61 +304,34 @@ function renderAdvisorModalList(agents){
   }).join('')||'<div class="empty compact">Sin resultados.</div>';
 }
 
+function dirtyGroups(exceptGroup){
+  return Object.keys(CONTROL_STATE.dirty).filter(function(g){return CONTROL_STATE.dirty[g]&&g!==exceptGroup});
+}
+// Las acciones que recargan el panel descartan reordenamientos/activaciones sin guardar: pedir confirmación.
+function confirmDiscard(exceptGroup){
+  var pending=dirtyGroups(exceptGroup);
+  if(!pending.length)return true;
+  return confirm('Hay cambios sin guardar en '+pending.map(function(g){return g.toUpperCase()}).join(', ')+'.\n\nSi continúas se perderán. ¿Continuar?');
+}
 async function loadControl(){
   try{
     var saved=sessionStorage.getItem(ADMIN_KEY)||'';if(saved&&!el('adminToken').value)el('adminToken').value=saved;
     if(!adminToken())throw new Error('Introduce INSPECTOR_ADMIN_TOKEN');
-    var d=await api('/inspector/api/control/rotations');renderControl(d);
+    if(!el('token').value.trim())throw new Error('Introduce primero el token del Inspector (barra superior)');
+    await adminApi('/inspector/api/control/admin-check');
+    var d=await api('/inspector/api/control/rotations');
+    CONTROL_STATE.dirty={};
+    renderControl(d);
   }catch(e){el('controlBody').innerHTML='<div class="alert error">'+esc(e.message)+'</div>'}
 }
-async function saveGroup(group){
-  try{
-    await adminApi('/inspector/api/control/rotations/'+group,{method:'PUT',body:JSON.stringify({agents:agentsFromEditor(group)})});
-    await loadControl();await refreshAll();
-  }catch(e){alert(e.message)}
+function openControl(){
+  el('controlModal').classList.remove('hidden');
+  var saved=sessionStorage.getItem(ADMIN_KEY)||'';
+  if(saved)el('adminToken').value=saved;
+  // Si hay cambios sin guardar, se conservan en lugar de recargar desde el servidor.
+  if(CONTROL_STATE.data&&dirtyGroups().length){renderControlShell();return}
+  if(saved)loadControl();
 }
-
-
-async function addMasterAgent(){
-  var id=Number(el('newAgentId')?.value);
-  var name=(el('newAgentName')?.value||'').trim();
-  if(!Number.isFinite(id)||id<=0)return alert('Introduce un ID válido de Chatwoot');
-  if(name.length<2)return alert('Introduce el nombre del asesor');
-  await adminApi('/inspector/api/control/agents',{method:'POST',body:JSON.stringify({id:id,name:name})});
-  await loadControl();
-}
-async function moveAgentBetweenGroups(row){
-  var sourceGroup=row.closest('.control-group').dataset.group;
-  var targetGroup=row.querySelector('[data-target-group]').value;
-  var agentId=Number(row.dataset.agentId);
-  if(sourceGroup===targetGroup)return;
-  if(!confirm('¿Mover este asesor de '+sourceGroup.toUpperCase()+' a '+targetGroup.toUpperCase()+'?'))return;
-  await adminApi('/inspector/api/control/agents/move',{
-    method:'POST',
-    body:JSON.stringify({sourceGroup:sourceGroup,targetGroup:targetGroup,agentId:agentId})
-  });
-  await loadControl();await refreshAll();
-}
-async function copyAgentBetweenGroups(row){
-  var sourceGroup=row.closest('.control-group').dataset.group;
-  var targetGroup=row.querySelector('[data-target-group]').value;
-  var agentId=Number(row.dataset.agentId);
-  await adminApi('/inspector/api/control/agents/copy',{
-    method:'POST',
-    body:JSON.stringify({sourceGroup:sourceGroup,targetGroup:targetGroup,agentId:agentId})
-  });
-  await loadControl();await refreshAll();
-}
-async function copyMasterAgent(button){
-  var agentId=Number(button.dataset.masterCopy);
-  var targetGroup=button.closest('.master-agent').querySelector('[data-master-target]').value;
-  await adminApi('/inspector/api/control/agents/copy',{
-    method:'POST',
-    body:JSON.stringify({targetGroup:targetGroup,agentId:agentId})
-  });
-  await loadControl();await refreshAll();
-}
-
 
 var ANALYTICS_STATE={loaded:false};
 function aDate(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
@@ -507,7 +391,7 @@ function switchMainTab(tab){
 function bindUi(){
   restoreToken();
   document.querySelectorAll('[data-main-tab]').forEach(function(b){b.addEventListener('click',function(){switchMainTab(b.dataset.mainTab)})});
-  el('mainControlBtn').addEventListener('click',function(){el('controlModal').classList.remove('hidden');var s=sessionStorage.getItem(ADMIN_KEY)||'';if(s)el('adminToken').value=s;if(s)loadControl()});
+  el('mainControlBtn').addEventListener('click',openControl);
   document.querySelectorAll('[data-analytics-range]').forEach(function(b){b.addEventListener('click',function(){setAnalyticsRange(b.dataset.analyticsRange)})});
   el('analyticsRefresh').addEventListener('click',loadAnalytics);
 
@@ -562,12 +446,7 @@ function bindUi(){
   });
 
   // -------- Operations Control Center --------
-  el('controlBtn').addEventListener('click',function(){
-    el('controlModal').classList.remove('hidden');
-    var saved=sessionStorage.getItem(ADMIN_KEY)||'';
-    if(saved)el('adminToken').value=saved;
-    if(saved)loadControl();
-  });
+  el('controlBtn').addEventListener('click',openControl);
 
   el('closeControl').addEventListener('click',function(event){
     event.preventDefault();
@@ -581,11 +460,17 @@ function bindUi(){
   el('adminToken').addEventListener('keydown',function(event){
     if(event.key==='Enter'){
       event.preventDefault();
-      loadControl();
+      if(confirmDiscard())loadControl();
     }
   });
 
-  el('loadControl').addEventListener('click',loadControl);
+  el('loadControl').addEventListener('click',function(){if(confirmDiscard())loadControl()});
+
+  // Cierra los menús ⋮ al hacer clic fuera de ellos.
+  document.addEventListener('click',function(event){
+    if(event.target.closest('[data-agent-menu]')||event.target.closest('.agent-menu'))return;
+    document.querySelectorAll('.agent-menu').forEach(function(m){m.classList.add('hidden')});
+  });
 
   // Dynamic controls: tabs, menus, move/copy/remove, exceptions.
   el('controlBody').addEventListener('click',async function(event){
@@ -653,7 +538,8 @@ function bindUi(){
     }
 
     var del=event.target.closest('[data-delete-exception]');
-    if(del && confirm('¿Eliminar excepción '+del.dataset.deleteException+'?')){
+    if(del){
+      if(!confirmDiscard()||!confirm('¿Eliminar excepción '+del.dataset.deleteException+'?'))return;
       try{
         await adminApi('/inspector/api/control/exceptions/'+del.dataset.deleteException,{method:'DELETE'});
         await loadControl();await refreshAll();
@@ -665,6 +551,7 @@ function bindUi(){
       var date=el('exceptionDate').value;
       var base=el('exceptionBase').value;
       if(!date)return alert('Selecciona una fecha');
+      if(!confirmDiscard())return;
       try{
         var baseAgents=CONTROL_STATE.data.groups?.[base]||[];
         await adminApi('/inspector/api/control/exceptions/'+date,{
@@ -784,6 +671,7 @@ function bindUi(){
 
     var btn=event.target.closest('[data-add-existing]');
     if(btn){
+      if(!confirmDiscard())return;
       try{
         await adminApi('/inspector/api/control/agents/copy',{
           method:'POST',

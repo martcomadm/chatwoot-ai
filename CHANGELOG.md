@@ -1,3 +1,15 @@
+## Inspector V1.6.1 — Correcciones del Inspector
+- Elimina bloque duplicado dentro de `setRange()` que volvía a registrar listeners en cada clic de fecha (acciones de asesores repetidas N veces).
+- Control Operativo: "Siguiente" y "Último" vuelven a mostrarse (se leía la rotación como objeto en lugar de array).
+- Saltos de línea correctos en los diálogos de confirmación.
+- El token administrador se valida al abrir el panel (`GET /inspector/api/control/admin-check`).
+- `esc()` escapa comillas; se escapan fecha de excepciones y fechas del historial.
+- Aviso antes de descartar cambios sin guardar en rotaciones; reabrir el panel ya no los pierde.
+- Los menús ⋮ se cierran al hacer clic fuera.
+- Se elimina código muerto de la UI anterior.
+- Tokens solo por header (se retira `?token=`) y comparación en tiempo constante.
+- Versiones unificadas en `src/version.js` (Core desde package.json): header, `/inspector/api/health`, `/`, `/health` y logs.
+
 ## Core V3.3.3 — Conversational Patience & Data Collection Control
 - Estados persistentes para CURP/NSS: promised_later, searching, unavailable, declined, received.
 - Sensitive Data Pressure Guard.

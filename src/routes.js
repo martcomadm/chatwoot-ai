@@ -1,5 +1,7 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { CORE_VERSION, INSPECTOR_VERSION } from "./version.js";
 import { inspectorPage } from "./inspector/page.js";
 import { buildAlerts, dashboardStats, explainDecision, filterConversations, summarizeConversation, uniqueFilterOptions } from "./inspector/inspector-service.js";
 import { buildDiagnostics } from "./inspector/diagnostics-service.js";
@@ -17,20 +19,28 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
   }));
 
 
+  // Comparación en tiempo constante para no filtrar el token por diferencias de tiempo.
+  function safeEqual(received, expected) {
+    if (typeof received !== "string" || !expected) return false;
+    const a = Buffer.from(received);
+    const b = Buffer.from(String(expected));
+    return a.length === b.length && timingSafeEqual(a, b);
+  }
+  // Solo por header: ?token= en la URL queda guardado en logs del proxy y del historial.
   function inspectorAuthorized(req) {
     if (!config.inspector.token) return false;
-    return req.get("x-inspector-token") === config.inspector.token || req.query.token === config.inspector.token;
+    return safeEqual(req.get("x-inspector-token"), config.inspector.token);
   }
   function inspectorAdminAuthorized(req) {
     if (!config.inspector.adminToken) return false;
-    return req.get("x-inspector-admin-token") === config.inspector.adminToken;
+    return safeEqual(req.get("x-inspector-admin-token"), config.inspector.adminToken);
   }
 
   router.get("/inspector", (_req, res) => res.type("html").send(inspectorPage()));
   router.get("/inspector/api/health", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
     const diagnostics = buildDiagnostics({ config, memories, inspectorEvents });
-    res.json({ status: "ok", overall: diagnostics.overall, version: "3.3.2.1", inspectorVersion: "1.6", architecture: "modular", lastEventAt: inspectorEvents.stats?.().lastEventAt || null, autoHandoff: config.handoff.enabled, diagnostics });
+    res.json({ status: "ok", overall: diagnostics.overall, version: CORE_VERSION, inspectorVersion: INSPECTOR_VERSION, architecture: "modular", lastEventAt: inspectorEvents.stats?.().lastEventAt || null, autoHandoff: config.handoff.enabled, diagnostics });
   });
   router.get("/inspector/api/dashboard", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
@@ -102,6 +112,12 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
       audit:(state.audit||[]).slice().reverse().slice(0,100),
       rotations:rotationOverview(config,handoffRotation,operationsConfig)
     });
+  });
+
+  // Valida el token administrador al abrir el Control Operativo (antes solo fallaba al guardar).
+  router.get("/inspector/api/control/admin-check", (req,res)=>{
+    if(!inspectorAdminAuthorized(req)) return res.status(401).json({error:"Token administrador inválido"});
+    res.json({ok:true});
   });
 
   router.put("/inspector/api/control/rotations/:group", express.json(), async (req,res)=>{
@@ -182,7 +198,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
 
   router.get("/", (_req, res) => res.json({
     service: "martcom-ai-sales-intelligence",
-    version: "3.2.2",
+    version: CORE_VERSION,
     status: "ok",
     architecture: "modular",
     memory_file: config.storage.memoryFile,
@@ -199,7 +215,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     agent_id: config.chatwoot.agentId,
   }));
 
-  router.get("/health", (_req, res) => res.json({ status: "ok", version: "3.2.2", timestamp: new Date().toISOString() }));
+  router.get("/health", (_req, res) => res.json({ status: "ok", version: CORE_VERSION, timestamp: new Date().toISOString() }));
   // La memoria contiene datos personales (nombre, CURP): exige token del Inspector.
   router.get("/memory/:conversationId", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });

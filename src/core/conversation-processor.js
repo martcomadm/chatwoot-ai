@@ -1,4 +1,5 @@
 import { extractFast, containsCurp, containsNss } from "../memory/fast-extractor.js";
+import { CORE_VERSION } from "../version.js";
 import { analyzeSales, planNext, answered } from "../sales/sales-engine.js";
 import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
@@ -272,7 +273,7 @@ export class ConversationProcessor {
         pendingHandoffMemory
       );
       if (retryResult.status === "completed") {
-        console.log(JSON.stringify({ event: "handoff_retry_completed", version: "3.3.3", conversationId }));
+        console.log(JSON.stringify({ event: "handoff_retry_completed", version: CORE_VERSION, conversationId }));
         return;
       }
     }
@@ -379,7 +380,7 @@ export class ConversationProcessor {
       await this.chatwoot.sendMessage(conversationId, patience.reply);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "conversation_patience_pause", { slot: patience.slot, state: patience.state, pressure: patience.pressure });
-      console.log(JSON.stringify({ event: "conversation_patience_pause", version: "3.3.3", conversationId, messageIds, state: patience.state }));
+      console.log(JSON.stringify({ event: "conversation_patience_pause", version: CORE_VERSION, conversationId, messageIds, state: patience.state }));
       return;
     }
 
@@ -393,7 +394,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, judgment.handoffReason, memory, message);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "judgment_handoff", { reason: judgment.handoffReason, question: judgment.question, objection: judgment.objection });
-      console.log(JSON.stringify({ event: "judgment_handoff", version: "3.3.3", conversationId, messageIds, reason: judgment.handoffReason }));
+      console.log(JSON.stringify({ event: "judgment_handoff", version: CORE_VERSION, conversationId, messageIds, reason: judgment.handoffReason }));
       return;
     }
 
@@ -405,7 +406,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory, message);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "frustration_handoff", { score: memory.experiencia.frustration_score, evidence: memory.experiencia.frustration_events });
-      console.log(JSON.stringify({ event: "frustration_handoff", version: "3.3.3", conversationId, messageIds }));
+      console.log(JSON.stringify({ event: "frustration_handoff", version: CORE_VERSION, conversationId, messageIds }));
       return;
     }
 
@@ -417,7 +418,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory, message);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "b2b_handoff", { reason, messageIds });
-      console.log(JSON.stringify({ event: "b2b_handoff", version: "3.3.3", conversationId, messageIds }));
+      console.log(JSON.stringify({ event: "b2b_handoff", version: CORE_VERSION, conversationId, messageIds }));
       return;
     }
 
@@ -455,7 +456,7 @@ export class ConversationProcessor {
       await this.transfer(conversationId, conversation, reason, memory);
       await this.memories.markProcessedMany(conversationId, messageIds);
       await this.record(conversationId, "handoff", { reason, messageIds, advisor: memory.asesor_presentacion });
-      console.log(JSON.stringify({ event: "handoff", version: "3.3.3", conversationId, messageIds, reason, sources: snapshot.sources, memory }));
+      console.log(JSON.stringify({ event: "handoff", version: CORE_VERSION, conversationId, messageIds, reason, sources: snapshot.sources, memory }));
       return;
     }
 
@@ -502,6 +503,6 @@ export class ConversationProcessor {
     }
 
     await this.memories.markProcessedMany(conversationId, messageIds);
-    console.log(JSON.stringify({ event: "processed", version: "3.3.3", conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
+    console.log(JSON.stringify({ event: "processed", version: CORE_VERSION, conversationId, messageIds, sources: snapshot.sources, planner, labels: currentLabels, memory: this.memories.get(conversationId) }));
   }
 }
