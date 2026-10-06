@@ -81,6 +81,18 @@ Comprobar:
 
 Si el proceso no inicia, no eliminar los guards: corregir la configuración.
 
+## 5.1 Usuarios de Operations
+Operations funciona con un usuario por persona y áreas delimitadas: Captura, Validación, Vigencia, Cobranza, Supervisión y Admin.
+
+1. Entrar a `https://<DOMINIO-NEXT>/operations`.
+2. Si no hay usuarios, la página pide el `OPERATIONS_TOKEN` del servidor para crear el primer administrador.
+3. Desde Admin → Usuarios, dar de alta a cada persona con sus áreas y una contraseña temporal (mínimo 10 caracteres).
+4. Cada persona solo ve la cola de sus áreas; Supervisión ve todo el flujo; Admin incluye todas.
+
+Archivos nuevos dentro de `/app/data-next`: `ops-users.json` (contraseñas con scrypt), `ops-sessions.json` (solo hashes de sesión), `ops-audit.json`, `ops-settings.json` y `ops-accounts-image.bin`.
+
+El token de entorno sigue aceptándose en la cabecera `x-operations-token` como acceso de administrador para scripts; sus acciones quedan registradas como "Token de Operaciones". Ya no se acepta en la URL (`?token=`).
+
 ## 6. Pruebas negativas obligatorias
 Antes de conectar el webhook, probar temporalmente y confirmar que el contenedor falla al iniciar con:
 1. `APP_ENV=production`.

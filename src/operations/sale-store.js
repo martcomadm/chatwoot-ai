@@ -23,7 +23,15 @@ export function publicSale(sale) {
 }
 
 export class SaleStore extends EventEmitter {
-  constructor(file) { super(); this.file = file; this.data = { sequence: 0, sales: {} }; this.load(); }
+  constructor(file) { super(); this.file = file; this.data = { sequence: 0, sales: {} }; this.currentActor = null; this.load(); }
+
+  // Ejecuta una operación síncrona del workflow atribuyendo sus eventos a una persona.
+  // Todas las operaciones del store son síncronas, así que no se mezclan actores.
+  runAs(actor, fn) {
+    const previous = this.currentActor;
+    this.currentActor = actor || null;
+    try { return fn(); } finally { this.currentActor = previous; }
+  }
   load() {
     try {
       if (!fs.existsSync(this.file)) return;
@@ -75,6 +83,8 @@ export class SaleStore extends EventEmitter {
       validity: { confirmed: false, document_url: null, document_name: null, confirmed_at: null, confirmed_by: null, issue: null, notes: "" },
       payment: { requested: false, requested_at: null, requested_by: null, method: null, amount: null, received: false, received_at: null, received_by: null, reference: null, proof_url: null, proof_name: null, validated: false, validated_at: null, validated_by: null, issue: null, notes: "" },
       completed_at: null,
+      assignee: null,
+      queue_entered_at: timestamp,
       events: [], created_at: timestamp, updated_at: timestamp,
     };
     const checklist = documentPackageStatus(sale);
@@ -102,7 +112,10 @@ export class SaleStore extends EventEmitter {
 
   update(id, patch, eventType = "sale.updated", eventDetails = {}) {
     const current = this.data.sales[id]; if (!current) throw new Error("Expediente no encontrado");
-    this.data.sales[id] = { ...current, ...patch, updated_at: now() }; this.addEvent(id, eventType, eventDetails, false); this.persist(); const sale = this.get(id); this.emit("sale", { type: eventType, sale, details: eventDetails }); return sale;
+    const timestamp = now();
+    const movedQueue = patch.queue !== undefined && patch.queue !== current.queue;
+    // Al cambiar de área se reinicia el reloj de atraso y la asignación personal.
+    this.data.sales[id] = { ...current, ...patch, ...(movedQueue ? { queue_entered_at: timestamp, assignee: patch.assignee ?? null } : {}), updated_at: timestamp }; this.addEvent(id, eventType, eventDetails, false); this.persist(); const sale = this.get(id); this.emit("sale", { type: eventType, sale, details: eventDetails }); return sale;
   }
-  addEvent(id, type, details = {}, persist = true) { const current = this.data.sales[id]; if (!current) throw new Error("Expediente no encontrado"); current.events ||= []; current.events.push({ type, at: now(), details }); if (current.events.length > 300) current.events = current.events.slice(-300); current.updated_at = now(); if (persist) this.persist(); }
+  addEvent(id, type, details = {}, persist = true) { const current = this.data.sales[id]; if (!current) throw new Error("Expediente no encontrado"); current.events ||= []; current.events.push({ type, at: now(), details, queue: current.queue || null, status: current.status || null, actor: this.currentActor ? { ...this.currentActor } : null }); if (current.events.length > 300) current.events = current.events.slice(-300); current.updated_at = now(); if (persist) this.persist(); }
 }

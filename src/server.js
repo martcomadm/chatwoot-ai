@@ -17,6 +17,10 @@ import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
 import { createOperationsRouter } from "./operations/operations-router.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
 import { webhookEventAllowedForAgent } from "./utils/webhook-isolation.js";
+import { UserStore } from "./operations/access/user-store.js";
+import { SessionStore } from "./operations/access/session-store.js";
+import { OpsSettingsStore } from "./operations/access/settings-store.js";
+import { OpsAuditStore } from "./operations/access/audit-store.js";
 
 try {
   const config = loadConfig();
@@ -35,7 +39,11 @@ try {
   const handoffRouter = new HandoffRouter({ config, store: handoffRotation, chatwoot, operationsConfig });
   const saleStore = new SaleStore(config.storage.salesFile);
   const workflow = new SaleWorkflowEngine(saleStore);
-  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId });
+  const opsUsers = new UserStore(config.storage.opsUsersFile);
+  const opsSessions = new SessionStore(config.storage.opsSessionsFile);
+  const opsSettings = new OpsSettingsStore(config.storage.opsSettingsFile, config.storage.opsAccountsImageFile);
+  const opsAudit = new OpsAuditStore(config.storage.opsAuditFile);
+  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId, settings: opsSettings });
   workflowBridge.start();
   workflowBridge.reconcileCompletedSales().catch(error=>console.error("NEXT reconciliación de completados:",error));
   workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error));
@@ -97,7 +105,7 @@ try {
     return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
   });
 
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }));
 
   app.listen(config.port, "0.0.0.0", () => {
@@ -105,7 +113,8 @@ try {
     console.log(`Identidad pública: ${config.ai.publicName}`);
     console.log(`Memoria persistente: ${config.storage.memoryFile}`);
     console.log(`Expedientes de venta: ${config.storage.salesFile}`);
-    console.log(`Operations: /operations · realtime SSE`);
+    console.log(`Operations: /operations · realtime SSE · ${opsUsers.count()} usuarios`);
+    if (!opsUsers.count()) console.log(opsSettings && config.operations.token ? "Operations sin usuarios: entra a /operations y crea el primer administrador con OPERATIONS_TOKEN." : "Operations sin usuarios y sin OPERATIONS_TOKEN: configura OPERATIONS_TOKEN para crear el primer administrador.");
     console.log(`Chatwoot Workflow Bridge: activo`);
     console.log(`Inspector: /inspector`);
   });

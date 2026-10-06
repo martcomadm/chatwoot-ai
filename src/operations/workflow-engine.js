@@ -1,6 +1,13 @@
 export const SALE_STATUSES = Object.freeze({
   AUTHORIZED:"authorized",WAITING_CAPTURE:"waiting_capture",CAPTURE_IN_PROGRESS:"capture_in_progress",ALTA_PROCESSED:"alta_processed",WAITING_VALIDATION:"waiting_validation",VALIDATION_IN_PROGRESS:"validation_in_progress",VALIDATION_APPROVED:"validation_approved",VALIDATION_REJECTED:"validation_rejected",WAITING_VALIDITY:"waiting_validity",VALIDITY_CONFIRMED:"validity_confirmed",PAYMENT_REQUESTED:"payment_requested",PAYMENT_RECEIVED:"payment_received",PAYMENT_VALIDATED:"payment_validated",COMPLETED:"completed",ALTA_ISSUE:"alta_issue",VALIDITY_ISSUE:"validity_issue",PAYMENT_ISSUE:"payment_issue",CANCELLED:"cancelled",
 });
+// Etapas a las que Supervisión puede regresar un expediente.
+export const RETURN_TARGETS=Object.freeze({
+  capture:{status:"waiting_capture",queue:"capture",label:"Captura"},
+  validation:{status:"waiting_validation",queue:"validation",label:"Validación"},
+  validity:{status:"waiting_validity",queue:"validity",label:"Vigencia",requiresValidation:true},
+  payment:{status:"validity_confirmed",queue:"payment",label:"Cobranza",requiresValidation:true,requiresValidity:true},
+});
 export const VALIDATION_KEYS=Object.freeze(["datos","alta","documentos","revision_final"]);
 function requireStatus(sale,allowed,action){if(!allowed.includes(sale.status))throw new Error(`${action} no permitido desde estado ${sale.status}`)}
 function requireReason(payload){const reason=String(payload?.reason||payload?.notes||"").trim();if(!reason)throw new Error("Se requiere indicar el motivo");return reason}
@@ -19,7 +26,7 @@ export class SaleWorkflowEngine{
     const updated=this.store.syncDocuments(id,{customer:{nss}});
     return this.store.update(id,{customer:{...updated.customer,nss}},"capture.nss.registered",{by:payload.by||"Capturista",source:payload.source||"capture",nss_last4:nss.slice(-4)});
   }
-  startCapture(id,operator={}){const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.WAITING_CAPTURE],"Iniciar captura");return this.store.update(id,{status:SALE_STATUSES.CAPTURE_IN_PROGRESS,queue:"capture",capture:{...sale.capture,assigned_to:operator.id||null,assigned_name:operator.name||null,started_at:new Date().toISOString()}},"capture.started",operator)}
+  startCapture(id,operator={}){const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.WAITING_CAPTURE],"Iniciar captura");return this.store.update(id,{status:SALE_STATUSES.CAPTURE_IN_PROGRESS,queue:"capture",capture:{...sale.capture,assigned_to:operator.id||null,assigned_name:operator.name||null,started_at:new Date().toISOString()},...(operator.id?{assignee:{username:operator.id,name:operator.name||operator.id,assigned_at:new Date().toISOString()}}:{})},"capture.started",operator)}
   completeCapture(id,payload={}){const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.CAPTURE_IN_PROGRESS,SALE_STATUSES.WAITING_CAPTURE],"Completar alta");if(!sale.documents?.complete)throw new Error(`Expediente documental incompleto. Faltan: ${(sale.documents?.missing||[]).join(", ")||"requisitos"}`);return this.store.update(id,{status:SALE_STATUSES.WAITING_VALIDATION,queue:"validation",capture:{...sale.capture,completed_at:new Date().toISOString(),notes:payload.notes??sale.capture.notes},validation:{...sale.validation,datos:false,alta:false,documentos:false,revision_final:false,approved:false,approved_at:null,correction:null,rejected:false}},"capture.completed",{notes:payload.notes||""})}
   setValidationCheck(id,key,checked,payload={}){if(!VALIDATION_KEYS.includes(key))throw new Error("Check de validación inválido");const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.WAITING_VALIDATION,SALE_STATUSES.VALIDATION_IN_PROGRESS],"Validar expediente");const validation={...sale.validation,[key]:Boolean(checked),notes:payload.notes??sale.validation.notes,reviewed_by:payload.by||sale.validation?.reviewed_by||null,correction:null,rejected:false};const allChecked=VALIDATION_KEYS.every(item=>validation[item]===true);if(allChecked){validation.approved=true;validation.approved_at=new Date().toISOString();return this.store.update(id,{status:SALE_STATUSES.WAITING_VALIDITY,queue:"validity",validation,validity:{...sale.validity,confirmed:false,issue:null}},"validation.approved",{by:payload.by||null})}validation.approved=false;validation.approved_at=null;return this.store.update(id,{status:SALE_STATUSES.VALIDATION_IN_PROGRESS,queue:"validation",validation},"validation.check.updated",{key,checked:Boolean(checked),by:payload.by||null})}
   requestCorrection(id,payload={}){const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.WAITING_VALIDATION,SALE_STATUSES.VALIDATION_IN_PROGRESS,SALE_STATUSES.VALIDATION_REJECTED],"Solicitar corrección");const reason=requireReason(payload);const target=payload.target==="customer"?"customer":"capture";const correction={target,reason,requested_by:payload.by||null,requested_at:new Date().toISOString(),open:true};const validation={...sale.validation,approved:false,approved_at:null,correction,rejected:false,notes:reason};if(target==="customer")return this.store.update(id,{status:SALE_STATUSES.WAITING_CAPTURE,queue:"capture",validation,capture:{...sale.capture,completed_at:null,notes:`Corrección solicitada por Validación: ${reason}`}},"validation.correction.requested",correction);return this.store.update(id,{status:SALE_STATUSES.CAPTURE_IN_PROGRESS,queue:"capture",validation,capture:{...sale.capture,completed_at:null,notes:`Corrección solicitada por Validación: ${reason}`}},"validation.correction.requested",correction)}
@@ -33,5 +40,40 @@ export class SaleWorkflowEngine{
   reportPaymentIssue(id,payload={}){const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.PAYMENT_REQUESTED,SALE_STATUSES.PAYMENT_RECEIVED],"Reportar incidencia de pago");const reason=requireReason(payload);const issue={reason,reported_by:payload.by||null,reported_at:new Date().toISOString(),open:true,previous_status:sale.status};return this.store.update(id,{status:SALE_STATUSES.PAYMENT_ISSUE,queue:"payment",payment:{...sale.payment,issue,notes:reason}},"payment.issue",issue)}
   reopenPayment(id,payload={}){const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.PAYMENT_ISSUE],"Reabrir pago");const previous=sale.payment?.issue?.previous_status===SALE_STATUSES.PAYMENT_RECEIVED?SALE_STATUSES.PAYMENT_RECEIVED:SALE_STATUSES.PAYMENT_REQUESTED;return this.store.update(id,{status:previous,queue:"payment",payment:{...sale.payment,issue:null,notes:payload.notes||sale.payment?.notes||""}},"payment.reopened",{by:payload.by||null,status:previous})}
   validatePayment(id,payload={}){const sale=this.mustGet(id);requireStatus(sale,[SALE_STATUSES.PAYMENT_RECEIVED],"Validar pago");if(sale.payment?.received!==true)throw new Error("No existe pago recibido para validar");if(!sale.payment?.proof_url&&!sale.payment?.proof_name)throw new Error("No se puede validar pago sin comprobante");if(sale.payment?.issue?.open)throw new Error("Existe una incidencia de pago abierta");const validatedAt=new Date().toISOString();return this.store.update(id,{status:SALE_STATUSES.COMPLETED,queue:"completed",payment:{...sale.payment,validated:true,validated_at:validatedAt,validated_by:payload.by||null,issue:null,notes:payload.notes||sale.payment?.notes||""},completed_at:validatedAt},"payment.validated",{by:payload.by||null,validated_at:validatedAt})}
+  // ── Supervisión ──────────────────────────────────────────────────────────
+  // Regresa un expediente a una etapa anterior. Todo lo posterior a esa etapa se
+  // reinicia para que el expediente vuelva a pasar por las mismas validaciones.
+  returnToStage(id,payload={}){
+    const sale=this.mustGet(id);
+    const target=RETURN_TARGETS[payload.target];
+    if(!target)throw new Error("Etapa destino inválida");
+    if(sale.status===SALE_STATUSES.COMPLETED)throw new Error("Un expediente completado no se puede regresar");
+    const reason=requireReason(payload);
+    if(target.requiresValidation&&sale.validation?.approved!==true)throw new Error("El expediente no tiene validación aprobada; regrésalo a Validación");
+    if(target.requiresValidity&&sale.validity?.confirmed!==true)throw new Error("El expediente no tiene vigencia confirmada; regrésalo a Vigencia");
+    const patch={status:target.status,queue:target.queue,cancellation:null};
+    const resetPayment={...sale.payment,requested:false,requested_at:null,requested_by:null,received:false,received_at:null,received_by:null,reference:null,proof_url:null,proof_name:null,proof_key:null,validated:false,validated_at:null,validated_by:null,issue:null};
+    const resetValidity={...sale.validity,confirmed:false,confirmed_at:null,confirmed_by:null,issue:null,delivered_to_customer:false,delivery_started_at:null};
+    const resetValidation={...sale.validation,datos:false,alta:false,documentos:false,revision_final:false,approved:false,approved_at:null,correction:null,rejected:false};
+    if(target.queue==="capture")Object.assign(patch,{capture:{...sale.capture,completed_at:null,notes:`Regresado por Supervisión: ${reason}`},validation:resetValidation,validity:resetValidity,payment:resetPayment});
+    if(target.queue==="validation")Object.assign(patch,{validation:resetValidation,validity:resetValidity,payment:resetPayment});
+    if(target.queue==="validity")Object.assign(patch,{validity:resetValidity,payment:resetPayment});
+    if(target.queue==="payment")Object.assign(patch,{payment:resetPayment});
+    return this.store.update(id,patch,"supervision.returned",{from_status:sale.status,from_queue:sale.queue,to_status:target.status,to_queue:target.queue,reason});
+  }
+  cancelSale(id,payload={}){
+    const sale=this.mustGet(id);
+    if(sale.status===SALE_STATUSES.COMPLETED)throw new Error("Un expediente completado no se puede cancelar");
+    if(sale.status===SALE_STATUSES.CANCELLED)throw new Error("El expediente ya está cancelado");
+    const reason=requireReason(payload);
+    return this.store.update(id,{status:SALE_STATUSES.CANCELLED,queue:"cancelled",cancellation:{reason,at:new Date().toISOString(),from_status:sale.status,from_queue:sale.queue}},"supervision.cancelled",{reason,from_status:sale.status,from_queue:sale.queue});
+  }
+  // assignee: {username,name} o null para dejarlo sin asignar.
+  assign(id,assignee){
+    const sale=this.mustGet(id);
+    if([SALE_STATUSES.COMPLETED,SALE_STATUSES.CANCELLED].includes(sale.status))throw new Error("El expediente ya no está en una cola de trabajo");
+    const next=assignee?{username:assignee.username,name:assignee.name,assigned_at:new Date().toISOString()}:null;
+    return this.store.update(id,{assignee:next},"assignment.changed",{from:sale.assignee?.username||null,to:next?.username||null,to_name:next?.name||null});
+  }
   mustGet(id){const sale=this.store.get(id);if(!sale)throw new Error("Expediente no encontrado");return sale}
 }

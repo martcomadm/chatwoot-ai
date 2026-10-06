@@ -1,20 +1,5 @@
 import { onboardingStateFromSale } from "./onboarding-service.js";
-
-const CUSTOMER_MESSAGES=Object.freeze({
-  "capture.completed":"Agradecemos su confianza. El trámite de afiliación ya se encuentra en proceso.\n\nEl Área de Validación se comunicará con usted para confirmar sus datos y asegurarse de que toda la información haya sido registrada correctamente.\nAdemás, por WhatsApp recibirá los Términos y Condiciones del servicio.\nLe pedimos, por favor, confirmar de enterado cuando los reciba.\n\nEl contacto se realizará desde los siguientes números:\n📞 561 485 8202\n📞 554 883 3726\n\nGracias nuevamente. Estamos para servirle.",
-  "validation.approved":"Tu proceso de validación fue aprobado correctamente. Ahora estamos esperando la confirmación de vigencia ante el IMSS; en cuanto quede confirmada te aviso por aquí.",
-  "validity.confirmed":"Tu afiliación ya aparece vigente. Te comparto tu documento de vigencia. El siguiente paso corresponde al primer pago del servicio; enseguida te indicaré cómo continuar.",
-  "payment.received":"Recibimos el registro de tu pago. Estamos validándolo y te confirmaré por aquí cuando quede aplicado correctamente.",
-  "payment.validated":"Tu pago fue validado correctamente y el proceso quedó completado. Gracias por confiar en MARTCOM. A partir de este momento, nuestro equipo de Atención a Clientes continuará brindándote seguimiento por este medio.",
-});
-
-
-function paymentRequestMessage(sale) {
-  const amount = sale?.payment?.amount != null
-    ? new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(sale.payment.amount)
-    : "el importe indicado";
-  return `Te comparto las cuentas disponibles para realizar tu pago por ${amount}. Este pago debe quedar cubierto el día de hoy para continuar con tu proceso. Cuando lo realices, envíame por aquí tu comprobante de pago, por favor.`;
-}
+import { renderCustomerMessage } from "./customer-messages.js";
 
 const ATTACHMENT_DELIVERIES = Object.freeze({
   validity: {
@@ -38,7 +23,7 @@ const ATTACHMENT_DELIVERIES = Object.freeze({
 });
 
 export class ChatwootWorkflowBridge{
-  constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0}){this.saleStore=saleStore;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
+  constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0,settings=null}){this.saleStore=saleStore;this.settings=settings;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
   start(){this.saleStore.on("sale",this.listener)}
   stop(){this.saleStore.off("sale",this.listener)}
   async reconcileCompletedSales(){
@@ -61,7 +46,8 @@ export class ChatwootWorkflowBridge{
     }
   }
   async record(conversationId,type,details={}){try{await this.inspectorEvents?.record(conversationId,type,details)}catch{}}
-  customerMessage(event){if(event.type==="validation.correction.requested"&&event.details?.target==="customer")return `El área de validación necesita una corrección para continuar con tu proceso: ${event.details.reason}. Puedes enviarme por aquí la información o documento solicitado.`;return CUSTOMER_MESSAGES[event.type]||null}
+  // Texto configurado en Admin (o el predeterminado) para el evento; null si no notifica.
+  customerMessage(event){return renderCustomerMessage(event.type,{sale:event.sale,details:event.details},this.settings?.customerMessages?.()||{})}
   async completeHumanHandoff(conversationId,sale){
     if(!this.customerServiceTeamId){await this.record(conversationId,"completed_handoff_skipped",{sale_id:sale.sale_id,reason:"customer_service_team_not_configured"});console.warn("NEXT completó expediente pero CUSTOMER_SERVICE_TEAM_ID no está configurado.");return;}
     try{
@@ -112,7 +98,7 @@ export class ChatwootWorkflowBridge{
         if (!section[spec.base64] || section[spec.delivered] || !spec.statuses.includes(sale.status)) continue;
         const started = Date.parse(section[spec.started] || "");
         if (Number.isFinite(started) && Date.now() - started < staleMs) continue;
-        const content = kind === "validity" ? CUSTOMER_MESSAGES["validity.confirmed"] : paymentRequestMessage(sale);
+        const content = this.customerMessage({ type: kind === "validity" ? "validity.confirmed" : "payment.requested", sale, details: {} });
         results.push({ sale_id: sale.sale_id, kind, delivered: await this.deliverAttachment(sale, kind, content) });
       }
     }
@@ -140,7 +126,7 @@ export class ChatwootWorkflowBridge{
     });
     await this.record(conversationId, "operations_state_changed", { sale_id: sale.sale_id, event: event.type, status: sale.status, queue: sale.queue, ...onboarding });
 
-    const content = event.type === "payment.requested" ? paymentRequestMessage(sale) : this.customerMessage(event);
+    const content = this.customerMessage(event);
     if (content) {
       let delivered = false;
       if (event.type === "validity.confirmed" && sale.validity?.document_base64 && !sale.validity?.delivery_started_at && !sale.validity?.delivered_to_customer) {

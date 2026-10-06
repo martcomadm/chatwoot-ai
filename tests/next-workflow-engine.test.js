@@ -6,7 +6,6 @@ import path from "node:path";
 import { SaleStore } from "../src/operations/sale-store.js";
 import { SaleWorkflowEngine } from "../src/operations/workflow-engine.js";
 import { classifyAttachment, attachmentReference, documentPackageStatus } from "../src/operations/document-service.js";
-import { operationsPage } from "../src/operations/operations-page.js";
 
 function fixture(){const dir=fs.mkdtempSync(path.join(os.tmpdir(),"martcom-next-"));const store=new SaleStore(path.join(dir,"sales.json"));return{store,workflow:new SaleWorkflowEngine(store)};}
 function completeInput(){return { conversation_id:101, customer:{nombre:"Ana",curp:"AAAA000000AAAAAA00",nss:"12345678901"}, sale:{plan:"plan_2",precio:1500,authorized:true}, documents:{files:[{id:"ine",type:"ine",name:"INE.pdf"},{id:"csf",type:"csf",name:"Constancia Situacion Fiscal.pdf"}]}};}
@@ -46,17 +45,3 @@ test("context never overwrites an explicitly classified document",()=>{
   assert.equal(ref.type,"csf");
 });
 
-test("Operations page boots the dashboard before protected API loading",()=>{
-  const html=operationsPage();
-  assert.match(html,/function bootOperations\(\)/);
-  assert.match(html,/render\(\);[\s\S]*if\(!token\)/);
-  assert.match(html,/Falta el token de Operations/);
-  assert.match(html,/No se pudo iniciar Operations/);
-});
-
-test("Operations inline browser script is valid JavaScript",()=>{
-  const html=operationsPage();
-  const match=html.match(/<script>([\s\S]*?)<\/script>/);
-  assert.ok(match?.[1],"Operations inline script not found");
-  assert.doesNotThrow(()=>new Function(match[1]));
-});

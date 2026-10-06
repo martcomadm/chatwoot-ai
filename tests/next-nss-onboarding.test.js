@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { extractFast } from "../src/memory/fast-extractor.js";
 import { mergeMemory } from "../src/ai/services.js";
-import { operationsPage } from "../src/operations/operations-page.js";
 
 test("NSS is extracted as a normalized value and survives memory merge", () => {
   const patch = extractFast("33957885354", { ultima_pregunta: "nss" });
@@ -20,9 +19,3 @@ test("NSS embedded in natural text is normalized", () => {
   assert.equal(patch.nss_valor, "33957885354");
 });
 
-test("Operations page explicitly binds DOM nodes instead of relying on id globals", () => {
-  const html = operationsPage();
-  for (const id of ["tabs","stats","banner","grid","count","search","docs","resetConversationId","resetResult","resetConversationBtn"]) {
-    assert.match(html, new RegExp("const " + id + "=document\\.getElementById\\('" + id + "'\\)"));
-  }
-});
