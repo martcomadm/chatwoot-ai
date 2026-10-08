@@ -34,6 +34,12 @@ const protectedLabels = new Set(["asignado", "predictivo", "reasignado", "client
 
 // Mensajes del cliente que este turno debe procesar: los ids del buffer, con los
 // adjuntos del webhook cuando la API de Chatwoot aún no los trae, y sin los ya procesados.
+function hourLabel(hour) { return `${hour % 12 || 12}:00 ${hour < 12 ? "a.m." : "p.m."}`; }
+
+export function outOfScheduleMessage({ startHour, endHour }) {
+  return `¡Gracias por escribir a MARTCOM! Nuestro horario de atención es de ${hourLabel(startHour)} a ${hourLabel(endHour)} Recibimos tu mensaje y te respondemos en cuanto abramos.`;
+}
+
 function batchFrom(conversation, snapshot, memories, conversationId) {
   const all = messagesOf(conversation);
   const wanted = new Set(snapshot.ids || []);
@@ -134,6 +140,28 @@ export class ConversationProcessor {
     }
   }
 
+  // Horario de atención en la zona horaria configurada. Sin horas configuradas, siempre abierto.
+  scheduleClock(now = new Date()) {
+    const { startHour, endHour, timezone } = this.config.ai || {};
+    if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) return null;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: timezone || "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false }).formatToParts(now).map(p => [p.type, p.value]));
+    return { hour: Number(parts.hour) % 24, date: `${parts.year}-${parts.month}-${parts.day}`, startHour, endHour };
+  }
+
+  inSchedule(now = new Date()) {
+    const clock = this.scheduleClock(now);
+    return !clock || (clock.hour >= clock.startHour && clock.hour < clock.endHour);
+  }
+
+  async notifyOutOfSchedule(conversationId, messageIds) {
+    const clock = this.scheduleClock();
+    // Un aviso por conversación y por noche: la clave es el día en que se vuelve a abrir.
+    const period = clock.hour >= clock.endHour ? `${clock.date}-cierre` : `${clock.date}-apertura`;
+    const firstNotice = !this.turnLock || this.turnLock.claim(conversationId, [`fuera-horario-${period}`]);
+    await this.record(conversationId, "ignored_out_of_schedule", { message_ids: messageIds.map(String), notice_sent: firstNotice });
+    if (firstNotice) await this.chatwoot.sendMessage(conversationId, outOfScheduleMessage(clock));
+  }
+
   async process(conversationId, snapshot) {
     // ── 1. Cargar la conversación y mezclar adjuntos que solo trae el webhook ──
     const conversation = await this.chatwoot.getConversation(conversationId);
@@ -198,6 +226,12 @@ export class ConversationProcessor {
       })),
     });
     const messageIds = batch.map(m => m.id);
+    // Fuera del horario de atención Mia no conversa: avisa una sola vez por periodo
+    // cerrado y deja los mensajes sin marcar para que el equipo los vea al abrir.
+    if (!this.inSchedule()) {
+      await this.notifyOutOfSchedule(conversationId, messageIds);
+      return;
+    }
     // Un mismo mensaje del cliente se atiende una sola vez, aunque llegue duplicado.
     if (this.turnLock && !this.turnLock.claim(conversationId, messageIds)) {
       await this.record(conversationId, "duplicate_turn_skipped", { message_ids: messageIds.map(String) });
