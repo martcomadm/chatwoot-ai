@@ -97,14 +97,14 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   const plan = effectivePlan(memory);
   if (plan === "plan_1") {
     return {
-      reply: "Claro. El Plan 1 incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Se maneja con un salario diario registrado de $480 MXN y tiene un costo de $1,100 MXN. Una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si quieres, puedo explicarte qué atención médica puedes recibir o cuáles son los requisitos para iniciar.",
+      reply: "Claro. El Plan 1 incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Se maneja con un salario diario registrado de $480 MXN y tiene un costo de $1,100 MXN mensuales. Una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si quieres, puedo explicarte qué atención médica puedes recibir o cuáles son los requisitos para iniciar.",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
   }
   if (plan === "plan_2") {
     return {
-      reply: "Claro. El Plan 2 cuesta $1,500 MXN y maneja un salario diario registrado de $480 MXN. Incluye servicio médico del IMSS y continuación de semanas cotizadas; además contempla aportaciones a AFORE, alternando un mes 5.5% y el siguiente 10%, y acumulación estimada de entre 200 y 250 puntos para INFONAVIT. También contempla incapacidades conforme al caso. Para iniciar necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se solicita posteriormente. Con la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si estás de acuerdo, podemos iniciar el trámite.",
+      reply: "Claro. El Plan 2 cuesta $1,500 MXN mensuales y maneja un salario diario registrado de $480 MXN. Incluye servicio médico del IMSS y continuación de semanas cotizadas; además contempla aportaciones a AFORE, alternando un mes 5.5% y el siguiente 10%, y acumulación estimada de entre 200 y 250 puntos para INFONAVIT. También contempla incapacidades conforme al caso. Para iniciar necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se solicita posteriormente. Con la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si estás de acuerdo, podemos iniciar el trámite.",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
@@ -120,7 +120,7 @@ export function priceObjectionDecision(memory = {}, combinedText = "") {
   const objection = /\b(?:caro|cara|costoso|costosa|barato|barata|descuento|rebaja|economico|economica|presupuesto|no me alcanza|fuera de mi presupuesto|bajar(?:me)? el precio|mejor precio|mas barato|menos caro|precio elevado|precio alto)\b/.test(value);
   if (!objection) return null;
   const plan = effectivePlan(memory);
-  const price = plan === "plan_2" ? "$1,500 MXN" : plan === "plan_1" ? "$1,100 MXN" : null;
+  const price = plan === "plan_2" ? "$1,500 MXN mensuales" : plan === "plan_1" ? "$1,100 MXN mensuales" : null;
   return {
     reply: `Entiendo que el precio sea importante para ti.${price ? ` El costo informado para ${plan === "plan_2" ? "el Plan 2" : "el Plan 1"} es de ${price}.` : ""} El precio es fijo y actualmente no manejamos descuentos. Si quieres, puedo explicarte qué incluye el plan para que puedas valorar si se ajusta a lo que necesitas.`,
     question_key: null,
@@ -139,7 +139,7 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   const asksPlan2Option = /\b(?:tienen|hay|manejan|ofrecen|existe|opcion|plan)\b.{0,50}\b(?:afore|infonavit)\b/.test(directValue) || /\b(?:afore|infonavit)\b.{0,50}\b(?:es posible|tienen|hay|manejan|ofrecen|opcion|plan)\b/.test(directValue);
   if (asksPlan2Option) {
     return {
-      reply: "Sí. Para eso tenemos el Plan 2, que además del servicio médico y continuación de semanas contempla aportaciones a AFORE y acumulación de puntos para INFONAVIT. Tiene un costo de $1,500 MXN. ¿Quieres que te explique cómo funciona?",
+      reply: "Sí. Para eso tenemos el Plan 2, que además del servicio médico y continuación de semanas contempla aportaciones a AFORE y acumulación de puntos para INFONAVIT. Tiene un costo de $1,500 MXN mensuales. ¿Quieres que te explique cómo funciona?",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
@@ -156,7 +156,7 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
 
   if (plan === "plan_1" && retirementContext && weeksContext) {
     return {
-      reply: "Entiendo. Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.",
+      reply: "Entiendo. Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN mensuales. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
@@ -164,15 +164,15 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   if (plan === "plan_1" && (serviceContext || weeksContext)) {
     return {
       reply: serviceContext
-        ? `Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`
-        : `Entiendo. Si tu prioridad es continuar cotizando semanas, el Plan 1 puede ajustarse a lo que buscas. Tiene un costo de $1,100 MXN e incluye continuación de semanas y servicio médico del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
+        ? `Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN mensuales e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`
+        : `Entiendo. Si tu prioridad es continuar cotizando semanas, el Plan 1 puede ajustarse a lo que buscas. Tiene un costo de $1,100 MXN mensuales e incluye continuación de semanas y servicio médico del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
       question_key: pending?.key || null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
   }
   if (plan === "plan_2" && plan2Context) {
     return {
-      reply: `Perfecto. Si también te interesa AFORE e INFONAVIT, el Plan 2 puede ajustarse mejor a lo que buscas. Tiene un costo de $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
+      reply: `Perfecto. Si también te interesa AFORE e INFONAVIT, el Plan 2 puede ajustarse mejor a lo que buscas. Tiene un costo de $1,500 MXN mensuales e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
       question_key: pending?.key || null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };

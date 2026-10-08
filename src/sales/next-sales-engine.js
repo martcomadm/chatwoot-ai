@@ -189,9 +189,9 @@ export function commercialInstruction(memory = {}) {
   const cycle = memory.sales_cycle || {};
   const plan = cycle.selected_plan || cycle.recommended_plan;
   const planText = plan === "plan_2"
-    ? "El plan seleccionado/recomendado es Plan 2 ($1,500 MXN)."
+    ? "El plan seleccionado/recomendado es Plan 2 ($1,500 MXN mensuales)."
     : plan === "plan_1"
-      ? "El plan seleccionado/recomendado es Plan 1 ($1,100 MXN)."
+      ? "El plan seleccionado/recomendado es Plan 1 ($1,100 MXN mensuales)."
       : "Aún no hay plan recomendado.";
 
   return `ESTADO COMERCIAL NEXT:\n- etapa: ${cycle.stage || "exploring"}\n- ${planText}\n- interesado: ${Boolean(cycle.interested)}\n- autorizado: ${Boolean(cycle.authorized)}\nReglas: responde primero la duda explícita. Recomienda Plan 1 para servicio médico/semanas/beneficiarios y Plan 2 cuando también busca AFORE o INFONAVIT. Elegir o preguntar por un plan NO equivale a autorizar el trámite. No solicites CURP/NSS como objetivo de venta antes de autorización. "Quiero darme de alta" durante exploración expresa interés y NO autoriza abrir expediente: primero explica/recomienda el plan y precio. No declares autorización por inferencia. Solo considera autorización operativa cuando ya existe contexto comercial de plan/propuesta y el cliente después expresa claramente que desea iniciar/proceder con el trámite. Si autorizado=true, no sigas vendiendo ni hagas más preguntas: prepara el expediente operativo.`;

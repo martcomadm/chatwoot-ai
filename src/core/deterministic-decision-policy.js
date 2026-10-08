@@ -8,6 +8,7 @@ const FACT_LOCKED_TYPES = new Set([
   "registered_salary",
   "requirements",
   "price",
+  "payment_frequency",
   "services",
   "services_plan_1",
   "services_plan_2",

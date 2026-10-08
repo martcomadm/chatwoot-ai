@@ -1,3 +1,5 @@
+import { directAnswerText, OPERATIONAL_MODEL_ANSWER } from './conversation-orchestrator.js';
+
 function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
 
 export function detectHumanPreference(text){
@@ -12,6 +14,10 @@ export function detectHumanPreference(text){
   return patterns.some(re=>re.test(v));
 }
 
+export function isOperationalModelQuestion(v){
+  return /me (?:dan|darian|darán|van a dar) de alta (?:con|en) (?:una|alguna|que|cual) (?:empresa|patron)|(?:con|en) (?:que|cual) empresa (?:me|quedo|estaria|apareceria)|me registrar[ií]an como (?:empleado|trabajador)|como es (?:el|la) (?:alta|afiliacion) (?:con|en) (?:la |una )?empresa|quien (?:seria|es|va a ser) mi patron|(?:con|que) patron (?:me|quedo)|aparezco como (?:empleado|trabajador)/.test(v);
+}
+
 export function detectQuestion(text){
   const v=norm(text);
   if(/\b(?:que|cual|cuanto|de cuanto)\b.{0,35}\b(?:salario|sueldo)\b.{0,25}\b(?:cotizado|registrado|maneja|manejan|tiene|es)\b|\b(?:salario|sueldo)\b.{0,35}\b(?:cotizado|registrado|maneja|manejan)\b/.test(v)) return {type:'registered_salary',answerKey:'registered_salary'};
@@ -24,7 +30,8 @@ export function detectQuestion(text){
   if(/\b(donde (?:estan|se encuentran|se ubican)|ubicacion|oficinas?|direccion|direcci[oó]n|razon social|confiable|estafa|fraude|son reales)\b/.test(v)) return {type:'trust',answerKey:'trust'};
   if(/cotizaci[oó]n de qu[eé]|qu[eé] cotizaci[oó]n|a qu[eé] te refieres con cotizaci[oó]n/.test(v)) return {type:'clarify_quote',answerKey:'clarify_quote'};
   if(/(?:que|qu[eé]) (?:es|significa) (?:el )?curp|en qu[eé] consiste (?:el )?curp|curp es la fecha/.test(v)) return {type:'explain_curp',answerKey:'explain_curp'};
-  if(/me dan de alta con (?:una|alguna) empresa|me registrar[ií]an como empleado|como es el alta con empresa/.test(v)) return {type:'operational_model',answerKey:'operational_model',sensitive:true};
+  // Cómo es el alta (con qué empresa / patrón). Ya no se transfiere: Mia responde con el texto oficial.
+  if(isOperationalModelQuestion(v)) return {type:'operational_model',answerKey:'operational_model'};
   return null;
 }
 
@@ -37,22 +44,20 @@ export function detectObjection(text){
 }
 
 export function controlledAnswer(key,memory={}){
-  const isWeeksQuote = memory?.intent?.id === "COTIZACION_SEMANAS"
-    || memory?.intereses?.semanas_cotizadas
-    || /semanas/i.test(String(memory?.necesidad_principal||""));
+  // Precios y planes salen de las respuestas oficiales del orquestador: una sola fuente
+  // de verdad. (En producción la estrategia era no dar precio; en NEXT sí se da.)
   const answers={
     registered_salary:'Ambos planes manejan un salario diario registrado de $480 MXN.',
-    price:isWeeksQuote
-      ? 'El costo depende de la opción y del salario de registro. Como buscas completar semanas, necesito revisar unos datos mínimos para darte una cotización correcta y no inventarte una cifra.'
-      : 'El costo depende del plan y del salario con el que se realice el registro. No quiero darte una cifra incorrecta sin revisar qué opción corresponde a tu caso.',
-    services_plan_1:'El Plan 1 cuesta $1,100 MXN e incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Si quieres, también puedo explicarte algún beneficio en particular.',
-    services_plan_2:'El Plan 2 cuesta $1,500 MXN e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT; también contempla incapacidades conforme al caso.',
-    services:'Manejamos opciones que pueden incluir servicio médico, cotización de semanas y beneficiarios; también existe una opción que puede contemplar aportaciones relacionadas con AFORE e INFONAVIT según el caso.',
+    price:directAnswerText({answerKey:'price'}),
+    services_plan_1:directAnswerText({answerKey:'services',plan:'plan_1'}),
+    services_plan_2:directAnswerText({answerKey:'services',plan:'plan_2'}),
+    services:directAnswerText({answerKey:'services'}),
     trust:'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, es totalmente válido hacerlo primero.',
     clarify_quote:'Me refiero a la cotización de la opción de afiliación que corresponda a tu caso: el plan, el salario de registro y los beneficios que buscas.',
     explain_curp:'La CURP es la Clave Única de Registro de Población; no es solamente la fecha de nacimiento. Si no la tienes a la mano, podemos dejar ese dato pendiente por ahora.',
-    operational_model:'Ese punto debe explicarse con precisión según el servicio y tu caso. Prefiero que un asesor te lo aclare directamente antes de darte una respuesta incorrecta.',
+    operational_model:OPERATIONAL_MODEL_ANSWER,
   };
+
   return answers[key]||null;
 }
 
@@ -67,7 +72,7 @@ export function analyzeJudgment(text,memory={}){
   const currentHumanPreference=Boolean(humanPreference);
   const priceRequests=Number(previous.price_requests||0)+(question?.type==='price'?1:0);
   const trustSignals=Number(previous.trust_signals||0)+((question?.type==='trust'||objection?.type==='trust')?1:0);
-  const shouldHandoffPrice=question?.type==='price' && (priceRequests>=3 || objection?.type==='data_before_price');
+  // NEXT da precios oficiales: preguntar el costo varias veces ya no transfiere a un humano.
   const shouldHandoffSensitive=question?.sensitive===true;
   return {
     question,
@@ -78,16 +83,14 @@ export function analyzeJudgment(text,memory={}){
       active:Boolean(question||objection||humanPreference),
       type:humanPreference?'human_preference':objection?.type||question?.type||null,
       priority:humanPreference?'critical':objection?.severity==='high'?'high':question?'high':'normal',
-      resume_planner:!humanPreference&&!shouldHandoffPrice&&!shouldHandoffSensitive
+      resume_planner:!humanPreference&&!shouldHandoffSensitive
     },
     // Pedir "asesoría" u "orientación" es una intención conversacional para Mia,
     // no una solicitud de transferencia. Solo transferimos si el cliente pide
     // explícitamente una persona/asesor humano o se activa otra causa controlada.
-    shouldHandoff:humanPreference||shouldHandoffPrice||shouldHandoffSensitive,
+    shouldHandoff:humanPreference||shouldHandoffSensitive,
     handoffReason:humanPreference
       ?'El cliente pidió o manifestó preferencia por atención humana.'
-      :shouldHandoffPrice
-        ?'El cliente insistió repetidamente en conocer el costo o condicionó continuar a recibir una explicación comercial; requiere atención humana.'
         :shouldHandoffSensitive
           ?'El cliente solicita explicación de la mecánica operativa del alta; requiere respuesta humana controlada.'
           :null,
