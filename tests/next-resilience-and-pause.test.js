@@ -84,12 +84,13 @@ test("la etiqueta pausar_mia pausa solo esa conversación", async () => {
   assert.equal(h.state.events[0].data.reason, "label");
 });
 
-test("Supervisión pausa y reanuda a Mia desde Operations; Captura no puede", async t => {
+test("solo Admin pausa y reanuda a Mia; Supervisión y Captura ven el estado pero no pueden cambiarlo", async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "martcom-pause-"));
   const saleStore = new SaleStore(path.join(dir, "sales.json"));
   const users = new UserStore(path.join(dir, "u.json"));
   const settings = new OpsSettingsStore(path.join(dir, "s.json"), path.join(dir, "i.bin"));
   const audit = new OpsAuditStore(path.join(dir, "a.json"));
+  users.create({ username: "admin.uno", name: "Admin Uno", areas: ["admin"], password: "clave-segura-123" });
   users.create({ username: "sup.uno", name: "Sup Uno", areas: ["supervision"], password: "clave-segura-123" });
   users.create({ username: "cap.uno", name: "Cap Uno", areas: ["captura"], password: "clave-segura-123" });
   const app = express();
@@ -103,17 +104,22 @@ test("Supervisión pausa y reanuda a Mia desde Operations; Captura no puede", as
     const cookie = res.headers.get("set-cookie").split(";")[0];
     return (url, body) => fetch(base + url, { method: body ? "POST" : "GET", headers: { "content-type": "application/json", "x-ops-request": "1", cookie }, body: body && JSON.stringify(body) }).then(async r => ({ status: r.status, body: await r.json() }));
   }
+  const admin = await login("admin.uno");
   const sup = await login("sup.uno");
   const cap = await login("cap.uno");
   assert.equal((await cap("/operations/api/mia/pause", { paused: true, reason: "x" })).status, 403);
-  assert.equal((await sup("/operations/api/mia/pause", { paused: true })).status, 400, "exige motivo");
-  const paused = await sup("/operations/api/mia/pause", { paused: true, reason: "Revisión de respuestas" });
+  assert.equal((await sup("/operations/api/mia/pause", { paused: true, reason: "x" })).status, 403, "Supervisión ya no puede pausar");
+  assert.equal(settings.miaPaused(), false);
+  assert.equal((await admin("/operations/api/mia/pause", { paused: true })).status, 400, "exige motivo");
+  const paused = await admin("/operations/api/mia/pause", { paused: true, reason: "Revisión de respuestas" });
   assert.equal(paused.body.mia.paused, true);
   assert.equal(settings.miaPaused(), true);
   assert.equal((await cap("/operations/api/me")).body.mia.paused, true, "todos ven que Mia está en pausa");
-  await sup("/operations/api/mia/pause", { paused: false });
+  assert.equal((await sup("/operations/api/me")).body.mia.paused, true);
+  assert.equal((await sup("/operations/api/mia/pause", { paused: false })).status, 403, "Supervisión tampoco puede reanudar");
+  await admin("/operations/api/mia/pause", { paused: false });
   assert.equal(settings.miaPaused(), false);
   assert.deepEqual(audit.list().map(entry => entry.type).filter(type => type.startsWith("mia.")), ["mia.paused", "mia.resumed"]);
   const reloaded = new OpsSettingsStore(path.join(dir, "s.json"), path.join(dir, "i.bin"));
-  assert.equal(reloaded.miaStatus().changed_by.username, "sup.uno", "la pausa sobrevive a un reinicio");
+  assert.equal(reloaded.miaStatus().changed_by.username, "admin.uno", "la pausa sobrevive a un reinicio");
 });

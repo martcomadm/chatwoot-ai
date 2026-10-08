@@ -396,7 +396,7 @@ function renderShell() {
 
 function miaStatusHtml() {
   const mia = state.me.mia || {};
-  const control = state.me.can.supervise ? `<button class="btn small ${mia.paused ? "primary" : "danger"}" data-act="mia-toggle">${mia.paused ? "Reanudar a Mia" : "Pausar a Mia"}</button>` : "";
+  const control = state.me.can.admin ? `<button class="btn small ${mia.paused ? "primary" : "danger"}" data-act="mia-toggle">${mia.paused ? "Reanudar a Mia" : "Pausar a Mia"}</button>` : "";
   return `<div class="mia-status ${mia.paused ? "paused" : ""}" id="mia-status">
     <span><span class="mia-dot"></span>${mia.paused ? "Mia en pausa" : "Mia respondiendo"}</span>
     ${mia.paused && mia.reason ? `<small>${esc(mia.reason)}</small>` : ""}

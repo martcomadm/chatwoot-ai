@@ -94,7 +94,7 @@ Archivos nuevos dentro de `/app/data-next`: `ops-users.json` (contraseñas con s
 El token de entorno sigue aceptándose en la cabecera `x-operations-token` como acceso de administrador para scripts; sus acciones quedan registradas como "Token de Operaciones". Ya no se acepta en la URL (`?token=`).
 
 ## 5.2 Pausar a Mia
-- **Todas las conversaciones:** en Operations, Supervisión o Admin usan "Pausar a Mia" (barra lateral). Se pide un motivo, queda en la bitácora y sobrevive a reinicios. Los mensajes recibidos durante la pausa no se contestan después: debe atenderlos una persona.
+- **Todas las conversaciones:** en Operations, solo Admin puede usar "Pausar a Mia" (barra lateral); las demás áreas ven el estado. Se pide un motivo, queda en la bitácora y sobrevive a reinicios. Los mensajes recibidos durante la pausa no se contestan después: debe atenderlos una persona.
 - **Una sola conversación:** crear en Chatwoot la etiqueta `pausar_mia` y aplicarla a la conversación. Mia deja de responder ahí mientras tenga la etiqueta.
 
 ## 5.3 Fallas de OpenAI o Chatwoot

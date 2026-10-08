@@ -265,9 +265,9 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     res.json({ items: users.list().filter(user => user.active && (!area || user.areas.includes(area))).map(user => ({ username: user.username, name: user.name, areas: user.areas })) });
   });
 
-  // Pausar / reanudar a Mia para todas las conversaciones (Supervisión y Admin).
+  // Pausar / reanudar a Mia para todas las conversaciones (solo Admin). Todos ven el estado.
   router.get("/operations/api/mia", (_req, res) => res.json(settings.miaStatus()));
-  router.post("/operations/api/mia/pause", requireArea("supervision"), (req, res) => {
+  router.post("/operations/api/mia/pause", requireArea("admin"), (req, res) => {
     const paused = Boolean(req.body?.paused);
     const reason = String(req.body?.reason || "").trim();
     if (paused && !reason) return fail(res, new Error("Escribe el motivo de la pausa"));
