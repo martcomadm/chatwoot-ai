@@ -93,6 +93,13 @@ Archivos nuevos dentro de `/app/data-next`: `ops-users.json` (contraseñas con s
 
 El token de entorno sigue aceptándose en la cabecera `x-operations-token` como acceso de administrador para scripts; sus acciones quedan registradas como "Token de Operaciones". Ya no se acepta en la URL (`?token=`).
 
+## 5.2 Pausar a Mia
+- **Todas las conversaciones:** en Operations, Supervisión o Admin usan "Pausar a Mia" (barra lateral). Se pide un motivo, queda en la bitácora y sobrevive a reinicios. Los mensajes recibidos durante la pausa no se contestan después: debe atenderlos una persona.
+- **Una sola conversación:** crear en Chatwoot la etiqueta `pausar_mia` y aplicarla a la conversación. Mia deja de responder ahí mientras tenga la etiqueta.
+
+## 5.3 Fallas de OpenAI o Chatwoot
+Un error al procesar una conversación ya no detiene el servicio: se registra en el Inspector (`processing_error` o `ai_error`) y las demás conversaciones siguen. Si OpenAI no responde en `OPENAI_TIMEOUT_MS` (30 s por defecto, con `OPENAI_MAX_RETRIES=1`), Mia usa la respuesta de respaldo.
+
 ## 6. Pruebas negativas obligatorias
 Antes de conectar el webhook, probar temporalmente y confirmar que el contenedor falla al iniciar con:
 1. `APP_ENV=production`.

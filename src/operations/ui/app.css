@@ -140,6 +140,10 @@ a { color: var(--focus); }
 .nav-count.alert { color: var(--danger); font-weight: 700; }
 .nav-sep { height: 1px; background: var(--line); margin: 10px 8px; }
 .rail-foot { margin-top: auto; padding: 12px 10px 0; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.mia-status { display: grid; gap: 6px; padding: 10px; margin: 0 -2px 6px; border-radius: var(--radius-s); background: var(--ok-bg); color: var(--ok); font-weight: 700; font-size: 14px; }
+.mia-status.paused { background: var(--danger-bg); color: var(--danger); }
+.mia-status small { font-weight: 400; color: var(--ink); }
+.mia-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 7px; vertical-align: 1px; }
 .rail-foot .who { font-weight: 700; }
 .rail-foot .who small { display: block; font-weight: 400; color: var(--muted); }
 .rail-foot .row { display: flex; gap: 4px; flex-wrap: wrap; margin-left: -10px; }
@@ -324,8 +328,10 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
   .nav-item::before { display: none; }
   .nav-item[aria-current="page"] { box-shadow: inset 0 -3px 0 var(--area); border-radius: var(--radius-s) var(--radius-s) 0 0; }
   .nav-sep { display: none; }
-  .rail-foot { margin: 0 0 0 auto; padding: 0; border: 0; }
+  .rail-foot { margin: 0 0 0 auto; padding: 0; border: 0; display: flex; align-items: center; gap: 6px; }
   .rail-foot .who { display: none; }
+  .mia-status { margin: 0; padding: 6px 8px; grid-auto-flow: column; align-items: center; white-space: nowrap; }
+  .mia-status small { display: none; }
   .rail-foot .row { margin: 0; flex-wrap: nowrap; }
   .main { padding: 16px 16px 40px; }
   .page-head h1 { font-size: 24px; }

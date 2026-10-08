@@ -24,6 +24,15 @@ export class OpsSettingsStore {
   customerMessages() { return { ...(this.data.customer_messages || {}) }; }
   accountsImage() { return this.data.accounts_image ? { ...this.data.accounts_image } : null; }
 
+  // Pausa global de Mia: mientras esté activa, Mia no responde a ningún cliente.
+  miaStatus() { return { paused: Boolean(this.data.mia?.paused), reason: this.data.mia?.reason || null, changed_at: this.data.mia?.changed_at || null, changed_by: this.data.mia?.changed_by || null }; }
+  miaPaused() { return Boolean(this.data.mia?.paused); }
+  setMiaPaused(paused, { reason = null, actor = null } = {}) {
+    this.data.mia = { paused: Boolean(paused), reason: paused ? String(reason || "").trim().slice(0, 300) || null : null, changed_at: now(), changed_by: actor };
+    this.persist();
+    return this.miaStatus();
+  }
+
   snapshot() {
     return {
       alert_hours: this.alertHours(),
@@ -31,6 +40,7 @@ export class OpsSettingsStore {
       customer_messages: this.customerMessages(),
       default_customer_messages: { ...DEFAULT_CUSTOMER_MESSAGES },
       accounts_image: this.accountsImage(),
+      mia: this.miaStatus(),
       updated_at: this.data.updated_at || null,
       updated_by: this.data.updated_by || null,
     };

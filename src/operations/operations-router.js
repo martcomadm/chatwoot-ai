@@ -127,6 +127,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       return_targets: Object.fromEntries(Object.entries(RETURN_TARGETS).map(([key, value]) => [key, value.label])),
       alert_hours: alertHours(),
       accounts_image_configured: Boolean(settings.accountsImage()),
+      mia: settings.miaStatus(),
     });
   });
 
@@ -262,6 +263,18 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.get("/operations/api/people", requireArea("supervision"), (req, res) => {
     const area = String(req.query.area || "");
     res.json({ items: users.list().filter(user => user.active && (!area || user.areas.includes(area))).map(user => ({ username: user.username, name: user.name, areas: user.areas })) });
+  });
+
+  // Pausar / reanudar a Mia para todas las conversaciones (Supervisión y Admin).
+  router.get("/operations/api/mia", (_req, res) => res.json(settings.miaStatus()));
+  router.post("/operations/api/mia/pause", requireArea("supervision"), (req, res) => {
+    const paused = Boolean(req.body?.paused);
+    const reason = String(req.body?.reason || "").trim();
+    if (paused && !reason) return fail(res, new Error("Escribe el motivo de la pausa"));
+    const status = settings.setMiaPaused(paused, { reason, actor: actorOf(req.opsUser) });
+    audit.record(paused ? "mia.paused" : "mia.resumed", actorOf(req.opsUser), { reason: status.reason });
+    console.warn(`NEXT: Mia ${paused ? "PAUSADA" : "reanudada"} por ${req.opsUser.username}${paused ? `: ${reason}` : ""}`);
+    res.json({ ok: true, mia: status });
   });
 
   // ── Admin ────────────────────────────────────────────────────────────────

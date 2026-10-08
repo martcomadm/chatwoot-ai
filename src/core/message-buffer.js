@@ -1,7 +1,10 @@
 export class MessageBuffer {
-  constructor(bufferMs, processor) {
+  // onError(conversationId, error, snapshot): se llama cuando procesar un turno falla.
+  // Un error en una conversación nunca debe tumbar el servicio para las demás.
+  constructor(bufferMs, processor, { onError = null } = {}) {
     this.bufferMs = bufferMs;
     this.processor = processor;
+    this.onError = onError;
     this.states = new Map();
     this.seen = new Map();
     this.seenTtlMs = 15 * 60 * 1000;
@@ -59,6 +62,10 @@ export class MessageBuffer {
     state.ids.clear(); state.sources.clear(); state.dirty = false;
     for (const messageId of snapshot.ids) this.processingIds.add(`${id}:${messageId}`);
     try { await this.processor(id, snapshot); }
+    catch (error) {
+      console.error(`NEXT: falló el procesamiento de la conversación ${id}:`, error?.stack || error?.message || error);
+      try { await this.onError?.(id, error, snapshot); } catch (handlerError) { console.error("NEXT: también falló el registro del error:", handlerError?.message || handlerError); }
+    }
     finally {
       for (const messageId of snapshot.ids) this.processingIds.delete(`${id}:${messageId}`);
       state.processing = false;

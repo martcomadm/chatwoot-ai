@@ -69,6 +69,8 @@ const EVENT_LABELS = {
   "settings.accounts_image_updated": "Imagen de cuentas actualizada",
   "settings.accounts_image_removed": "Imagen de cuentas eliminada",
   "lab.conversation_reset": "Conversación de prueba reiniciada",
+  "mia.paused": "Mia pausada",
+  "mia.resumed": "Mia reanudada",
 };
 
 const state = {
@@ -380,6 +382,7 @@ function renderShell() {
       <div class="brand"><strong>MARTCOM</strong><span>Operations NEXT</span></div>
       <div class="nav">${nav}</div>
       <div class="rail-foot">
+        ${miaStatusHtml()}
         <div class="who">${esc(me.user.name)}<small>${esc(me.user.username)}</small></div>
         <div class="row">
           ${me.user.via === "token" ? "" : `<button class="btn quiet small" data-act="password">Contraseña</button>`}
@@ -389,6 +392,30 @@ function renderShell() {
     </nav>
     <main class="main" id="view"></main>
   </div>`;
+}
+
+function miaStatusHtml() {
+  const mia = state.me.mia || {};
+  const control = state.me.can.supervise ? `<button class="btn small ${mia.paused ? "primary" : "danger"}" data-act="mia-toggle">${mia.paused ? "Reanudar a Mia" : "Pausar a Mia"}</button>` : "";
+  return `<div class="mia-status ${mia.paused ? "paused" : ""}" id="mia-status">
+    <span><span class="mia-dot"></span>${mia.paused ? "Mia en pausa" : "Mia respondiendo"}</span>
+    ${mia.paused && mia.reason ? `<small>${esc(mia.reason)}</small>` : ""}
+    ${control}
+  </div>`;
+}
+
+async function toggleMia() {
+  const paused = !state.me.mia?.paused;
+  const data = await ask(paused
+    ? { title: "Pausar a Mia", text: "Mia dejará de responder a todos los clientes hasta que la reanudes. Los mensajes que lleguen mientras tanto debe atenderlos una persona; Mia no los contestará después.", fields: [{ name: "reason", label: "Motivo", type: "textarea", required: true, placeholder: "Ej. respuestas incorrectas sobre precios, revisión del equipo" }], confirm: "Pausar a Mia", danger: true, area: "supervision" }
+    : { title: "Reanudar a Mia", text: "Mia volverá a responder los mensajes nuevos de los clientes.", confirm: "Reanudar a Mia", area: "supervision" });
+  if (!data) return;
+  const done = await run(() => api("/operations/api/mia/pause", { method: "POST", body: { paused, reason: data.reason || "" } }), paused ? "Mia está en pausa" : "Mia volvió a responder");
+  if (done) {
+    state.me.mia = done.mia;
+    const box = document.getElementById("mia-status");
+    if (box) box.outerHTML = miaStatusHtml();
+  }
 }
 
 function updateNavCounts() {
@@ -1103,6 +1130,10 @@ const refreshSoon = debounce(async event => {
   try {
     await loadSales();
     updateNavCounts();
+    try {
+      const mia = await api("/operations/api/mia");
+      if (mia.paused !== state.me.mia?.paused) { state.me.mia = mia; const box = document.getElementById("mia-status"); if (box) box.outerHTML = miaStatusHtml(); }
+    } catch {}
     const panelOpen = Boolean(document.getElementById("panel"));
     if (state.view !== "admin" && !document.querySelector("dialog[open]")) {
       if (state.view === "supervision") {
@@ -1142,6 +1173,7 @@ document.addEventListener("click", async event => {
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.act === "logout") return logout();
   if (target.dataset.act === "password") return changePassword();
+  if (target.dataset.act === "mia-toggle") return toggleMia();
   if (target.dataset.act === "close-panel") return closePanel();
   if (target.dataset.sale) return openSale(target.dataset.sale);
   if (target.dataset.saleLink) { event.preventDefault(); return openSale(target.dataset.saleLink); }

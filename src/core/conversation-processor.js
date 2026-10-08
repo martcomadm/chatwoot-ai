@@ -26,6 +26,9 @@ import { explicitHumanRequest } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
 
+// Etiqueta de Chatwoot que pausa a Mia solo en esa conversación.
+export const PAUSE_LABEL = "pausar_mia";
+
 const allowedLabels = new Set(["asignado", "cerrado", "chat_basura", "cliente", "embarazo", "no_contesta", "no_quiere_el_servicio", "predictivo", "proveedor", "reasignado", "rechazado", "seguimiento", "sin_atender", "validacion", "venta", "ya_tiene_servicio"]);
 const protectedLabels = new Set(["asignado", "predictivo", "reasignado", "cliente", "venta"]);
 
@@ -59,7 +62,7 @@ function recoverCommercialContext(conversation, memory = {}) {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false }) {
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -70,16 +73,29 @@ export class ConversationProcessor {
     this.handoffRouter = handoffRouter;
     this.workflow = workflow;
     this.turnLock = turnLock;
+    this.isMiaPaused = isMiaPaused;
   }
 
   async record(id, type, data = {}) {
     try { await this.inspectorEvents?.record(id, type, data); } catch {}
   }
 
+  // Llama a la IA sin que un error (caída, límite de uso, tiempo agotado) detenga el turno:
+  // registra el error y devuelve el valor de respaldo.
+  async safeAi(conversationId, step, call, fallbackValue) {
+    try {
+      return await call();
+    } catch (error) {
+      console.error(`NEXT: falló la IA (${step}) en conversación ${conversationId}:`, error?.message || error);
+      await this.record(conversationId, "ai_error", { step, error: String(error?.message || error).slice(0, 300) });
+      return fallbackValue;
+    }
+  }
+
   // Handoff a un asesor humano: nota privada con resumen, aviso al cliente y asignación por rotación.
   async transfer(conversationId, conversation, reason, memory) {
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
-    const summary = await this.ai.handoffSummary(conversation, reason, memory);
+    const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, summary, true);
     await this.chatwoot.sendMessage(conversationId, "Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");
     let routed = null;
@@ -92,7 +108,7 @@ export class ConversationProcessor {
   // Handoff especializado: canaliza la conversación al equipo de Atención a Clientes.
   async transferToCustomerService(conversationId, conversation, reason, memory, specialized = {}) {
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
-    const summary = await this.ai.handoffSummary(conversation, reason, memory);
+    const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, `MÍA → ATENCIÓN A CLIENTES\nMotivo: ${reason}\n\n${summary}`, true);
     await this.chatwoot.sendMessage(conversationId, "Para revisar correctamente esa parte de tu caso necesito apoyo de nuestro equipo de Atención a Clientes. Voy a canalizar tu conversación y les dejaré el contexto de lo que ya revisamos para que no tengas que repetir la información.");
     const teamId = Number(this.config.operations.customerServiceTeamId);
@@ -143,6 +159,15 @@ export class ConversationProcessor {
     if (reassigned && this.workflow?.store?.findByConversationId?.(conversationId)?.status !== "payment_requested") return;
     let currentLabels = conversation?.labels || [];
     if (currentLabels.some(label => stopLabels.has(label))) return;
+    // Pausa: global desde Operations o por conversación con la etiqueta "pausar_mia".
+    // Mia no responde ni registra nada; los mensajes quedan para que los atienda una persona.
+    const pausedByLabel = currentLabels.some(label => (typeof label === "string" ? label : label?.title) === PAUSE_LABEL);
+    if (pausedByLabel || this.isMiaPaused()) {
+      await this.record(conversationId, "mia_paused_skip", { reason: pausedByLabel ? "label" : "global", message_ids: (snapshot?.ids || []).map(String) });
+      // Se marcan como atendidos para que, al reanudar, Mia no conteste mensajes viejos.
+      if (snapshot?.ids?.length) await this.memories.markProcessedMany(conversationId, snapshot.ids);
+      return;
+    }
 
     // ── 3. Armar el lote de mensajes nuevos del cliente ──
     const batch = batchFrom(conversation, snapshot, this.memories, conversationId);
@@ -218,7 +243,7 @@ export class ConversationProcessor {
     }
 
     // ── 5. Extracción con IA (texto ambiguo y, tras autorización, documentos) ──
-    const llmPatch = await this.ai.extractAmbiguous(base, combinedText, conversation);
+    const llmPatch = (await this.safeAi(conversationId, "extract", () => this.ai.extractAmbiguous(base, combinedText, conversation), {})) || {};
     llmPatch.contradicciones = [];
     let documentPatch = {};
     const documentAttachments = batch.flatMap(m => m.attachments || []);
@@ -330,7 +355,10 @@ export class ConversationProcessor {
     else if (openingDecision && !advisoryTurn) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
     else if (needDecision && !advisoryTurn) decision = protectDeterministicDecision(needDecision, "need_discovery");
     else if (compactRecommendation && !advisoryTurn) decision = protectDeterministicDecision(compactRecommendation, "compact_plan_recommendation");
-    else decision = { ...(await this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText) || {}), __source: "llm" };
+    else {
+      const generated = await this.safeAi(conversationId, "decision", () => this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText), null);
+      decision = generated ? { ...generated, __source: "llm" } : { ...fallbackDecision(memory, planner, combinedText), __source: "fallback_ai_error" };
+    }
 
     // ── 11. Guardas sobre respuestas de IA (las deterministas no se tocan) ──
     // Firmas reales: answered(memory, key), checkReply(reply, {memory, questionKey, maxChars}),
