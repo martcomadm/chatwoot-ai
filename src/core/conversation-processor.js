@@ -1,4 +1,5 @@
 import { extractFast, containsCurp, containsNss } from "../memory/fast-extractor.js";
+import { parseSchedule, isOpen, nextOpeningDate, outOfScheduleMessage } from "./business-hours.js";
 import { analyzeSales, planNext, answered } from "../sales/sales-engine.js";
 import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
@@ -34,12 +35,6 @@ const protectedLabels = new Set(["asignado", "predictivo", "reasignado", "client
 
 // Mensajes del cliente que este turno debe procesar: los ids del buffer, con los
 // adjuntos del webhook cuando la API de Chatwoot aún no los trae, y sin los ya procesados.
-function hourLabel(hour) { return `${hour % 12 || 12}:00 ${hour < 12 ? "a.m." : "p.m."}`; }
-
-export function outOfScheduleMessage({ startHour, endHour }) {
-  return `¡Gracias por escribir a MARTCOM! Nuestro horario de atención es de ${hourLabel(startHour)} a ${hourLabel(endHour)} Recibimos tu mensaje y te respondemos en cuanto abramos.`;
-}
-
 function batchFrom(conversation, snapshot, memories, conversationId) {
   const all = messagesOf(conversation);
   const wanted = new Set(snapshot.ids || []);
@@ -140,26 +135,26 @@ export class ConversationProcessor {
     }
   }
 
-  // Horario de atención en la zona horaria configurada. Sin horas configuradas, siempre abierto.
-  scheduleClock(now = new Date()) {
-    const { startHour, endHour, timezone } = this.config.ai || {};
-    if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) return null;
-    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: timezone || "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false }).formatToParts(now).map(p => [p.type, p.value]));
-    return { hour: Number(parts.hour) % 24, date: `${parts.year}-${parts.month}-${parts.day}`, startHour, endHour };
+  // Horario de atención por día (AI_SCHEDULE). Sin horario configurado, siempre abierto.
+  scheduleWeek() {
+    const text = this.config.ai?.schedule;
+    if (!text) return null;
+    if (this._scheduleText !== text) { this._scheduleWeek = parseSchedule(text); this._scheduleText = text; }
+    return this._scheduleWeek;
   }
 
   inSchedule(now = new Date()) {
-    const clock = this.scheduleClock(now);
-    return !clock || (clock.hour >= clock.startHour && clock.hour < clock.endHour);
+    const week = this.scheduleWeek();
+    return !week || isOpen(week, now, this.config.ai.timezone);
   }
 
-  async notifyOutOfSchedule(conversationId, messageIds) {
-    const clock = this.scheduleClock();
-    // Un aviso por conversación y por noche: la clave es el día en que se vuelve a abrir.
-    const period = clock.hour >= clock.endHour ? `${clock.date}-cierre` : `${clock.date}-apertura`;
+  async notifyOutOfSchedule(conversationId, messageIds, now = new Date()) {
+    const week = this.scheduleWeek();
+    // Un aviso por conversación y por periodo cerrado: la clave es la fecha de la siguiente apertura.
+    const period = week ? nextOpeningDate(week, now, this.config.ai.timezone) : "sin-horario";
     const firstNotice = !this.turnLock || this.turnLock.claim(conversationId, [`fuera-horario-${period}`]);
-    await this.record(conversationId, "ignored_out_of_schedule", { message_ids: messageIds.map(String), notice_sent: firstNotice });
-    if (firstNotice) await this.chatwoot.sendMessage(conversationId, outOfScheduleMessage(clock));
+    await this.record(conversationId, "ignored_out_of_schedule", { message_ids: messageIds.map(String), notice_sent: firstNotice, reopens: period });
+    if (firstNotice && week) await this.chatwoot.sendMessage(conversationId, outOfScheduleMessage(week));
   }
 
   async process(conversationId, snapshot) {

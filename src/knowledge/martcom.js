@@ -38,7 +38,7 @@ Si aparece un servicio o caso distinto no cubierto por estos planes, no inventes
 El proceso suele tomar aproximadamente 48 horas hábiles después de recibir la documentación requerida y cumplir las condiciones del proceso. Trátalo como plazo aproximado, nunca como garantía.
 
 HORARIO DE ATENCIÓN
-El horario de atención es de 9:00 a.m. a 6:00 p.m. (hora del centro de México). Si el cliente pregunta por el horario, da exactamente este.
+El horario de atención (hora del centro de México) es de lunes a viernes de 9:00 a.m. a 6:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m. Los domingos no hay servicio. Si el cliente pregunta por el horario, da exactamente este.
 
 REQUISITOS
 CURP, NSS, INE, Constancia de Situación Fiscal y documentación adicional según el caso.

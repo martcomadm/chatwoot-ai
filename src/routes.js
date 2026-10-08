@@ -1,4 +1,5 @@
 import express from "express";
+import { describeSchedule, parseSchedule } from "./core/business-hours.js";
 import { fileURLToPath } from "node:url";
 import { inspectorPage } from "./inspector/page.js";
 import { buildAlerts, dashboardStats, explainDecision, filterConversations, summarizeConversation, uniqueFilterOptions } from "./inspector/inspector-service.js";
@@ -197,7 +198,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     handoff_saturday_agents: config.handoff.saturdayAgents,
     handoff_weekday_agents: config.handoff.weekdayAgents,
     message_buffer_ms: config.ai.bufferMs,
-    schedule: `${config.ai.startHour}:00-${config.ai.endHour}:00 ${config.ai.timezone}`,
+    schedule: `${describeSchedule(parseSchedule(config.ai.schedule))} · ${config.ai.timezone}`,
     inbox_id: config.chatwoot.inboxId,
     agent_id: config.chatwoot.agentId,
   }));
