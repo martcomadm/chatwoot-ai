@@ -157,6 +157,16 @@ export class ConversationProcessor {
     if (firstNotice && week) await this.chatwoot.sendMessage(conversationId, outOfScheduleMessage(week));
   }
 
+  async markAssigned(conversationId, currentLabels, conversation) {
+    const { assignedLabel, unattendedLabel } = this.config.ai || {};
+    if (!assignedLabel) return currentLabels;
+    const names = currentLabels.map(label => (typeof label === "string" ? label : label?.title));
+    if (names.includes(assignedLabel) && !names.includes(unattendedLabel)) return currentLabels;
+    const updated = await this.labels.mergeSafe(conversationId, [assignedLabel], unattendedLabel ? [unattendedLabel] : [], conversation);
+    await this.record(conversationId, "assigned_label_applied", { label: assignedLabel, removed: names.includes(unattendedLabel) ? unattendedLabel : null });
+    return updated;
+  }
+
   async process(conversationId, snapshot) {
     // ── 1. Cargar la conversación y mezclar adjuntos que solo trae el webhook ──
     const conversation = await this.chatwoot.getConversation(conversationId);
@@ -242,6 +252,8 @@ export class ConversationProcessor {
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
+    // Al recibir el chat Mia pone la etiqueta "asignado" y quita "sin_atender" (igual que producción).
+    currentLabels = await this.markAssigned(conversationId, currentLabels, conversation);
 
     // ── 4. Análisis determinista del turno ──
     let base = recoverCommercialContext(conversation, this.memories.get(conversationId));
