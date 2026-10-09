@@ -12,7 +12,8 @@ function norm(value) {
 const GENERIC_INTEREST_RE = /^(?:(?:si|claro|ok|okay|va|sale|perfecto|bueno|excelente|muy bien)[ ,.!]*)*(?:si[ ,]*)?(?:me interesa|me gusta|me late|suena bien|me sirve|me convence|me parece bien|creo que si)(?:[ ,]*(?:mucho|bastante|si|entonces|el plan|ese plan|esa opcion|esta opcion|el plan (?:1|uno|2|dos)))?[ .!]*$/;
 
 // Respuesta afirmativa corta: "sí", "sí, por favor", "claro", "va", "adelante", "ok, sí"…
-const SHORT_AFFIRMATIVE_RE = /^(?:(?:si|claro|ok|okay|va|vale|sale|adelante|perfecto|de acuerdo|esta bien|por supuesto|dale|andale|correcto)[ ,.!]*){1,3}(?:por favor|porfa|gracias|hagamoslo|iniciemos|comencemos|empecemos)?[ .!]*$/;
+// Incluye "muy bien", "bien", "bueno", "listo", "excelente": tras "¿iniciamos?" significan que sí.
+const SHORT_AFFIRMATIVE_RE = /^(?:(?:si|sip|claro|ok|okay|okey|va|vale|sale|adelante|perfecto|de acuerdo|estoy de acuerdo|esta bien|por supuesto|dale|andale|orale|correcto|muy bien|bien|bueno|listo|excelente|genial|me parece bien|me parece perfecto)[ ,.!]*){1,3}(?:por favor|porfa|gracias|hagamoslo|iniciemos|comencemos|empecemos)?[ .!]*$/;
 
 // Mia preguntó explícitamente si iniciamos/comenzamos el trámite o la contratación.
 const AGENT_ASKED_TO_START_RE = /(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) tramite|si estas de acuerdo, podemos iniciar/;

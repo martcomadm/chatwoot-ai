@@ -146,6 +146,10 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   }
   if (customerAskedCommercialDetails(combinedText)) return null;
   const plan = effectivePlan(memory);
+  // La recomendación del plan se da una sola vez: si ya se recomendó o explicó este plan,
+  // repetirla en cada turno hace que Mia "regrese" a un mensaje anterior.
+  const cycle = memory?.sales_cycle || {};
+  if (plan && [...(cycle.pitched_plans || []), ...(cycle.explained_plans || [])].includes(plan)) return null;
   const needText = norm(`${memory?.necesidad_principal || ""} ${combinedText || ""}`);
   const structured = memory?.commercial_need || {};
   const pending = pendingQuestion(memory);

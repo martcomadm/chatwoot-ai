@@ -5,7 +5,7 @@ import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
-import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations } from "../sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan } from "../sales/progressive-disclosure.js";
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
@@ -537,6 +537,10 @@ export class ConversationProcessor {
       asesor_presentacion: memory.asesor_presentacion || publicName,
       operations: { ...(memory.operations || {}), onboarding_last_requested: decisionState.onboarding_requirement || memory.operations?.onboarding_last_requested || null },
     };
+    // Recordar qué plan ya se recomendó o explicó para no repetir el mismo mensaje después.
+    const pitchKey = { compact_plan_recommendation: "pitched_plans", contextual_plan_explanation: "explained_plans" }[decisionSource];
+    const pitchedPlan = pitchKey ? effectivePlan(memory) : null;
+    if (pitchedPlan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), [pitchKey]: arrays(memory.sales_cycle?.[pitchKey], [pitchedPlan]) } };
     if (decisionState.nss_resolution) {
       memory = { ...memory, nss_resolution: decisionState.nss_resolution, operations: { ...(memory.operations || {}), nss_resolution: decisionState.nss_resolution } };
     }
