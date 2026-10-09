@@ -1,5 +1,6 @@
 import { negatesCommitment } from "./commitment-negation.js";
 import { confirmsStart, genericInterest } from "./start-confirmation.js";
+import { detectDeferral } from "./customer-deferral.js";
 
 function norm(value) {
   return String(value ?? "")
@@ -142,7 +143,8 @@ export function analyzeNextSale(text, memory = {}) {
   const altaInterest = detectAltaInterest(value);
   // "Quiero darme de alta" durante exploración expresa intención de compra, no autorización
   // operativa. NEXT solo abre expediente después de que ya existe contexto de plan/propuesta.
-  const authorized = authorizationPhrase && commercialContextReady(memory);
+  // "Sí quiero, pero ahorita no tengo dinero" pospone: no es autorización.
+  const authorized = authorizationPhrase && commercialContextReady(memory) && !detectDeferral(text);
   const priceObjection = hasAny(value, PRICE_OBJECTION_PATTERNS);
   const rejected = negatesCommitment(value);
   const interest = !rejected && (altaInterest || authorizationPhrase || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS) || genericInterest(text));

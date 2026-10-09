@@ -1,5 +1,6 @@
 import { negatesCommitment } from "./commitment-negation.js";
 import { confirmsStart, genericInterest } from "./start-confirmation.js";
+import { detectDeferral } from "./customer-deferral.js";
 
 function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
@@ -16,7 +17,7 @@ export function commitmentDecision(memory = {}, combinedText = "") {
   const text = norm(combinedText);
   const cycle = memory.sales_cycle || {};
   const plan = cycle.selected_plan || cycle.recommended_plan || null;
-  if (!text || cycle.authorized || negatesCommitment(text)) return null;
+  if (!text || cycle.authorized || negatesCommitment(text) || detectDeferral(combinedText)) return null;
 
   if ((START_RE.test(text) || confirmsStart(combinedText, memory)) && plan) {
     return {

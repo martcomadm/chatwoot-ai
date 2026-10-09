@@ -9,6 +9,7 @@ import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDe
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
+import { deferralDecision } from "../sales/customer-deferral.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
@@ -420,12 +421,15 @@ export class ConversationProcessor {
     const priceObjection = priceObjectionDecision(memory, combinedText);
     const directDecision = directAnswerDecision({ judgment, orchestration });
     const commitment = commitmentDecision(memory, combinedText);
+    // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
+    const deferral = deferralDecision(memory, combinedText);
     const advisoryTurn = isAdvisoryTurn(combinedText);
     if (advisoryTurn) {
       planner = { ...planner, action: "asesoria_conversacional", question_key: null, specialized: true, advisory: true, customer_question_priority: true };
       await this.record(conversationId, "advisory_turn", { text: combinedText, commercial_need: memory.commercial_need || null });
     }
-    if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
+    if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
+    else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
     else if (directDecision) decision = directDecision;
     else if (contextualExplanation) decision = protectDeterministicDecision(contextualExplanation, "contextual_plan_explanation");
     else if (commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
@@ -500,6 +504,8 @@ export class ConversationProcessor {
     const publicName = this.config.ai.publicName || "Mia de MARTCOM";
     const firstReply = !memory.presentacion_realizada && !memory.ultima_respuesta_agente;
     if (firstReply && !decision.reply.toLowerCase().includes(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${publicName}. ${decision.reply}`;
+    // La IA a veces abre con "Mia de MARTCOM. …" sin saludo: completar la presentación.
+    if (firstReply && decision.reply.toLowerCase().startsWith(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${decision.reply}`;
     // Chat retomado al abrir: agradecer la espera justo después de la presentación (si la hay).
     if (resumedAfterHours) {
       const intro = decision.reply.match(/^(¡Hola!\s*Soy [^.]+\.\s*)/);
@@ -551,7 +557,7 @@ export class ConversationProcessor {
     await this.memories.set(conversationId, memory);
     await this.memories.markProcessedMany(conversationId, messageIds);
     // Programar seguimientos si el cliente deja de contestar (no si acaba de rechazar).
-    if (this.followUps && !negatesCommitment(combinedText)) {
+    if (this.followUps && !negatesCommitment(combinedText) && !deferral) {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply });
     }
