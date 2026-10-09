@@ -8,6 +8,7 @@ import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next
 import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan } from "../sales/progressive-disclosure.js";
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
+import { negatesCommitment } from "../sales/commitment-negation.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
@@ -77,7 +78,7 @@ function recoverCommercialContext(conversation, memory = {}) {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null }) {
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -90,6 +91,7 @@ export class ConversationProcessor {
     this.turnLock = turnLock;
     this.isMiaPaused = isMiaPaused;
     this.afterHours = afterHours;
+    this.followUps = followUps;
   }
 
   async record(id, type, data = {}) {
@@ -263,6 +265,8 @@ export class ConversationProcessor {
       })),
     });
     const messageIds = batch.map(m => m.id);
+    // El cliente escribió: se cancelan los seguimientos pendientes.
+    this.followUps?.customerWrote(conversationId);
     // Fuera del horario de atención Mia no conversa: avisa una sola vez por periodo
     // cerrado y deja los mensajes sin marcar para que el equipo los vea al abrir.
     if (!this.inSchedule()) {
@@ -546,6 +550,11 @@ export class ConversationProcessor {
     }
     await this.memories.set(conversationId, memory);
     await this.memories.markProcessedMany(conversationId, messageIds);
+    // Programar seguimientos si el cliente deja de contestar (no si acaba de rechazar).
+    if (this.followUps && !negatesCommitment(combinedText)) {
+      const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
+      this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply });
+    }
     await this.record(conversationId, "ai_reply_sent", { reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null });
   }
 }

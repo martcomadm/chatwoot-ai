@@ -23,6 +23,8 @@ import { OpsSettingsStore } from "./operations/access/settings-store.js";
 import { OpsAuditStore } from "./operations/access/audit-store.js";
 import { TurnLock } from "./core/turn-lock.js";
 import { AfterHoursQueue, startAfterHoursResume } from "./core/after-hours-queue.js";
+import { FollowUpStore, FollowUpService } from "./core/follow-up.js";
+import { outOfScheduleMessage, parseSchedule } from "./core/business-hours.js";
 import path from "node:path";
 
 // Última barrera: una promesa rechazada sin manejar se registra en vez de tumbar el
@@ -63,11 +65,23 @@ try {
   turnLock.prune();
   setInterval(() => turnLock.prune(), 6 * 60 * 60 * 1000).unref();
   const afterHours = new AfterHoursQueue(path.join(config.storage.dataDir, "after-hours-queue.json"));
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours });
+  // Seguimientos automáticos cuando el cliente deja de contestar (20 min, 3 h, 20 h por defecto).
+  const followUps = config.ai.followUp?.enabled ? new FollowUpService({
+    store: new FollowUpStore(path.join(config.storage.dataDir, "follow-ups.json")),
+    chatwoot, labels, memories, config, inspectorEvents,
+    minutes: config.ai.followUp.minutes,
+    isMiaPaused: () => opsSettings.miaPaused(),
+    sentTexts: new Set([outOfScheduleMessage(parseSchedule(config.ai.schedule))]),
+  }) : null;
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot), {
     onError: (id, error, snapshot) => inspectorEvents.record(id, "processing_error", { error: String(error?.message || error).slice(0, 500), message_ids: (snapshot?.ids || []).map(String) }),
   });
   // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
+  if (followUps) {
+    followUps.isOpen = now => processor.inSchedule(now);
+    followUps.start();
+  }
   startAfterHoursResume({ queue: afterHours, isOpen: () => processor.inSchedule() && !opsSettings.miaPaused(), wake: id => buffer.wake(id, "after_hours_resume") });
 
   const app = express();
