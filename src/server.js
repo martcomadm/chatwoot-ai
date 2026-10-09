@@ -22,6 +22,7 @@ import { SessionStore } from "./operations/access/session-store.js";
 import { OpsSettingsStore } from "./operations/access/settings-store.js";
 import { OpsAuditStore } from "./operations/access/audit-store.js";
 import { TurnLock } from "./core/turn-lock.js";
+import { AfterHoursQueue, startAfterHoursResume } from "./core/after-hours-queue.js";
 import path from "node:path";
 
 // Última barrera: una promesa rechazada sin manejar se registra en vez de tumbar el
@@ -61,10 +62,13 @@ try {
   const turnLock = new TurnLock(path.join(config.storage.dataDir, "turn-locks"));
   turnLock.prune();
   setInterval(() => turnLock.prune(), 6 * 60 * 60 * 1000).unref();
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused() });
+  const afterHours = new AfterHoursQueue(path.join(config.storage.dataDir, "after-hours-queue.json"));
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot), {
     onError: (id, error, snapshot) => inspectorEvents.record(id, "processing_error", { error: String(error?.message || error).slice(0, 500), message_ids: (snapshot?.ids || []).map(String) }),
   });
+  // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
+  startAfterHoursResume({ queue: afterHours, isOpen: () => processor.inSchedule() && !opsSettings.miaPaused(), wake: id => buffer.wake(id, "after_hours_resume") });
 
   const app = express();
   app.use(express.json({ limit: "16mb" }));

@@ -33,6 +33,20 @@ export const PAUSE_LABEL = "pausar_mia";
 const allowedLabels = new Set(["asignado", "cerrado", "chat_basura", "cliente", "embarazo", "no_contesta", "no_quiere_el_servicio", "predictivo", "proveedor", "reasignado", "rechazado", "seguimiento", "sin_atender", "validacion", "venta", "ya_tiene_servicio"]);
 const protectedLabels = new Set(["asignado", "predictivo", "reasignado", "cliente", "venta"]);
 
+// true si una persona del equipo (no Mia) mandó un mensaje público después de `sinceIso`.
+// Mientras está cerrado Mia solo manda el aviso de horario, así que ese texto no cuenta.
+function humanRepliedSince(conversation, sinceIso, miaAgentId, ignoreTexts = []) {
+  const ignored = new Set(ignoreTexts.map(t => String(t || "").replace(/\s+/g, " ").trim()));
+  const since = Date.parse(sinceIso || "") / 1000 || 0;
+  return messagesOf(conversation).some(m => {
+    const outgoing = m?.message_type === 1 || m?.message_type === "outgoing";
+    const senderType = String(m?.sender_type || m?.sender?.type || "").toLowerCase();
+    const senderId = Number(m?.sender_id || m?.sender?.id || 0);
+    const text = String(m?.content || "").replace(/\s+/g, " ").trim();
+    return outgoing && m?.private !== true && senderType === "user" && senderId !== Number(miaAgentId) && !ignored.has(text) && Number(m?.created_at || 0) >= since;
+  });
+}
+
 // Mensajes del cliente que este turno debe procesar: los ids del buffer, con los
 // adjuntos del webhook cuando la API de Chatwoot aún no los trae, y sin los ya procesados.
 function batchFrom(conversation, snapshot, memories, conversationId) {
@@ -63,7 +77,7 @@ function recoverCommercialContext(conversation, memory = {}) {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null }) {
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -75,6 +89,7 @@ export class ConversationProcessor {
     this.workflow = workflow;
     this.turnLock = turnLock;
     this.isMiaPaused = isMiaPaused;
+    this.afterHours = afterHours;
   }
 
   async record(id, type, data = {}) {
@@ -182,6 +197,23 @@ export class ConversationProcessor {
       }
     }
 
+    // ── 1b. Retomar mensajes que llegaron fuera de horario ──
+    // Al abrir, los mensajes de la noche se atienden junto con lo que el cliente escriba ahora,
+    // en un solo turno. Si una persona del equipo ya le contestó, Mia no se mete.
+    let resumedAfterHours = false;
+    const queued = this.afterHours?.has?.(conversationId) && this.inSchedule() ? this.afterHours.take(conversationId) : null;
+    if (queued) {
+      const closed = ["resolved", "closed"].includes(String(conversation?.status || "").toLowerCase());
+      if (closed || humanRepliedSince(conversation, queued.first_at, this.config.chatwoot.agentId, [this.scheduleWeek() && outOfScheduleMessage(this.scheduleWeek())])) {
+        await this.record(conversationId, "after_hours_skipped", { reason: closed ? "conversation_closed" : "human_replied", message_ids: queued.ids });
+        await this.memories.markProcessedMany(conversationId, queued.ids);
+      } else {
+        snapshot = { ...(snapshot || {}), ids: [...new Set([...(snapshot?.ids || []).map(String), ...queued.ids])] };
+        resumedAfterHours = true;
+        await this.record(conversationId, "after_hours_resumed", { message_ids: queued.ids, since: queued.first_at });
+      }
+    }
+
     // ── 2. Guardas de aislamiento: inbox, asignación y etiquetas de alto ──
     if (Number(conversation?.inbox_id || conversation?.inbox?.id) !== Number(this.config.chatwoot.inboxId)) return;
     const assigneeId = Number(conversation?.meta?.assignee?.id || conversation?.assignee?.id || 0);
@@ -234,6 +266,7 @@ export class ConversationProcessor {
     // Fuera del horario de atención Mia no conversa: avisa una sola vez por periodo
     // cerrado y deja los mensajes sin marcar para que el equipo los vea al abrir.
     if (!this.inSchedule()) {
+      this.afterHours?.add(conversationId, messageIds);
       await this.notifyOutOfSchedule(conversationId, messageIds);
       return;
     }
@@ -463,6 +496,11 @@ export class ConversationProcessor {
     const publicName = this.config.ai.publicName || "Mia de MARTCOM";
     const firstReply = !memory.presentacion_realizada && !memory.ultima_respuesta_agente;
     if (firstReply && !decision.reply.toLowerCase().includes(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${publicName}. ${decision.reply}`;
+    // Chat retomado al abrir: agradecer la espera justo después de la presentación (si la hay).
+    if (resumedAfterHours) {
+      const intro = decision.reply.match(/^(¡Hola!\s*Soy [^.]+\.\s*)/);
+      decision.reply = intro ? `${intro[1]}Gracias por tu paciencia. ${decision.reply.slice(intro[1].length)}` : `Gracias por tu paciencia. ${decision.reply}`;
+    }
 
     // Final dedupe barrier: Chatwoot can deliver the same customer turn through
     // message_created and conversation_updated (or even to overlapping app instances).

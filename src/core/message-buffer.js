@@ -40,6 +40,17 @@ export class MessageBuffer {
     return true;
   }
 
+  // Agenda un turno sin mensaje nuevo (p.ej. retomar chats que escribieron fuera de horario).
+  // El processor decide qué mensajes atender; si la conversación ya está en proceso, se repite al terminar.
+  wake(id, source = "wake") {
+    const state = this.state(id);
+    state.sources.add(source);
+    if (state.processing) { state.dirty = true; return true; }
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => void this.flush(id), this.bufferMs);
+    return true;
+  }
+
   resetConversation(id) {
     const keyPrefix=`${id}:`;
     const state=this.states.get(id);
