@@ -193,10 +193,17 @@ export class FollowUpService {
         }
 
         const memory = this.memories.get(id);
-        const text = followUpMessage(memory, Number(entry.sent || 0));
+        // No repetir un seguimiento que el cliente ya recibió en esta conversación.
+        const used = new Set(memory.followups_sent || []);
+        let text = null;
+        for (let k = Number(entry.sent || 0); k < 3 && !text; k++) {
+          const candidate = followUpMessage(memory, k);
+          if (candidate === null) break;
+          if (!used.has(candidate)) text = candidate;
+        }
         if (!text) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "not_applicable" }); continue; }
         await this.chatwoot.sendMessage(id, text);
-        await this.memories.set(id, { ...memory, ultima_respuesta_agente: text, ultima_pregunta: null });
+        await this.memories.set(id, { ...memory, ultima_respuesta_agente: text, ultima_pregunta: null, followups_sent: [...used, text] });
         const { conversationId: _omit, ...stored } = entry;
         this.store.set(id, { ...stored, sent: Number(entry.sent || 0) + 1, last_sent_at: now.toISOString(), texts: [...(entry.texts || []), text.replace(/\s+/g, " ").trim()] });
         await this.record(id, "followup_sent", { step: Number(entry.sent || 0) + 1, text });

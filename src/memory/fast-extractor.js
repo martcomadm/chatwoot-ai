@@ -68,8 +68,13 @@ export function extractFast(text,memory={}){
   const ageResult=extractAge(raw,memory);
   if(ageResult) patch.edad=ageResult.value;
 
-  if(/\b(no tengo|no cuento con|no estoy afiliad[oa]|sin)\b.{0,20}\b(imss|seguro)\b/i.test(raw)) patch.tiene_imss=false;
+  if(/\b(no tengo|no cuento con|no se cuenta con|no estoy afiliad[oa]|sin)\b.{0,20}\b(imss|seguro)\b/i.test(raw)) patch.tiene_imss=false;
   if(/\b(si tengo|sí tengo|cuento con|estoy afiliad[oa]|tengo)\b.{0,20}\b(imss|seguro)\b/i.test(raw) && !/no tengo|no cuento|no estoy|sin seguro/i.test(raw)) patch.tiene_imss=true;
+  // "Dejé de cotizar" / "ya no cotizo": hoy no tiene alta activa, pero cotizó antes.
+  if(/\b(dej[eé] de cotizar|ya no cotizo|ya no estoy cotizando|ya no estoy dad[oa] de alta|me dieron de baja)\b/i.test(raw)){
+    patch.tiene_imss=false;
+    patch.contexto_laboral.cotizo_anteriormente=true;
+  }
   if(/\b(contaba|ten[ií]a)\b.{0,20}\b(imss|seguro)\b/i.test(raw)){
     patch.tiene_imss=false;
     patch.contexto_laboral.cotizo_anteriormente=true;

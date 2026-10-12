@@ -5,7 +5,7 @@ import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
-import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan } from "../sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan, medicalNotNeededDecision } from "../sales/progressive-disclosure.js";
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
@@ -423,6 +423,7 @@ export class ConversationProcessor {
     const commitment = commitmentDecision(memory, combinedText);
     // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
     const deferral = deferralDecision(memory, combinedText);
+    const medicalNotNeeded = medicalNotNeededDecision(memory, combinedText);
     const advisoryTurn = isAdvisoryTurn(combinedText);
     if (advisoryTurn) {
       planner = { ...planner, action: "asesoria_conversacional", question_key: null, specialized: true, advisory: true, customer_question_priority: true };
@@ -430,6 +431,7 @@ export class ConversationProcessor {
     }
     if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
     else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
+    else if (medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
     else if (directDecision) decision = directDecision;
     else if (contextualExplanation) decision = protectDeterministicDecision(contextualExplanation, "contextual_plan_explanation");
     else if (commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);

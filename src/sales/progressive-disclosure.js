@@ -183,3 +183,20 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   }
   return null;
 }
+
+// "Solo me interesa sumar semanas, no me interesa el seguro médico": aclarar que el
+// servicio médico viene incluido (no se paga aparte) sin repetir el precio.
+export function medicalNotNeededDecision(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  const value = norm(combinedText);
+  const rejectsMedical = /\bno (?:me interesa|necesito|quiero|ocupo|busco)\b.{0,25}\b(?:el |lo del )?(?:seguro medico|servicio medico|atencion medica|seguro|servicio del imss)\b/.test(value);
+  if (!rejectsMedical) return null;
+  const wantsPlan2 = /\b(?:afore|infonavit)\b/.test(value) || effectivePlan(memory) === "plan_2";
+  const plan = wantsPlan2 ? "Plan 2" : "Plan 1";
+  const purpose = wantsPlan2 ? "seguir sumando semanas y además aportar a tu AFORE e INFONAVIT" : "seguir sumando semanas cotizadas para tu pensión";
+  return {
+    reply: `Entendido. El ${plan} es justamente para ${purpose}. El servicio médico del IMSS viene incluido en el mismo costo; no se paga aparte y lo usas solo si lo necesitas. ¿Quieres que te explique cómo funciona?`,
+    question_key: null,
+    add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+  };
+}
