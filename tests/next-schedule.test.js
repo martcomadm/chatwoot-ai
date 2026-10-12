@@ -14,9 +14,9 @@ const mx = (date, hour, minute = 15) => new Date(`${date}T${String(hour).padStar
 const week = parseSchedule(DEFAULT_SCHEDULE);
 const TZ = "America/Mexico_City";
 
-test("lunes a viernes: abierto de 9:00 a 17:59", () => {
-  assert.equal(isOpen(week, mx("2026-10-12", 8, 59), TZ), false);
-  assert.equal(isOpen(week, mx("2026-10-12", 9, 0), TZ), true);
+test("lunes a viernes: abierto de 7:00 a 17:59", () => {
+  assert.equal(isOpen(week, mx("2026-10-12", 6, 59), TZ), false);
+  assert.equal(isOpen(week, mx("2026-10-12", 7, 0), TZ), true);
   assert.equal(isOpen(week, mx("2026-10-16", 17, 59), TZ), true);
   assert.equal(isOpen(week, mx("2026-10-16", 18, 0), TZ), false);
 });
@@ -41,8 +41,8 @@ test("la siguiente apertura se calcula bien al cerrar el sábado y en domingo", 
 });
 
 test("el horario se describe en español claro", () => {
-  assert.equal(describeSchedule(week), "lunes a viernes de 9:00 a.m. a 6:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m.");
-  assert.equal(outOfScheduleMessage(week), "¡Gracias por escribir a MARTCOM! Nuestro horario de atención es de lunes a viernes de 9:00 a.m. a 6:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m. Recibimos tu mensaje y te respondemos en cuanto abramos.");
+  assert.equal(describeSchedule(week), "lunes a viernes de 7:00 a.m. a 6:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m.");
+  assert.equal(outOfScheduleMessage(week), "¡Gracias por escribir a MARTCOM! Nuestro horario de atención es de lunes a viernes de 7:00 a.m. a 6:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m. Recibimos tu mensaje y te respondemos en cuanto abramos.");
 });
 
 test("un AI_SCHEDULE mal escrito se rechaza", () => {
@@ -100,5 +100,5 @@ test("sábado en la tarde y domingo cuentan como un solo periodo cerrado (un avi
 });
 
 test("la base de conocimiento incluye el horario de atención", () => {
-  assert.match(MARTCOM_KNOWLEDGE, /lunes a viernes de 9:00 a\.m\. a 6:00 p\.m\. y sábado de 10:00 a\.m\. a 3:00 p\.m\. Los domingos no hay servicio/);
+  assert.match(MARTCOM_KNOWLEDGE, /lunes a viernes de 7:00 a\.m\. a 6:00 p\.m\. y sábado de 10:00 a\.m\. a 3:00 p\.m\. Los domingos no hay servicio/);
 });
