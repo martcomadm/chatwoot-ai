@@ -21,11 +21,11 @@ test("lunes a viernes: abierto de 7:00 a 20:59", () => {
   assert.equal(isOpen(week, mx("2026-10-16", 21, 0), TZ), false);
 });
 
-test("sábado: abierto de 10:00 a 14:59", () => {
-  assert.equal(isOpen(week, mx("2026-10-17", 9, 30), TZ), false);
-  assert.equal(isOpen(week, mx("2026-10-17", 10, 0), TZ), true);
-  assert.equal(isOpen(week, mx("2026-10-17", 14, 59), TZ), true);
-  assert.equal(isOpen(week, mx("2026-10-17", 15, 0), TZ), false);
+test("sábado: abierto de 8:00 a 15:59", () => {
+  assert.equal(isOpen(week, mx("2026-10-17", 7, 59), TZ), false);
+  assert.equal(isOpen(week, mx("2026-10-17", 8, 0), TZ), true);
+  assert.equal(isOpen(week, mx("2026-10-17", 15, 59), TZ), true);
+  assert.equal(isOpen(week, mx("2026-10-17", 16, 0), TZ), false);
 });
 
 test("domingo: sin servicio todo el día", () => {
@@ -36,13 +36,13 @@ test("la siguiente apertura se calcula bien al cerrar el sábado y en domingo", 
   assert.equal(nextOpeningDate(week, mx("2026-10-12", 22), TZ), "2026-10-13");
   assert.equal(nextOpeningDate(week, mx("2026-10-13", 2), TZ), "2026-10-13");
   assert.equal(nextOpeningDate(week, mx("2026-10-16", 22), TZ), "2026-10-17");
-  assert.equal(nextOpeningDate(week, mx("2026-10-17", 16), TZ), "2026-10-19");
+  assert.equal(nextOpeningDate(week, mx("2026-10-17", 17), TZ), "2026-10-19");
   assert.equal(nextOpeningDate(week, mx("2026-10-18", 12), TZ), "2026-10-19");
 });
 
 test("el horario se describe en español claro", () => {
-  assert.equal(describeSchedule(week), "lunes a viernes de 7:00 a.m. a 9:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m.");
-  assert.equal(outOfScheduleMessage(week), "¡Gracias por escribir a MARTCOM! Nuestro horario de atención es de lunes a viernes de 7:00 a.m. a 9:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m. Recibimos tu mensaje y te respondemos en cuanto abramos.");
+  assert.equal(describeSchedule(week), "lunes a viernes de 7:00 a.m. a 9:00 p.m. y sábado de 8:00 a.m. a 4:00 p.m.");
+  assert.equal(outOfScheduleMessage(week), "¡Gracias por escribir a MARTCOM! Nuestro horario de atención es de lunes a viernes de 7:00 a.m. a 9:00 p.m. y sábado de 8:00 a.m. a 4:00 p.m. Recibimos tu mensaje y te respondemos en cuanto abramos.");
 });
 
 test("un AI_SCHEDULE mal escrito se rechaza", () => {
@@ -83,7 +83,7 @@ test("fuera de horario Mia avisa una sola vez y no contesta ni marca los mensaje
   await processor.process(8, snapshot(90));
   await processor.process(8, snapshot(91));
   assert.equal(state.sent.length, 1, "solo un aviso por periodo cerrado");
-  assert.match(state.sent[0], /sábado de 10:00 a\.m\. a 3:00 p\.m\./);
+  assert.match(state.sent[0], /sábado de 8:00 a\.m\. a 4:00 p\.m\./);
   assert.equal(state.processed.size, 0, "los mensajes quedan sin marcar para el equipo");
   assert.deepEqual(state.events.map(e => e.type), ["ignored_out_of_schedule", "ignored_out_of_schedule"]);
   assert.equal(state.events[1].data.notice_sent, false);
@@ -93,12 +93,12 @@ test("sábado en la tarde y domingo cuentan como un solo periodo cerrado (un avi
   const { processor } = harness();
   const sent = [];
   processor.chatwoot.sendMessage = async (_id, text) => sent.push(text);
-  await processor.notifyOutOfSchedule(8, ["1"], mx("2026-10-17", 16));
+  await processor.notifyOutOfSchedule(8, ["1"], mx("2026-10-17", 17));
   await processor.notifyOutOfSchedule(8, ["2"], mx("2026-10-18", 11));
   await processor.notifyOutOfSchedule(8, ["3"], mx("2026-10-19", 7));
   assert.equal(sent.length, 1);
 });
 
 test("la base de conocimiento incluye el horario de atención", () => {
-  assert.match(MARTCOM_KNOWLEDGE, /lunes a viernes de 7:00 a\.m\. a 9:00 p\.m\. y sábado de 10:00 a\.m\. a 3:00 p\.m\. Los domingos no hay servicio/);
+  assert.match(MARTCOM_KNOWLEDGE, /lunes a viernes de 7:00 a\.m\. a 9:00 p\.m\. y sábado de 8:00 a\.m\. a 4:00 p\.m\. Los domingos no hay servicio/);
 });
