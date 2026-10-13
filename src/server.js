@@ -26,6 +26,7 @@ import { AfterHoursQueue, startAfterHoursResume } from "./core/after-hours-queue
 import { FollowUpStore, FollowUpService } from "./core/follow-up.js";
 import { SelfSenders } from "./core/self-senders.js";
 import { PendingSweep } from "./core/pending-sweep.js";
+import { MiaConsole } from "./inspector/mia-console.js";
 import { outOfScheduleMessage, parseSchedule } from "./core/business-hours.js";
 import path from "node:path";
 
@@ -151,7 +152,9 @@ try {
   });
 
   app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit }));
-  app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }));
+  const miaConsole = new MiaConsole({ config, memories, inspectorEvents, afterHours, followUps, operationsConfig, chatwoot, selfSenders,
+    isOpen: now => processor.inSchedule(now), isMiaPaused: () => opsSettings.miaPaused() });
+  app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot, miaConsole }));
 
   app.listen(config.port, "0.0.0.0", () => {
     console.log(`MARTCOM AI NEXT escuchando en puerto ${config.port}`);

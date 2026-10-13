@@ -500,7 +500,7 @@ export class ConversationProcessor {
     }
     // Una respuesta vacía significa "no repetir la misma pregunta": no se envía nada.
     if (!decision.reply) {
-      await this.record(conversationId, "empty_reply_skipped", { question_key: decision.question_key || null, decision_source: decisionSource });
+      await this.record(conversationId, "empty_reply_skipped", { customer_text: combinedText.slice(0, 600), question_key: decision.question_key || null, decision_source: decisionSource });
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
@@ -553,6 +553,8 @@ export class ConversationProcessor {
       asesor_presentacion: memory.asesor_presentacion || publicName,
       operations: { ...(memory.operations || {}), onboarding_last_requested: decisionState.onboarding_requirement || memory.operations?.onboarding_last_requested || null },
     };
+    // El cliente pospuso o cerró la plática: se guarda el motivo para el embudo del inspector.
+    if (deferral) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: new Date().toISOString() } };
     // Recordar qué plan ya se recomendó o explicó para no repetir el mismo mensaje después.
     const pitchKey = { compact_plan_recommendation: "pitched_plans", contextual_plan_explanation: "explained_plans" }[decisionSource];
     const pitchedPlan = pitchKey ? effectivePlan(memory) : null;
@@ -567,6 +569,6 @@ export class ConversationProcessor {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply });
     }
-    await this.record(conversationId, "ai_reply_sent", { reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null });
+    await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null });
   }
 }

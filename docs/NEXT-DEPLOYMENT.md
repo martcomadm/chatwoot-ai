@@ -156,3 +156,7 @@ NEXT es un servicio independiente. Ante cualquier comportamiento inesperado:
 2. detener `chatwoot-ai-next`;
 3. conservar su volumen para diagnóstico;
 4. no realizar ninguna acción sobre `chatwoot-ai` de producción.
+
+## Inspector de Mia
+
+`/inspector` abre el inspector nuevo (solo Admin, con `INSPECTOR_TOKEN`): **Hoy** (en vivo: clientes atendidos, esperando horario, seguimientos, errores), **Conversaciones** (chat real de Chatwoot con el origen de cada respuesta de Mia), **Calidad** (respuestas repetidas, genéricas, errores, chats no retomados) y **Embudo y configuración** (avance de venta, motivos de salida, horario, seguimientos y rotación de asesores; editar la rotación pide `INSPECTOR_ADMIN_TOKEN`). La vista anterior sigue en `/inspector/clasico`.

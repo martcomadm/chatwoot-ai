@@ -2,6 +2,7 @@ import express from "express";
 import { describeSchedule, parseSchedule } from "./core/business-hours.js";
 import { fileURLToPath } from "node:url";
 import { inspectorPage } from "./inspector/page.js";
+import { miaInspectorPage } from "./inspector/mia-page.js";
 import { buildAlerts, dashboardStats, explainDecision, filterConversations, summarizeConversation, uniqueFilterOptions } from "./inspector/inspector-service.js";
 import { buildDiagnostics } from "./inspector/diagnostics-service.js";
 import { conversationProgress, handoffMetrics, rotationOverview, slotStates } from "./inspector/operations-service.js";
@@ -10,7 +11,7 @@ import { buildAnalytics } from "./inspector/analytics-service.js";
 import { trace } from "./utils/debug-trace.js";
 import { APP_VERSION } from "./version.js";
 
-export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot }) {
+export function createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot, miaConsole = null }) {
   const router = express.Router();
   const inspectorPublicPath = fileURLToPath(new URL("./inspector/public/", import.meta.url));
   router.use("/inspector/assets", express.static(inspectorPublicPath, {
@@ -29,7 +30,21 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
     return req.get("x-inspector-admin-token") === config.inspector.adminToken;
   }
 
-  router.get("/inspector", (_req, res) => res.type("html").send(inspectorPage()));
+  // Inspector nuevo de Mia; el anterior queda disponible en /inspector/clasico.
+  router.get("/inspector", (_req, res) => res.type("html").send(miaConsole ? miaInspectorPage() : inspectorPage()));
+  router.get("/inspector/clasico", (_req, res) => res.type("html").send(inspectorPage()));
+  const v2 = handler => async (req, res) => {
+    if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
+    if (!miaConsole) return res.status(503).json({ error: "Inspector no disponible" });
+    try { res.json(await handler(req)); }
+    catch (error) { console.error("Inspector v2:", error); res.status(500).json({ error: error.message }); }
+  };
+  const days = (value, fallback) => Math.min(Math.max(Number(value) || fallback, 1), 90);
+  router.get("/inspector/api/v2/live", v2(() => miaConsole.live()));
+  router.get("/inspector/api/v2/conversations", v2(req => miaConsole.conversations({ search: req.query.search || "", filter: req.query.filter || "all" })));
+  router.get("/inspector/api/v2/conversations/:id", v2(req => miaConsole.conversation(req.params.id)));
+  router.get("/inspector/api/v2/quality", v2(req => miaConsole.quality({ days: days(req.query.days, 7) })));
+  router.get("/inspector/api/v2/funnel", v2(req => ({ funnel: miaConsole.funnel({ days: days(req.query.days, 30) }), config: miaConsole.configuration(), diagnostics: (d => ({ ...d, components: d.components.filter(c => !/Advisor Affinity/.test(c.name)) }))(buildDiagnostics({ config, memories, inspectorEvents })) })));
   router.get("/inspector/api/health", (req, res) => {
     if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
     const diagnostics = buildDiagnostics({ config, memories, inspectorEvents });
