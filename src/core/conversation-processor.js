@@ -10,6 +10,7 @@ import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } 
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
 import { deferralDecision } from "../sales/customer-deferral.js";
+import { SelfSenders } from "./self-senders.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
@@ -37,7 +38,7 @@ const protectedLabels = new Set(["asignado", "predictivo", "reasignado", "client
 
 // true si una persona del equipo (no Mia) mandó un mensaje público después de `sinceIso`.
 // Mientras está cerrado Mia solo manda el aviso de horario, así que ese texto no cuenta.
-function humanRepliedSince(conversation, sinceIso, miaAgentId, ignoreTexts = []) {
+function humanRepliedSince(conversation, sinceIso, miaAgentId, ignoreTexts = [], selfSenders = null) {
   const ignored = new Set(ignoreTexts.map(t => String(t || "").replace(/\s+/g, " ").trim()));
   const since = Date.parse(sinceIso || "") / 1000 || 0;
   return messagesOf(conversation).some(m => {
@@ -45,6 +46,7 @@ function humanRepliedSince(conversation, sinceIso, miaAgentId, ignoreTexts = [])
     const senderType = String(m?.sender_type || m?.sender?.type || "").toLowerCase();
     const senderId = Number(m?.sender_id || m?.sender?.id || 0);
     const text = String(m?.content || "").replace(/\s+/g, " ").trim();
+    if (selfSenders?.isOwn?.(m)) return false;
     return outgoing && m?.private !== true && senderType === "user" && senderId !== Number(miaAgentId) && !ignored.has(text) && Number(m?.created_at || 0) >= since;
   });
 }
@@ -79,7 +81,7 @@ function recoverCommercialContext(conversation, memory = {}) {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null }) {
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -93,6 +95,7 @@ export class ConversationProcessor {
     this.isMiaPaused = isMiaPaused;
     this.afterHours = afterHours;
     this.followUps = followUps;
+    this.selfSenders = selfSenders || new SelfSenders();
   }
 
   async record(id, type, data = {}) {
@@ -207,7 +210,7 @@ export class ConversationProcessor {
     const queued = this.afterHours?.has?.(conversationId) && this.inSchedule() ? this.afterHours.take(conversationId) : null;
     if (queued) {
       const closed = ["resolved", "closed"].includes(String(conversation?.status || "").toLowerCase());
-      if (closed || humanRepliedSince(conversation, queued.first_at, this.config.chatwoot.agentId, [this.scheduleWeek() && outOfScheduleMessage(this.scheduleWeek())])) {
+      if (closed || humanRepliedSince(conversation, queued.first_at, this.config.chatwoot.agentId, [this.scheduleWeek() && outOfScheduleMessage(this.scheduleWeek())], this.selfSenders)) {
         await this.record(conversationId, "after_hours_skipped", { reason: closed ? "conversation_closed" : "human_replied", message_ids: queued.ids });
         await this.memories.markProcessedMany(conversationId, queued.ids);
       } else {

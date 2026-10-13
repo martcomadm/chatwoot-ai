@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { stopLabels } from "../chatwoot/labels.js";
 import { onboardingLabel } from "../operations/onboarding-service.js";
+import { SelfSenders } from "./self-senders.js";
 
 // Seguimiento automático cuando el cliente deja de contestar.
 //
@@ -101,7 +102,7 @@ function publicMessages(conversation) {
 const isIncoming = m => m?.message_type === 0 || m?.message_type === "incoming";
 
 export class FollowUpService {
-  constructor({ store, chatwoot, labels, memories, config, inspectorEvents = null, isOpen = () => true, isMiaPaused = () => false, minutes = DEFAULT_FOLLOW_UP_MINUTES, sentTexts = new Set() }) {
+  constructor({ store, chatwoot, labels, memories, config, inspectorEvents = null, isOpen = () => true, isMiaPaused = () => false, minutes = DEFAULT_FOLLOW_UP_MINUTES, sentTexts = new Set(), selfSenders = null }) {
     this.store = store;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -111,6 +112,7 @@ export class FollowUpService {
     this.isOpen = isOpen;
     this.isMiaPaused = isMiaPaused;
     this.offsets = minutes.map(m => m * MINUTE);
+    this.selfSenders = selfSenders || new SelfSenders();
     this.sentTexts = sentTexts; // textos que manda Mia mientras espera (p.ej. aviso de horario)
     this.running = false;
   }
@@ -156,6 +158,7 @@ export class FollowUpService {
     const since = Date.parse(entry.mia_at) / 1000 - 5;
     const ignored = new Set([...this.sentTexts].map(t => String(t).replace(/\s+/g, " ").trim()));
     const humanReplied = messages.some(m => !isIncoming(m)
+      && !this.selfSenders?.isOwn?.(m)
       && Number(m.created_at || 0) >= since
       && String(m.sender_type || m.sender?.type || "").toLowerCase() === "user"
       && Number(m.sender_id || m.sender?.id || 0) !== Number(this.config.chatwoot.agentId)

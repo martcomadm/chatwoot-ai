@@ -24,6 +24,7 @@ import { OpsAuditStore } from "./operations/access/audit-store.js";
 import { TurnLock } from "./core/turn-lock.js";
 import { AfterHoursQueue, startAfterHoursResume } from "./core/after-hours-queue.js";
 import { FollowUpStore, FollowUpService } from "./core/follow-up.js";
+import { SelfSenders } from "./core/self-senders.js";
 import { outOfScheduleMessage, parseSchedule } from "./core/business-hours.js";
 import path from "node:path";
 
@@ -37,7 +38,9 @@ try {
   const config = loadConfig();
   // Sin límite, el SDK espera hasta 10 minutos por intento y deja la conversación trabada.
   const openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: config.openai.timeoutMs, maxRetries: config.openai.maxRetries });
-  const chatwoot = new ChatwootApi(config.chatwoot);
+  // Aprende con qué cuenta publica Mia para no confundir sus mensajes con los de una persona.
+  const selfSenders = new SelfSenders(path.join(config.storage.dataDir, "self-senders.json"), [config.chatwoot.agentId]);
+  const chatwoot = selfSenders.wrap(new ChatwootApi(config.chatwoot));
   const labels = new LabelService(chatwoot);
   const memories = new MemoryStore(config.storage.memoryFile);
   const agentRotation = new AgentRotationStore(config.storage.rotationFile, config.ai.introAgents);
@@ -72,8 +75,9 @@ try {
     minutes: config.ai.followUp.minutes,
     isMiaPaused: () => opsSettings.miaPaused(),
     sentTexts: new Set([outOfScheduleMessage(parseSchedule(config.ai.schedule))]),
+    selfSenders,
   }) : null;
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps });
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps, selfSenders });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot), {
     onError: (id, error, snapshot) => inspectorEvents.record(id, "processing_error", { error: String(error?.message || error).slice(0, 500), message_ids: (snapshot?.ids || []).map(String) }),
   });
