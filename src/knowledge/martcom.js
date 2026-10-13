@@ -128,3 +128,10 @@ No elimines predictivo ni reasignado.
 `;
 
 // CONFIANZA: MARTCOM atiende clientes de todo México y su operación está en CDMX. No inventes dirección, razón social ni registros no configurados.
+
+// La sección de horario debe coincidir con el horario real (AI_SCHEDULE), no con el texto fijo.
+export function knowledgeWithSchedule(scheduleText) {
+  if (!scheduleText) return MARTCOM_KNOWLEDGE;
+  return MARTCOM_KNOWLEDGE.replace(/(El horario de atención \(hora del centro de México\) es de ).*?(\. Si el cliente pregunta)/,
+    (_m, start, end) => `${start}${String(scheduleText).replace(/\.$/, "")}${end}`);
+}
