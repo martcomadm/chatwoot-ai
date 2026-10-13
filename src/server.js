@@ -25,6 +25,7 @@ import { TurnLock } from "./core/turn-lock.js";
 import { AfterHoursQueue, startAfterHoursResume } from "./core/after-hours-queue.js";
 import { FollowUpStore, FollowUpService } from "./core/follow-up.js";
 import { SelfSenders } from "./core/self-senders.js";
+import { PendingSweep } from "./core/pending-sweep.js";
 import { outOfScheduleMessage, parseSchedule } from "./core/business-hours.js";
 import path from "node:path";
 
@@ -86,6 +87,14 @@ try {
     followUps.isOpen = now => processor.inSchedule(now);
     followUps.start();
   }
+  // Rescate: cada 15 min (y al arrancar) retoma chats que se quedaron solo con el aviso
+  // de horario o con un mensaje del cliente que nunca se procesó.
+  new PendingSweep({
+    chatwoot, config, afterHours, memories, selfSenders, turnLock, inspectorEvents,
+    wake: id => buffer.wake(id, "pending_sweep"),
+    isOpen: now => processor.inSchedule(now),
+    isMiaPaused: () => opsSettings.miaPaused(),
+  }).start();
   startAfterHoursResume({ queue: afterHours, isOpen: () => processor.inSchedule() && !opsSettings.miaPaused(), wake: id => buffer.wake(id, "after_hours_resume") });
 
   const app = express();

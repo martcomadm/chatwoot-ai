@@ -12,6 +12,11 @@ export class ChatwootApi {
     return data;
   }
   getConversation(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}`); }
+  // Conversaciones abiertas de un inbox (25 por página).
+  listConversations({ inboxId, status = "open", page = 1 } = {}) {
+    const query = new URLSearchParams({ assignee_type: "all", status, page: String(page), ...(inboxId ? { inbox_id: String(inboxId) } : {}) });
+    return this.request(`/api/v1/accounts/${this.config.accountId}/conversations?${query}`);
+  }
   getMessages(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/messages`); }
   getLabels(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/labels`); }
   setLabels(id, labels) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/labels`, { method: "POST", body: JSON.stringify({ labels }) }); }

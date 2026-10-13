@@ -68,7 +68,8 @@ function batchFrom(conversation, snapshot, memories, conversationId) {
       return { ...hook, ...m, attachments: webhookAttachments.length ? webhookAttachments : fetchedAttachments };
     });
   if (!batch.length) batch = webhook.filter(m => isIncoming(m) && m.private !== true && isContact(m));
-  return batch.filter(m => !memories.hasProcessed(conversationId, m.id));
+  const forced = new Set((snapshot.forceIds || []).map(String));
+  return batch.filter(m => forced.has(String(m.id)) || !memories.hasProcessed(conversationId, m.id));
 }
 
 // Si la memoria perdió el plan, lo recupera de los últimos 12 mensajes de la conversación.
@@ -214,7 +215,7 @@ export class ConversationProcessor {
         await this.record(conversationId, "after_hours_skipped", { reason: closed ? "conversation_closed" : "human_replied", message_ids: queued.ids });
         await this.memories.markProcessedMany(conversationId, queued.ids);
       } else {
-        snapshot = { ...(snapshot || {}), ids: [...new Set([...(snapshot?.ids || []).map(String), ...queued.ids])] };
+        snapshot = { ...(snapshot || {}), ids: [...new Set([...(snapshot?.ids || []).map(String), ...queued.ids])], forceIds: queued.force ? queued.ids : [] };
         resumedAfterHours = true;
         await this.record(conversationId, "after_hours_resumed", { message_ids: queued.ids, since: queued.first_at });
       }

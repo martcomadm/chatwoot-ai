@@ -18,9 +18,12 @@ export class AfterHoursQueue {
     fs.renameSync(tmp, this.file);
   }
 
-  add(conversationId, messageIds = [], now = new Date()) {
+  // force: retomar aunque esos mensajes ya figuren como procesados (rescate de chats
+  // que se quedaron solo con el aviso de horario).
+  add(conversationId, messageIds = [], now = new Date(), { force = false } = {}) {
     const key = String(conversationId);
     const entry = this.data[key] || { ids: [], first_at: now.toISOString() };
+    if (force) entry.force = true;
     entry.ids = [...new Set([...entry.ids, ...messageIds.map(String)])];
     entry.last_at = now.toISOString();
     this.data[key] = entry;
