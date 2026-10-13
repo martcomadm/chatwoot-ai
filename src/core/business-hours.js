@@ -4,9 +4,9 @@
 // Días: 0 = domingo … 6 = sábado; se aceptan rangos ("1-5") y listas ("1,3").
 // Las horas son enteras en formato 24 h y el fin es exclusivo (18 = hasta las 17:59).
 // Un día que no aparece está cerrado.
-// Ejemplo (default): "1-5=7-18;6=10-15" → lunes a viernes 7-18, sábado 10-15, domingo cerrado.
+// Ejemplo (default): "1-5=7-21;6=10-15" → lunes a viernes 7-21, sábado 10-15, domingo cerrado.
 
-export const DEFAULT_SCHEDULE = "1-5=7-18;6=10-15";
+export const DEFAULT_SCHEDULE = "1-5=7-21;6=10-15";
 const WEEKDAYS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
@@ -62,7 +62,7 @@ function dayRange(days) {
   return `${days.slice(0, -1).map(d => DAY_NAMES[d]).join(", ")} y ${DAY_NAMES[days.at(-1)]}`;
 }
 
-// Texto legible: "lunes a viernes de 7:00 a.m. a 6:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m.".
+// Texto legible: "lunes a viernes de 7:00 a.m. a 9:00 p.m. y sábado de 10:00 a.m. a 3:00 p.m.".
 export function describeSchedule(week) {
   const groups = [];
   for (const day of [1, 2, 3, 4, 5, 6, 0]) {
