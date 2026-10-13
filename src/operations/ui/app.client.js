@@ -89,6 +89,20 @@ const state = {
 };
 
 const app = document.getElementById("app");
+
+// En pantallas angostas las tablas anchas se muestran como tarjetas: cada celda
+// necesita el nombre de su columna (data-label), que se copia del encabezado.
+function labelTables(root) {
+  for (const table of root.querySelectorAll("table.table:not([data-labeled])")) {
+    const heads = [...table.querySelectorAll("thead th")].map(th => th.textContent.trim());
+    if (heads.length >= 5) table.classList.add("stack");
+    for (const row of table.querySelectorAll("tbody tr")) {
+      [...row.children].forEach((cell, i) => { if (heads[i]) cell.setAttribute("data-label", heads[i]); });
+    }
+    table.setAttribute("data-labeled", "");
+  }
+}
+new MutationObserver(() => labelTables(app)).observe(app, { childList: true, subtree: true });
 const dialogEl = document.getElementById("dialog");
 const toastEl = document.getElementById("toast");
 
