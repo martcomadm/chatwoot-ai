@@ -36,7 +36,7 @@ test("'sí quiero pero no tengo dinero' no autoriza el trámite", () => {
 });
 
 test("respuestas: empática sin insistir, y no repite la despedida", () => {
-  const memory = { nombre: "Maria Esther Granados Ortiz", sales_cycle: { recommended_plan: "plan_1" } };
+  const memory = { nombre: "Maria Esther Granados Ortiz", sales_cycle: { recommended_plan: "plan_1" }, ultima_respuesta_agente: "Para iniciar necesitamos CURP, NSS e INE del titular." };
   const money = deferralDecision(memory, "ahorita no cuánto con dinero");
   assert.equal(money.reply, "Entiendo, Maria, no te preocupes. Cuando tengas la posibilidad, escríbeme por aquí y con gusto retomamos tu trámite con el Plan 1. Aquí estaré para ayudarte.");
   assert.doesNotMatch(money.reply, /\$|documentos|¿/);

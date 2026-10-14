@@ -37,6 +37,11 @@ export class TurnLock {
     return true;
   }
 
+  // Libera mensajes para que se vuelvan a atender en el siguiente turno (respuesta reemplazada).
+  release(conversationId, messageIds = []) {
+    for (const messageId of messageIds) { try { fs.rmSync(this.file(conversationId, messageId), { force: true }); } catch {} }
+  }
+
   // Borra candados viejos para que la carpeta no crezca sin límite.
   prune(maxAgeMs = 2 * DAY_MS) {
     const cutoff = Date.now() - maxAgeMs;

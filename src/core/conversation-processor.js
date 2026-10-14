@@ -5,12 +5,13 @@ import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
-import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan, medicalNotNeededDecision } from "../sales/progressive-disclosure.js";
+import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan, medicalNotNeededDecision, coverageAndRequirementsDecision } from "../sales/progressive-disclosure.js";
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
 import { deferralDecision } from "../sales/customer-deferral.js";
 import { SelfSenders } from "./self-senders.js";
+import { plausibleName } from "../semantic/name-validator.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
@@ -53,6 +54,13 @@ function humanRepliedSince(conversation, sinceIso, miaAgentId, ignoreTexts = [],
 
 // Mensajes del cliente que este turno debe procesar: los ids del buffer, con los
 // adjuntos del webhook cuando la API de Chatwoot aún no los trae, y sin los ya procesados.
+function dropTrailingQuestion(reply = "") {
+  const parts = String(reply).trim().split(/(?<=[.!?])\s+/);
+  if (parts.length > 1 && /\?$/.test(parts.at(-1))) parts.pop();
+  else if (parts.length === 1 && /\?$/.test(parts[0])) return "";
+  return parts.join(" ").trim();
+}
+
 function batchFrom(conversation, snapshot, memories, conversationId) {
   const all = messagesOf(conversation);
   const wanted = new Set(snapshot.ids || []);
@@ -82,7 +90,7 @@ function recoverCommercialContext(conversation, memory = {}) {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null }) {
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -97,6 +105,7 @@ export class ConversationProcessor {
     this.afterHours = afterHours;
     this.followUps = followUps;
     this.selfSenders = selfSenders || new SelfSenders();
+    this.requeue = requeue;
   }
 
   async record(id, type, data = {}) {
@@ -299,6 +308,8 @@ export class ConversationProcessor {
 
     // ── 4. Análisis determinista del turno ──
     let base = recoverCommercialContext(conversation, this.memories.get(conversationId));
+    // Nombres mal capturados en versiones anteriores ("Deje Trabajar", "Claro Que Si") se descartan.
+    if (base.nombre && !plausibleName(base.nombre)) base = { ...base, nombre: null, primer_nombre: null };
     const intent = classifyIntent(combinedText, base);
     const salesCyclePatch = analyzeNextSale(combinedText, base).patch;
     const fastPatch = extractFast(combinedText, base);
@@ -328,6 +339,8 @@ export class ConversationProcessor {
     // ── 5. Extracción con IA (texto ambiguo y, tras autorización, documentos) ──
     const llmPatch = (await this.safeAi(conversationId, "extract", () => this.ai.extractAmbiguous(base, combinedText, conversation), {})) || {};
     llmPatch.contradicciones = [];
+    // La IA a veces toma frases como nombre ("Deje", "Claro que sí"): se descartan.
+    if (llmPatch.nombre && !plausibleName(llmPatch.nombre)) { delete llmPatch.nombre; delete llmPatch.primer_nombre; }
     let documentPatch = {};
     const documentAttachments = batch.flatMap(m => m.attachments || []);
     trace("vision_gate", ({ conversation: conversationId, authorized: Boolean(base?.sales_cycle?.authorized), attachments: documentAttachments.length, expected: base?.operations?.onboarding_next || base?.operations?.onboarding_last_requested || null }));
@@ -426,18 +439,32 @@ export class ConversationProcessor {
     const directDecision = directAnswerDecision({ judgment, orchestration });
     const commitment = commitmentDecision(memory, combinedText);
     // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
-    const deferral = deferralDecision(memory, combinedText);
+    const deferral = deferralDecision(memory, combinedText, { resumedAfterHours });
+    // Notas de voz o archivos sin texto antes de iniciar el trámite: Mia no puede escucharlos
+    // ni revisarlos, así que lo dice en vez de contestar algo sin relación.
+    const mediaOnly = !combinedText && !memory.sales_cycle?.authorized && batch.some(hasAttachments)
+      ? (batch.some(m => (m.attachments || []).some(a => /audio|voice|ogg|opus/i.test(String(a?.file_type || a?.content_type || a?.extension || "")))) ? "audio" : "file")
+      : null;
+    const mediaDecision = mediaOnly ? {
+      reply: mediaOnly === "audio"
+        ? "Por ahora no puedo escuchar notas de voz 🙏 ¿Me lo puedes escribir por mensaje?"
+        : "Gracias, recibí tu archivo. Por ahora no puedo revisar archivos por aquí antes de iniciar tu trámite. ¿Me cuentas por mensaje en qué te puedo ayudar?",
+      question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    } : null;
     const medicalNotNeeded = medicalNotNeededDecision(memory, combinedText);
+    const coverageFollowUp = coverageAndRequirementsDecision(base, combinedText);
     const advisoryTurn = isAdvisoryTurn(combinedText);
     if (advisoryTurn) {
       planner = { ...planner, action: "asesoria_conversacional", question_key: null, specialized: true, advisory: true, customer_question_priority: true };
       await this.record(conversationId, "advisory_turn", { text: combinedText, commercial_need: memory.commercial_need || null });
     }
-    if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
+    if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
+    else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
     else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
     else if (medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
     else if (directDecision) decision = directDecision;
     else if (contextualExplanation) decision = protectDeterministicDecision(contextualExplanation, "contextual_plan_explanation");
+    else if (coverageFollowUp) decision = protectDeterministicDecision(coverageFollowUp, "coverage_and_requirements");
     else if (commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
     else if (memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
     else if (openingDecision && !advisoryTurn) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
@@ -472,7 +499,12 @@ export class ConversationProcessor {
     }
     if (directRequest && ["curp", "nss"].includes(decision?.question_key)) decision.question_key = null;
     // Si la IA pregunta algo que el cliente ya respondió, usar la siguiente pregunta pendiente.
-    if (!isDeterministicDecision(decision) && decision?.question_key && answered(memory, decision.question_key) && !memory.sales_cycle?.authorized) decision = fallback();
+    if (!isDeterministicDecision(decision) && decision?.question_key && answered(memory, decision.question_key) && !memory.sales_cycle?.authorized) {
+      // La IA respondió pero terminó repitiendo una pregunta ya contestada: se conserva la
+      // respuesta y se quita solo esa pregunta final, en lugar de tirar todo al respaldo.
+      const trimmed = dropTrailingQuestion(decision.reply);
+      decision = trimmed.length >= 25 ? { ...decision, reply: trimmed, question_key: null } : fallback();
+    }
     applyCommercialGuards();
     let disclosureReasons = applyDisclosureGuard();
     let qualityCheck = quality(decision?.reply);
@@ -510,8 +542,9 @@ export class ConversationProcessor {
     const publicName = this.config.ai.publicName || "Mia de MARTCOM";
     const firstReply = !memory.presentacion_realizada && !memory.ultima_respuesta_agente;
     if (firstReply && !decision.reply.toLowerCase().includes(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${publicName}. ${decision.reply}`;
-    // La IA a veces abre con "Mia de MARTCOM. …" sin saludo: completar la presentación.
+    // La IA a veces abre con "Mia de MARTCOM. …" o "Soy Mia de MARTCOM. …" sin saludo: completar la presentación.
     if (firstReply && decision.reply.toLowerCase().startsWith(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${decision.reply}`;
+    if (firstReply) decision.reply = decision.reply.replace(/^(?:hola[,!.]?\s*)?soy\s+mia de martcom[.,]?\s*/i, `¡Hola! Soy ${publicName}. `);
     // Chat retomado al abrir: agradecer la espera justo después de la presentación (si la hay).
     if (resumedAfterHours) {
       const intro = decision.reply.match(/^(¡Hola!\s*Soy [^.]+\.\s*)/);
@@ -524,9 +557,16 @@ export class ConversationProcessor {
     // identical recent outgoing reply. This is intentionally at the last possible
     // point so every decision path is protected, not only the opening greeting.
     let duplicateReply = false;
+    let supersededBy = [];
     try {
       const fresh = await this.chatwoot.getMessages(conversationId);
       const recent = Array.isArray(fresh?.payload) ? fresh.payload : Array.isArray(fresh) ? fresh : messagesOf(fresh);
+      // Si el cliente escribió de nuevo mientras Mia preparaba esta respuesta, no se envía:
+      // se vuelve a atender todo junto (antes salían dos respuestas seguidas, una ya vieja).
+      const batchIds = new Set(messageIds.map(String));
+      const newestBatchId = Math.max(0, ...messageIds.map(Number).filter(Number.isFinite));
+      supersededBy = this.requeue ? recent.filter(message => isIncoming(message) && message?.private !== true && isContact(message)
+        && !batchIds.has(String(message.id)) && Number(message.id) > newestBatchId && !this.memories.hasProcessed(conversationId, message.id)).map(m => String(m.id)) : [];
       const normalizedReply = String(decision.reply || "").replace(/\s+/g, " ").trim();
       duplicateReply = recent.slice(-12).some(message => {
         const outgoing = message?.message_type === "outgoing" || message?.message_type === 1;
@@ -538,11 +578,20 @@ export class ConversationProcessor {
     } catch (error) {
       console.error(`NEXT no pudo verificar deduplicación de respuesta en conversación ${conversationId}:`, error?.message || error);
     }
+    this.supersedes ||= new Map();
+    if (supersededBy.length && !duplicateReply && (this.supersedes.get(conversationId) || 0) < 3) {
+      this.supersedes.set(conversationId, (this.supersedes.get(conversationId) || 0) + 1);
+      await this.record(conversationId, "reply_superseded", { reply: decision.reply, message_ids: messageIds.map(String), newer_ids: supersededBy });
+      this.turnLock?.release?.(conversationId, messageIds.map(String));
+      this.requeue(conversationId, messageIds.map(String));
+      return;
+    }
     if (duplicateReply) {
       await this.record(conversationId, "duplicate_reply_suppressed", { reply: decision.reply, message_ids: messageIds.map(String) });
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
+    this.supersedes?.delete(conversationId);
     await this.chatwoot.sendMessage(conversationId, decision.reply);
     memory = {
       ...memory,

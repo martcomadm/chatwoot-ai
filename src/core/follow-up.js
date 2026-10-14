@@ -155,6 +155,8 @@ export class FollowUpService {
     const messages = publicMessages(conversation);
     const last = messages.at(-1);
     if (last && isIncoming(last)) return "customer_wrote";
+    // Si lo último que recibió el cliente es el aviso de horario, el chat lo retoma la apertura, no un seguimiento.
+    if (last && /^¡Gracias por escribir a MARTCOM! Nuestro horario de atención es/.test(String(last.content || "").trim())) return "after_hours_notice";
     const since = Date.parse(entry.mia_at) / 1000 - 5;
     const ignored = new Set([...this.sentTexts].map(t => String(t).replace(/\s+/g, " ").trim()));
     const humanReplied = messages.some(m => !isIncoming(m)

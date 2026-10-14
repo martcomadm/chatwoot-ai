@@ -5,7 +5,8 @@ function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').repl
 function isRequirementsQuestion(v){
   const cleaned=String(v||"").replace(/[¿?¡!.,;:()[\]{}]/g," ").replace(/\s+/g," ").trim();
   const hasRequirements=/\brequisitos?\b/.test(cleaned);
-  const hasDocuments=/\b(documentos?|papeles?)\b/.test(cleaned);
+  const hasDocuments=/\b(documentos?|documentacion|papeles?|papeleria)\b/.test(cleaned);
+  if(/\bque (?:necesita|necesitas|ocupa|ocupas|requiere|requieres) que (?:le|te) (?:envie|mande|pase|de)\b/.test(cleaned)) return true;
   const askCue=/\b(que|cual|cuales|necesito|necesitas|necesitan|piden|solicitan|requieren|ocupo|hace falta|se necesita)\b/.test(cleaned);
   const processCue=/\b(iniciar|tramite|tramitar|afiliarme|alta|darme de alta|empezar)\b/.test(cleaned);
   const asksWhatIsNeeded=/\bque se necesita\b/.test(cleaned)||/\bque necesito\b/.test(cleaned)||/\bque hace falta\b/.test(cleaned);
@@ -39,19 +40,38 @@ export function detectDirectRequest(text){
   if(isRequirementsQuestion(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
   const asksRegisteredSalary=/\b(?:que|cual|cuanto|de cuanto)\b.{0,35}\b(?:salario|sueldo)\b.{0,25}\b(?:cotizado|registrado|maneja|manejan|tiene|es)\b|\b(?:salario|sueldo)\b.{0,35}\b(?:cotizado|registrado|maneja|manejan)\b/.test(v);
   if(asksRegisteredSalary) return {type:'registered_salary',priority:'high',answerKey:'registered_salary'};
-  if(/\b(donde se (encuentran|ubican)|donde estan|ubicacion|oficinas?|razon social|estafa|fraude|confiable|seguro que|son reales)\b/.test(v)){
-    return {type:'trust',priority:'high',answerKey:'trust'};
+  // Ubicación, legitimidad y "con qué empresa" son preguntas distintas (antes compartían
+  // una sola respuesta y "un seguro que me cubra" se tomaba como desconfianza).
+  const asksLocation=/\b(donde se (?:encuentran|ubican)|donde (?:estan|esta|queda|quedan|se ubica)|en donde (?:estan|esta)|ubicacion|ubicados|oficinas?|direccion|domicilio de (?:la empresa|ustedes))\b/.test(v);
+  const asksLegitimacy=/\b(es legal|son legales|es legitimo|es real|son reales|estafa\w*|fraude|fraudes|confiable|confiables|es seguro esto|es de confianza|no me (?:van a )?(?:estafar|robar)|me (?:van a )?dar de baja|me dieron de baja)\b/.test(v);
+  const asksCompany=/\b(razon social|cual es la empresa|que empresa|con que empresa|nombre de la empresa|cuantos patrones|con cuantos patrones|quien (?:seria|es) (?:mi )?patron)\b/.test(v);
+  if([asksLocation,asksLegitimacy,asksCompany].filter(Boolean).length>1) return {type:'trust',priority:'high',answerKey:'trust'};
+  if(asksLocation) return {type:'location',priority:'high',answerKey:'location'};
+  if(asksLegitimacy) return {type:'legitimacy',priority:'high',answerKey:'legitimacy'};
+  if(asksCompany) return {type:'operational_model',priority:'high',answerKey:'operational_model'};
+  if(/\b(que modalidad|cual modalidad|en que modalidad|modalidad (?:10|40|diez|cuarenta)|modalidad (?:manejan|atienden|es))\b/.test(v)){
+    return {type:'modality',priority:'high',answerKey:'modality'};
   }
+  if(/\bincapacidad(?:es)?\b/.test(v) && /\b(cobrar|cobro|pagan|paga|cubre|cubren|incluye|agarr\w*|agarias|dan|tengo derecho|aplica|manejan|tienen|saber)\b/.test(v)){
+    return {type:'disability',priority:'high',answerKey:'disability',maternity:/\b(maternidad|embaraz\w*|parto)\b/.test(v)};
+  }
+  // Preguntas sobre jubilación o pensión: dependen del caso; se responde con honestidad
+  // y se ofrece seguir sumando semanas, en vez de un respaldo genérico.
+  const pensionWord=/\b(jubil\w*|pension\w*)\b/.test(v);
+  const pensionAsk=/\b(puedo|podre|podria|voy a poder|me toca|cuando|cuanto|cuantos|que edad|a que edad|requisitos|ya tengo las semanas|me falta|me faltan|tendria que|tengo que)\b/.test(v);
+  if(pensionWord && pensionAsk) return {type:'pension_general',priority:'high',answerKey:'pension_general'};
   // Las preguntas por un plan concreto conservan el contexto del plan.
   if(/\bque incluye (?:el )?plan\s*(1|uno)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services',plan:'plan_1'};
   if(/\bque incluye (?:el )?plan\s*(2|dos)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services',plan:'plan_2'};
   // Solo es pregunta de servicios cuando el cliente realmente pregunta por ellos.
   // Menciones declarativas como "me quedo con el Plan 1" o "quiero el Plan 1"
   // pertenecen al commitment-flow y no deben convertirse en catálogo de planes.
-  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el |los )?plan(?:es)?)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
+  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el |los )?plan(?:es)?|que diferencia(?:s)? (?:hay|tienen|tiene)|cual es la diferencia|explicame (?:los )?(?:dos|ambos)|explicar (?:los )?(?:dos|ambos)|(?:los )?dos planes|ambos planes)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
   // ¿El pago es mensual? Va antes que el precio general para responder la frecuencia.
   if(/\b(?:es mensual|son mensuales|pago mensual|mensualmente|cada mes|al mes|por mes|cada cuanto (?:se paga|pago|se cobra|hay que pagar)|un solo pago|pago unico|es anual|se paga una vez)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
-  if(/\b(precio|cuanto cuesta|cuanto cobra|mensualidad|costo|cuanto sale)\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
+  if(/\b(es gratis|es gratuito|seria gratuito|seria gratis|sin costo|no tiene costo)\b/.test(v)) return {type:'not_free',priority:'high',answerKey:'not_free'};
+  if(/\b(tengo que pagar|hay que pagar|se paga|tiene costo|tiene algun costo)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
+  if(/\b(precio|cuanto cuesta|que cuesta|cuanto cobra|cuanto cobran|mensualidad|costo|cuanto sale|cuanto es|cuanto vale|cuanto seria|cuanto pagaria|cuanto pago)\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
   if(/\b(quiero vender|quiero revender|quiero comercializar|quiero distribuir|quiero ofrecer (el|su) servicio|vender las afiliaciones|vender afiliaciones|ser distribuidor|ser proveedor|quiero ser asesor|ser asesor comercial|trabajar como asesor|integrarme como asesor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones|ofrecer afiliaciones a (mis )?clientes|generar afiliaciones para terceros)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
   return null;
 }
@@ -74,7 +94,14 @@ export function directAnswerText(request){
   if(request.answerKey==='services') return 'Tenemos dos opciones: Plan 1 por $1,100 MXN mensuales, enfocado en servicio médico, semanas cotizadas y beneficiarios; y Plan 2 por $1,500 MXN mensuales, que además contempla AFORE, INFONAVIT e incapacidades conforme al caso. Ambos manejan un salario diario registrado de $480 MXN.';
   if(request.answerKey==='payment_frequency') return 'Sí, el pago es mensual: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes.';
   if(request.answerKey==='price') return 'El Plan 1 tiene un costo de $1,100 MXN mensuales y el Plan 2 de $1,500 MXN mensuales. Ambos manejan un salario diario registrado de $480 MXN; el Plan 2 además contempla AFORE, INFONAVIT e incapacidades conforme al caso.';
-  if(request.answerKey==='trust') return 'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, con gusto podemos ayudarte a hacerlo.';
+  if(request.answerKey==='disability') return `Las incapacidades se contemplan en el Plan 2, de $1,500 MXN mensuales, conforme a las reglas del IMSS y a tu caso. El Plan 1, de $1,100 MXN mensuales, se enfoca en servicio médico y semanas cotizadas.${request.maternity ? " Para la incapacidad por maternidad, el IMSS pide haber cotizado cierto número de semanas antes del parto, así que conviene revisarlo con anticipación." : ""} No manejamos incapacidades permanentes ni por riesgo de trabajo. ¿Quieres que te explique cómo funciona el Plan 2?`;
+  if(request.answerKey==='not_free') return 'El servicio no es gratuito: tiene un costo mensual. El Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes, e incluyen tu alta ante el IMSS con servicio médico y semanas cotizadas.';
+  if(request.answerKey==='location') return 'Nuestra operación está en la Ciudad de México y atendemos a clientes de todo el país. Todo el trámite se hace por este medio, no necesitas acudir a ninguna oficina.';
+  if(request.answerKey==='legitimacy') return 'Entiendo la duda. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica. Mientras tu pago mensual esté al corriente, no deberías tener ningún inconveniente.';
+  if(request.answerKey==='operational_model') return OPERATIONAL_MODEL_ANSWER;
+  if(request.answerKey==='modality') return 'Tu alta se realiza con una empresa y, además, contamos con una empresa de respaldo. Con ella cuentas con servicio médico del IMSS una vez que tu alta está vigente y sigues sumando semanas cotizadas. Si necesitas el detalle de la modalidad para un trámite específico, un asesor te lo confirma.';
+  if(request.answerKey==='pension_general') return 'Eso depende de tu caso: principalmente de si empezaste a cotizar antes o después del 1 de julio de 1997, de cuántas semanas tienes reconocidas y de tu edad. Con tu constancia de semanas cotizadas se puede revisar cuánto te falta. Lo que nosotros hacemos es ayudarte a seguir sumando semanas con el Plan 1, de $1,100 MXN mensuales, que además incluye servicio médico del IMSS. ¿Quieres que te explique cómo funciona?';
+  if(request.answerKey==='trust') return 'Entiendo la duda. Nuestra operación está en la Ciudad de México y atendemos a clientes de todo el país; todo el trámite se hace por este medio. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica.';
   if(request.answerKey==='b2b') return 'Claro. Si buscas vender u ofrecer nuestras afiliaciones como asesor o proveedor, voy a revisar tu solicitud comercial para darle continuidad.';
   return null;
 }

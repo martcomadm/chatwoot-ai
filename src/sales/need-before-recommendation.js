@@ -1,3 +1,4 @@
+import { plausibleName } from "../semantic/name-validator.js";
 function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
@@ -19,7 +20,10 @@ export function deriveCommercialNeed(text, previous = {}) {
 
   if (MEDICAL.test(value)) next.service_medical = true;
   if (WEEKS.test(value)) next.weeks = true;
-  if (AFORE_INFONAVIT.test(value)) next.afore_infonavit = true;
+  // "No Infonavit, no Afore, semanas ok" descarta el Plan 2 aunque mencione esas palabras.
+  const rejectsAforeInfonavit = /\b(?:no|sin|ni)\s+(?:me interesa\s+|quiero\s+|necesito\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b|\b(?:afore|infonavit)\b.{0,20}\b(?:no me interesa|no quiero|no necesito)\b/.test(value);
+  if (rejectsAforeInfonavit) next.afore_infonavit = false;
+  else if (AFORE_INFONAVIT.test(value)) next.afore_infonavit = true;
   if (RETIREMENT.test(value)) next.retirement = true;
   next.unknown = !(next.service_medical || next.weeks || next.afore_infonavit || next.retirement);
   return next;
@@ -45,8 +49,13 @@ export function needGuardDecision(memory = {}, combinedText = "") {
   // the customer's request for guidance with the same discovery question.
   if (isAdvisoryTurn(combinedText)) return null;
   if (!memory?.nombre || !memory?.edad || !memory?.actividad) return null;
+  // Si el cliente pregunta algo, se le responde primero (la IA contesta); no se repite la
+  // pregunta de necesidad encima de su pregunta (caso real: se repitió 3 veces).
+  if (/[?¿]/.test(String(combinedText)) || /^(?:que|cual|cuales|como|cuanto|cuando|donde|por que|tu dime|dime|me puedes|explicame)\b/.test(norm(combinedText))) return null;
+  if (/para orientarte mejor, ¿que es lo mas importante para ti/.test(norm(memory?.ultima_respuesta_agente || ""))) return null;
 
-  const firstName = memory?.primer_nombre || String(memory?.nombre || "").trim().split(/\s+/)[0] || null;
+  const candidateName = memory?.primer_nombre || String(memory?.nombre || "").trim().split(/\s+/)[0] || null;
+  const firstName = candidateName && plausibleName(candidateName) ? candidateName : null;
   return {
     reply: `${firstName ? `${firstName}, ` : ""}para orientarte mejor, ¿qué es lo más importante para ti con la afiliación: tener servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?`,
     question_key: "necesidad_principal",

@@ -86,6 +86,20 @@ export function extractFast(text,memory={}){
     patch.tipo_trabajo=employment.value;
     patch.contexto_laboral.empleado=employment.value==="empleado";
   }
+  // Labores del hogar ("ama de casa", "al hogar", "solo aquí en casa").
+  if(!employment && /\b(ama de casa|amo de casa|labores del hogar|al hogar|a mi hogar|del hogar|hogar|aqui en (?:la )?casa|en casa)\b/i.test(raw.normalize("NFD").replace(/[\u0300-\u036f]/g,""))){
+    patch.actividad="hogar";
+    patch.tipo_trabajo="hogar";
+  }
+  // Respuesta corta a "¿A qué te dedicas?": se guarda tal cual ("Carpintero", "Soy obrero",
+  // "Tengo un taller"), para no volver a preguntarla ni contestar con un respaldo genérico.
+  if(!patch.actividad && memory?.ultima_pregunta==="actividad"){
+    const line=raw.split(/\n+/).map(v=>v.trim()).find(v=>v && !/[?¿]/.test(v) && v.split(/\s+/).length<=10);
+    const notActivity=/\b(quiero|quisiera|necesito|busco|me interesa|servicio|semanas|afore|infonavit|pensi|jubil|precio|costo|cuesta|plan|informaci)/i;
+    if(line && !/^(si|sí|no|ok|okey|gracias|hola|buen[oa]s?\b)/i.test(line) && !notActivity.test(line)){
+      patch.actividad=line.replace(/^(soy|trabajo de|trabajo como|me dedico a|me dedico al|me dedico)\s+/i,"").slice(0,60);
+    }
+  }
 
   if(/no (?:me|nos) (?:dan|ponen|han puesto|dieron).{0,25}(imss|seguro)|empleo.{0,40}sin (imss|seguro)/i.test(raw)){
     patch.tiene_imss=false;

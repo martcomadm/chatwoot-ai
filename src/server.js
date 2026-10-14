@@ -83,6 +83,7 @@ try {
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot), {
     onError: (id, error, snapshot) => inspectorEvents.record(id, "processing_error", { error: String(error?.message || error).slice(0, 500), message_ids: (snapshot?.ids || []).map(String) }),
   });
+  processor.requeue = (id, ids) => buffer.requeue(id, ids);
   // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
   if (followUps) {
     followUps.isOpen = now => processor.inSchedule(now);

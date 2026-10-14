@@ -106,7 +106,8 @@ export function detectPlanPreference(text) {
   const rejectsPlan2Need = /\b(no|sin)\b.{0,30}\b(afore|infonavit|credito|puntos)\b/.test(value)
     || /\b(afore|infonavit)\b.{0,30}\b(no me interesa|no quiero|no necesito)\b/.test(value);
 
-  if (!rejectsPlan2Need && hasAny(value, PLAN_2_SIGNALS)) return "plan_2";
+  if (rejectsPlan2Need) return "plan_1";
+  if (hasAny(value, PLAN_2_SIGNALS)) return "plan_2";
   if (hasAny(value, PLAN_1_SIGNALS)) return "plan_1";
   return null;
 }

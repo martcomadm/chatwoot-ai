@@ -9,7 +9,7 @@ export function analyzePatience(text,memory={}){
 
   if(/\b(ma[nñ]ana|despues|luego|mas tarde)\b.{0,45}\b(?:mando|mandar|envio|enviar|paso|pasar|comparto|compartir|doy|dar)\b|\b(?:te|se) (?:lo|la) (?:mando|envio|paso) ma[nñ]ana\b/.test(v)){
     state="promised_later";rule="promised_later";
-  } else if(/\b(?:espera|esperame|permit[ea]me|me permites|dame (?:un )?momento|un momento|lo estoy buscando|la estoy buscando|estoy buscando|dejame buscar|deja buscar|ahorita (?:lo|la) busco)\b/.test(v)){
+  } else if(/\b(?:espera(?! de)|esperame|permit[ea]me|me permites|dame (?:un )?momento|un momento|lo estoy buscando|la estoy buscando|estoy buscando|dejame buscar|deja buscar|ahorita (?:lo|la) busco)\b/.test(v)){
     state="searching";rule="customer_searching";
   } else if(/\b(?:no me se|no se|no tengo|no cuento con|no traigo|no tengo nada de|no la tengo|no lo tengo)\b.{0,25}\b(?:curp|nss)\b|\b(?:curp|nss)\b.{0,20}\b(?:no me la se|no me lo se|no la se|no lo se)\b/.test(v)){
     state="unavailable";rule="explicit_unavailable";
@@ -50,7 +50,8 @@ export function analyzePatience(text,memory={}){
 
   return {
     slot:sensitive,state,waitRequest,pressure,
-    shouldPause:Boolean(waitRequest||pressure),
+    // "Tómate tu tiempo, cuando lo tengas me lo envías" solo aplica si se está pidiendo un dato o documento.
+    shouldPause:Boolean((waitRequest&&(sensitive||memory?.sales_cycle?.authorized))||pressure),
     reply:pressure
       ?"Tienes razón, no es necesario que te lo vuelva a pedir. Cuando lo tengas a la mano continuamos."
       :waitRequest

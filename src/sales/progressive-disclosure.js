@@ -156,7 +156,8 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   const retirementContext = Boolean(structured.retirement) || /\b(pension|pensionarme|retiro|jubilarme|jubilacion)\b/.test(needText);
   const weeksContext = Boolean(structured.weeks) || /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas)\b/.test(needText);
   const serviceContext = Boolean(structured.service_medical) || /\b(servicio medico|seguro medico|medico|beneficiarios|guarderia|maternidad)\b/.test(needText);
-  const plan2Context = Boolean(structured.afore_infonavit) || /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(needText);
+  const rejectsPlan2 = /\b(?:no|sin|ni)\s+(?:me interesa\s+|quiero\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b/.test(norm(combinedText));
+  const plan2Context = !rejectsPlan2 && (Boolean(structured.afore_infonavit) || /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(needText));
 
   if (plan === "plan_1" && retirementContext && weeksContext) {
     return {
@@ -196,6 +197,24 @@ export function medicalNotNeededDecision(memory = {}, combinedText = "") {
   const purpose = wantsPlan2 ? "seguir sumando semanas y además aportar a tu AFORE e INFONAVIT" : "seguir sumando semanas cotizadas para tu pensión";
   return {
     reply: `Entendido. El ${plan} es justamente para ${purpose}. El servicio médico del IMSS viene incluido en el mismo costo; no se paga aparte y lo usas solo si lo necesitas. ¿Quieres que te explique cómo funciona?`,
+    question_key: null,
+    add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+  };
+}
+
+// Después de explicar el Plan 1 Mia ofrece "qué atención médica puedes recibir o cuáles son
+// los requisitos". Un "sí", "ok" o "dame informes" debe recibir eso, no otra pregunta
+// de datos ni el respaldo genérico (casos reales del 13 y 14 de octubre).
+const OFFER_COVERAGE_RE = /que atencion medica puedes recibir o cuales son los requisitos/;
+export function coverageAndRequirementsDecision(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  if (!OFFER_COVERAGE_RE.test(norm(memory?.ultima_respuesta_agente || ""))) return null;
+  const value = norm(combinedText);
+  const accepts = /^(?:si|claro|ok|okey|va|vale|bueno|perfecto|por favor|ambos|las dos|los dos|muy bien|me parece)\b/.test(value)
+    || /\b(informes|informacion|requisitos|atencion medica|que necesito|explicame|dime|cuentame)\b/.test(value);
+  if (!accepts || /\bno\b/.test(value.split(" ").slice(0, 2).join(" "))) return null;
+  return {
+    reply: "Con tu alta vigente tienes acceso al servicio médico del IMSS: consultas, medicamentos, estudios, hospitalización y cirugías cuando las indique el IMSS, además de maternidad y guardería cuando corresponda. Para iniciar solo necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se pide más adelante. Todo el trámite se hace por este medio. ¿Quieres que iniciemos tu trámite?",
     question_key: null,
     add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
   };

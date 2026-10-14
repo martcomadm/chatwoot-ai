@@ -1,3 +1,4 @@
+import { plausibleName } from "../semantic/name-validator.js";
 // Cuando el cliente pospone ("ahorita no tengo dinero", "yo le aviso") o cierra la
 // plática ("no, todo bien, gracias"), Mia debe despedirse con amabilidad y dejar de
 // insistir: no volver a ofrecer el plan, no pedir más datos y no programar seguimientos.
@@ -19,10 +20,13 @@ const LATER_RE = [
   /\bcuando (?:yo )?(?:pueda|tenga|junte|me paguen|cobre|lo tenga|tenga el dinero)\b/,
   /\b(?:mas adelante|despues (?:le|les|te) (?:escribo|aviso)|luego (?:le|les|te) (?:escribo|aviso)|otro dia)\b/,
   /\blo (?:voy a pensar|pienso|consulto|platico)\b/,
+  /\b(?:te|le|les) (?:mando|escribo|envio) (?:un )?(?:mensaje|msj)? ?mas tarde\b|\bmas tarde (?:te|le|les) (?:escribo|mando|aviso)\b|\bte puedo mandar mensaje mas tarde\b/,
+  /\b(?:me|nos) (?:comunico|comunicamos|reporto|pongo en contacto)\b.{0,25}\b(?:mas adelante|maz adelante|despues|luego|en otro momento|otro dia)\b/,
+  /\bestoy en espera de\b|\btodavia no (?:lo )?(?:decido|se|tengo)\b|\bno gracias,? (?:despues|luego|mas adelante)\b/,
 ];
 
 const THANKS_RE = /\b(?:gracias|grasias|graciaz|todo bien|igualmente|saludos|bendiciones|que amable)\b/;
-const CLOSING_ONLY_RE = /^(?:(?:a|ah|ahh|oh|ok|okay|okey|si|no|vale|va|bueno|muy bien|todo bien|esta bien|perfecto|listo|de acuerdo|entendido|gracias|grasias|graciaz|muchas gracias|mil gracias|muchisimas gracias|que amable|igualmente|saludos|bendiciones|excelente|por la informacion|por todo)[ ,.!]*)+$/;
+const CLOSING_ONLY_RE = /^(?:(?:a|ah|ahh|oh|ok|okay|okey|si|no|ninguna|ninguno|nada|vale|va|bueno|muy bien|todo bien|esta bien|perfecto|listo|de acuerdo|entendido|gracias|grasias|graciaz|muchas gracias|mil gracias|muchisimas gracias|que amable|igualmente|saludos|bendiciones|excelente|por la informacion|por todo)[ ,.!]*)+$/;
 
 function asksSomething(text) {
   return /[?¿]/.test(String(text || "")) || /\b(?:cuanto|cuando abren|que documentos|cuales|como le hago|donde)\b/.test(norm(text)) && !/\bcuando (?:yo )?(?:pueda|tenga)\b/.test(norm(text));
@@ -38,9 +42,14 @@ export function detectDeferral(text) {
 }
 
 // Mensaje que solo agradece o confirma que no tiene dudas ("No, todo bien. Gracias").
-export function detectClosing(text) {
+// Si Mia acaba de ofrecer algo ("¿quieres…?", "podemos ayudarte…"), un "sí, gracias" es
+// aceptar la oferta, no despedirse (caso real: Elisa, 14-oct).
+const OFFER_RE = /\b(quieres|quiere|te gustaria|le gustaria|deseas|desea|podemos ayudarte|puedo ayudarte|puedo explicarte|te explico|prefieres)\b/;
+
+export function detectClosing(text, { lastReply = "" } = {}) {
   const value = norm(text);
   if (!value || asksSomething(text)) return false;
+  if (/^(?:si|claro)\b/.test(value) && OFFER_RE.test(norm(lastReply))) return false;
   return THANKS_RE.test(value) && CLOSING_ONLY_RE.test(value);
 }
 
@@ -48,7 +57,8 @@ const CLOSING_MARK = "escríbeme por aquí";
 
 function firstName(memory = {}) {
   const raw = String(memory.nombre || "").trim().split(/\s+/)[0] || "";
-  if (!raw || raw.length < 2) return "";
+  // Nombres mal capturados antes de la corrección ("Claro", "Deje", "Si") no se usan.
+  if (!raw || raw.length < 2 || !plausibleName(raw)) return "";
   return `, ${raw.charAt(0).toUpperCase()}${raw.slice(1).toLowerCase()}`;
 }
 
@@ -57,9 +67,11 @@ function planLabel(memory = {}) {
   return plan === "plan_2" ? "el Plan 2" : plan === "plan_1" ? "el Plan 1" : null;
 }
 
-export function deferralDecision(memory = {}, combinedText = "") {
+export function deferralDecision(memory = {}, combinedText = "", { resumedAfterHours = false } = {}) {
   const kind = detectDeferral(combinedText);
-  const closing = !kind && detectClosing(combinedText);
+  // Un "gracias" solo cierra la plática si Mia ya había contestado algo real (no al aviso
+  // de horario ni al retomar un chat de la noche).
+  const closing = !kind && !resumedAfterHours && Boolean(memory.ultima_respuesta_agente) && detectClosing(combinedText, { lastReply: memory.ultima_respuesta_agente });
   if (!kind && !closing) return null;
   const name = firstName(memory);
   const plan = planLabel(memory);

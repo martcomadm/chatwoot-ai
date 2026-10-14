@@ -57,5 +57,11 @@ export function checkReply(reply,{memory,questionKey,maxChars=850}){
   }
 
   if(questionKey && (memory?.resolved_questions||[]).includes(questionKey)) reasons.push(`pregunta_resuelta:${questionKey}`);
+  // Antes de autorizar no se mencionan plazos de pago ni bajas, ni se inventan "cotizaciones",
+  // direcciones u otro nombre de asesor (casos reales del 13 y 14 de octubre).
+  if(!memory?.sales_cycle?.authorized && /(antes de las 6|d[eé] de baja|darse de baja|dar de baja el proceso)/i.test(text)) reasons.push("politica_pago_prematura");
+  if(/\bcotizaci[oó]n\b/i.test(text)) reasons.push("cotizacion_inventada");
+  if(/\bxochimilco\b|\bcolonia\b|\balcald[ií]a\b/i.test(text)) reasons.push("ubicacion_inventada");
+  if(/\bsoy\s+axel\b|\baxel\s+(?:de|ia)\b/i.test(text)) reasons.push("identidad_incorrecta");
   return {ok:reasons.length===0,reasons};
 }

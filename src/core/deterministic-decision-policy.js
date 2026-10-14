@@ -20,6 +20,12 @@ const FACT_LOCKED_TYPES = new Set([
   "pension_impact",
   "case_review",
   "case_review_curp",
+  "location",
+  "legitimacy",
+  "modality",
+  "pension_general",
+  "disability",
+  "not_free",
 ]);
 
 export function directAnswerDecision({ judgment, orchestration }) {

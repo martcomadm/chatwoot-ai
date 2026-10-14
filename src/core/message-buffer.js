@@ -51,6 +51,18 @@ export class MessageBuffer {
     return true;
   }
 
+  // Devuelve mensajes a la cola para atenderlos junto con los que llegaron mientras Mia
+  // preparaba su respuesta (así contesta todo en una sola respuesta y no dos).
+  requeue(id, messageIds = []) {
+    const state = this.state(id);
+    for (const messageId of messageIds) state.ids.add(String(messageId));
+    state.sources.add("superseded");
+    if (state.processing) { state.dirty = true; return true; }
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => void this.flush(id), this.bufferMs);
+    return true;
+  }
+
   resetConversation(id) {
     const keyPrefix=`${id}:`;
     const state=this.states.get(id);

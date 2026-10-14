@@ -24,6 +24,9 @@ export const SOURCE_LABELS = {
   need_discovery: "Regla · descubre necesidad",
   onboarding: "Regla · documentos",
   quality_fallback: "Respaldo de calidad",
+  coverage_and_requirements: "Regla · cobertura y requisitos",
+  media_audio: "Regla · nota de voz",
+  media_file: "Regla · archivo",
 };
 
 export function sourceLabel(source = "") {
@@ -67,6 +70,7 @@ export const EVENT_LABELS = {
   frustration_detected: "Cliente molesto",
   operations_state_changed: "Operations actualizó el expediente",
   operations_customer_notification: "Aviso de Operations al cliente",
+  reply_superseded: "Respuesta reemplazada (el cliente siguió escribiendo)",
 };
 
 const REASON_LABELS = {

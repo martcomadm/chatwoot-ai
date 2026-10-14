@@ -21,7 +21,7 @@ export function fallbackDecision(memory, planner, combinedText) {
     nombre: "¿Me compartes tu nombre completo, por favor?",
     edad: "¿Cuántos años tienes?",
     actividad: "¿A qué te dedicas actualmente?",
-    curp: "¿Me compartes tu CURP para revisar la cotización?",
+    curp: "¿Me compartes tu CURP para continuar con tu trámite?",
     nss: "¿Me compartes tu Número de Seguridad Social?",
     aclarar_contradiccion: "¿Me confirmas cuál de los datos anteriores es el correcto?",
   };
@@ -32,7 +32,7 @@ export function fallbackDecision(memory, planner, combinedText) {
   if (planner?.direct_answer_first && !planner?.question_key && direct) {
     return { reply: direct, question_key:null, add_labels:[], remove_labels:[], handoff:false, handoff_reason:"" };
   }
-  const nextQuestion = questions[planner?.question_key] || (direct ? "" : "¿Me compartes un poco más sobre tu situación?");
+  const nextQuestion = questions[planner?.question_key] || (direct ? "" : contextualNextStep(memory));
   const lastQuestion = memory?.ultima_pregunta || null;
   const questionKey = planner?.question_key || null;
   // Never resend the exact pending question just because a duplicate/stale event
@@ -43,4 +43,19 @@ export function fallbackDecision(memory, planner, combinedText) {
   }
   const reply = [direct || prefix, nextQuestion].filter(Boolean).join(" ").trim();
   return { reply, question_key: questionKey, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
+}
+
+// Antes el respaldo era siempre "¿Me compartes un poco más sobre tu situación?", que los
+// clientes no entendían (aparecía tras responder "¿a qué te dedicas?" o al hacer una pregunta).
+// Ahora propone el siguiente paso según dónde va la conversación, sin repetirse.
+export function contextualNextStep(memory = {}) {
+  const plan = memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.recommended_plan || (memory?.commercial_need?.afore_infonavit ? "plan_2" : null);
+  const need = memory?.commercial_need || {};
+  const knowsNeed = Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement || memory?.necesidad_principal);
+  const options = [];
+  if (plan) options.push(`¿Tienes alguna duda sobre el ${plan === "plan_2" ? "Plan 2" : "Plan 1"} o quieres que iniciemos tu trámite?`);
+  else if (!knowsNeed) options.push("Para orientarte mejor, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?");
+  options.push("¿Hay algo más en lo que te pueda ayudar?");
+  const last = String(memory?.ultima_respuesta_agente || "").trim();
+  return options.find(option => !last.endsWith(option)) || options.at(-1);
 }
