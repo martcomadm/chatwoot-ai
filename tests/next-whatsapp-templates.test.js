@@ -9,7 +9,8 @@ import { SaleStore } from "../src/operations/sale-store.js";
 import { SaleWorkflowEngine } from "../src/operations/workflow-engine.js";
 import { ChatwootWorkflowBridge } from "../src/operations/chatwoot-workflow-bridge.js";
 import { ConversationProcessor } from "../src/core/conversation-processor.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, DEFAULT_HANDOFF_AGENTS } from "../src/config.js";
+import { OperationsConfigStore } from "../src/handoff/operations-config-store.js";
 
 const NAMES = { validity: "vigencia1", referral: "recomendacion2", followUp24h: "saludodia3" };
 const CATALOG = [
@@ -43,9 +44,9 @@ test("plantillas: se envían con el nombre e idioma sincronizados en el inbox", 
   assert.equal((await off.send(10, "referral")).reason, "disabled");
 });
 
-test("rotación L-V predeterminada: Pamela, Adriana, Jonathan y Alberto", () => {
+test("rotación predeterminada toda la semana: Pamela, Adriana, Jonathan y Alberto", () => {
   const base = { CHATWOOT_BASE_URL: "http://x", CHATWOOT_API_TOKEN: "t", CHATWOOT_ACCOUNT_ID: "1", CHATWOOT_INBOX_ID: "7", CHATWOOT_AI_AGENT_ID: "53", OPENAI_API_KEY: "k", APP_ENV: "next", ALLOWED_INBOX_IDS: "7", NEXT_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "next-cfg-")) };
-  const keys = [...Object.keys(base), "HANDOFF_WEEKDAY_AGENTS", "TEMPLATE_VALIDITY", "TEMPLATE_REFERRAL", "TEMPLATE_FOLLOWUP_24H"];
+  const keys = [...Object.keys(base), "HANDOFF_WEEKDAY_AGENTS", "HANDOFF_SATURDAY_AGENTS", "HANDOFF_SUNDAY_AGENTS", "TEMPLATE_VALIDITY", "TEMPLATE_REFERRAL", "TEMPLATE_FOLLOWUP_24H"];
   const saved = Object.fromEntries(keys.map(k => [k, process.env[k]]));
   Object.assign(process.env, base);
   for (const k of keys.slice(Object.keys(base).length)) delete process.env[k];
@@ -60,7 +61,7 @@ test("rotación L-V predeterminada: Pamela, Adriana, Jonathan y Alberto", () => 
         process.env[key] = key.endsWith("_ID") ? "53" : "x";
       }
     }
-    assert.deepEqual(config.handoff.weekdayAgents.map(a => a.id), [26, 24, 20, 40]);
+    for (const group of ["weekdayAgents", "saturdayAgents", "sundayAgents"]) assert.deepEqual(config.handoff[group].map(a => a.id), [26, 24, 20, 40], group);
     assert.deepEqual(config.whatsappTemplates, NAMES);
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
@@ -223,4 +224,20 @@ test("respuesta a la plantilla de vigencia con etiqueta 'validacion': entrega el
   await processor.process(72, { ids: ["950"], webhookMessages: new Map() });
   assert.deepEqual(replies, [72]);
   assert.equal(sent.length, 0);
+});
+
+test("la rotación guardada de fin de semana (la vieja predeterminada) pasa a los 4 asesores; una editada a mano se respeta", () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "next-rot-")), "handoff-config.json");
+  const agents = DEFAULT_HANDOFF_AGENTS.split(",").map(item => { const [id, name] = item.split(":"); return { id: Number(id), name }; });
+  fs.writeFileSync(file, JSON.stringify({ groups: {
+    weekday: [],
+    saturday: [{ id: 40, name: "Alberto Gonzalez" }, { id: 26, name: "Pamela Montiel" }, { id: 32, name: "Vicente Martinez" }],
+    sunday: [{ id: 25, name: "Elizabeth Aguilera" }, { id: 20, name: "Jonathan Nuñez" }, { id: 31, name: "Tonatiuh Ramirez" }],
+  } }));
+  const store = new OperationsConfigStore(file, { weekday: agents, saturday: agents, sunday: agents });
+  for (const group of ["weekday", "saturday", "sunday"]) assert.deepEqual(store.agentsFor(group).map(a => a.id), [26, 24, 20, 40], group);
+  assert.ok(store.snapshot().audit.some(e => e.type === "rotation_defaults_migrated"));
+
+  fs.writeFileSync(file, JSON.stringify({ groups: { saturday: [{ id: 40, name: "Alberto Gonzalez" }] } }));
+  assert.deepEqual(new OperationsConfigStore(file, { weekday: agents, saturday: agents, sunday: agents }).agentsFor("saturday").map(a => a.id), [40]);
 });

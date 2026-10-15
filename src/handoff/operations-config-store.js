@@ -20,6 +20,9 @@ function normalizeAgents(items){
     });
 }
 
+// Rotaciones predeterminadas anteriores (antes de oct-2026).
+const LEGACY_DEFAULT_IDS = { saturday:[40,26,32], sunday:[25,20,31] };
+
 export class OperationsConfigStore {
   constructor(filePath, defaults = {}) {
     this.filePath = filePath;
@@ -45,6 +48,13 @@ export class OperationsConfigStore {
       this.state.groups = this.state.groups || {};
       for(const group of ["weekday","saturday","sunday"]){
         const current = normalizeAgents(this.state.groups[group]);
+        // Rotaciones viejas que nadie editó (iguales a los predeterminados anteriores) pasan a los actuales.
+        const legacy = LEGACY_DEFAULT_IDS[group]?.join(",") === current.map(a=>a.id).join(",");
+        if(legacy && this.defaults[group].length){
+          this.audit("rotation_defaults_migrated", "sistema", {group,before:current,after:this.defaults[group]});
+          this.state.groups[group] = clone(this.defaults[group]);
+          continue;
+        }
         this.state.groups[group] = current.length ? current : clone(this.defaults[group]);
       }
       this.state.exceptions = this.state.exceptions && typeof this.state.exceptions === "object" ? this.state.exceptions : {};
