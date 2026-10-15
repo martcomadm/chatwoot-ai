@@ -9,8 +9,9 @@ import { SelfSenders } from "./self-senders.js";
 // Después de cada respuesta de Mia se programa una serie de recordatorios (por defecto
 // a los 20 min, 3 h y 20 h). Si el cliente escribe, la serie se cancela y se vuelve a
 // programar con la siguiente respuesta de Mia. Todo ocurre dentro de la ventana de 24 h
-// de WhatsApp (contada desde el último mensaje del cliente); al cerrarse la ventana sin
-// respuesta, Mia pone la etiqueta "no_contesta" y deja de escribir.
+// de WhatsApp (contada desde el último mensaje del cliente). Al cerrarse la ventana sin
+// respuesta, Mia manda una vez la plantilla aprobada de seguimiento (saludodia3), en
+// horario de atención, pone la etiqueta "no_contesta" y deja de escribir.
 
 export const DEFAULT_FOLLOW_UP_MINUTES = [20, 180, 1200];
 const MINUTE = 60 * 1000;
@@ -102,7 +103,8 @@ function publicMessages(conversation) {
 const isIncoming = m => m?.message_type === 0 || m?.message_type === "incoming";
 
 export class FollowUpService {
-  constructor({ store, chatwoot, labels, memories, config, inspectorEvents = null, isOpen = () => true, isMiaPaused = () => false, minutes = DEFAULT_FOLLOW_UP_MINUTES, sentTexts = new Set(), selfSenders = null }) {
+  constructor({ store, chatwoot, labels, memories, config, inspectorEvents = null, isOpen = () => true, isMiaPaused = () => false, minutes = DEFAULT_FOLLOW_UP_MINUTES, sentTexts = new Set(), selfSenders = null, templates = null }) {
+    this.templates = templates;
     this.store = store;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -180,6 +182,9 @@ export class FollowUpService {
         const windowClosed = now.getTime() > this.windowEnd(entry);
         const due = this.dueAt(entry);
         if (!windowClosed && (due === null || now.getTime() < due || !this.isOpen(now))) continue;
+        // La plantilla de 24 h se manda en horario de atención; mientras tanto se espera.
+        const useTemplate = windowClosed && this.templates?.enabled?.("followUp24h");
+        if (useTemplate && !this.isOpen(now)) continue;
 
         let conversation;
         try { conversation = await this.chatwoot.getConversation(id); }
@@ -190,9 +195,15 @@ export class FollowUpService {
         if (windowClosed) {
           // Se cerró la ventana de 24 h sin respuesta: etiqueta y fin de la serie.
           this.store.remove(id);
-          if (Number(entry.sent || 0) > 0) {
+          let template = null;
+          // Solo si aún tiene sentido insistir (p. ej. no a quien ya entregó todo).
+          if (useTemplate && followUpMessage(this.memories.get(id), 0) !== null) {
+            template = await this.templates.send(id, "followUp24h");
+            await this.record(id, template.sent ? "followup_template_sent" : "followup_template_failed", template);
+          }
+          if (Number(entry.sent || 0) > 0 || template?.sent) {
             await this.labels.mergeSafe(id, [NO_RESPONSE_LABEL], [], conversation);
-            await this.record(id, "followup_no_response", { sent: entry.sent });
+            await this.record(id, "followup_no_response", { sent: entry.sent, template: Boolean(template?.sent) });
           }
           continue;
         }

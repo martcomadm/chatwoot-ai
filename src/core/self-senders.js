@@ -41,7 +41,7 @@ export class SelfSenders {
 
   // Envuelve el cliente de Chatwoot para aprender la cuenta en cada envío de Mia.
   wrap(chatwoot) {
-    for (const method of ["sendMessage", "sendMessageWithAttachment"]) {
+    for (const method of ["sendMessage", "sendMessageWithAttachment", "sendTemplate"]) {
       const original = chatwoot[method]?.bind(chatwoot);
       if (!original) continue;
       chatwoot[method] = async (...args) => {

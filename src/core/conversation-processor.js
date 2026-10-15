@@ -255,9 +255,13 @@ export class ConversationProcessor {
     // comprobante de un expediente que espera pago (excepción acordada con server.js).
     // En ese caso Mia NUNCA responde: solo registra el comprobante y termina.
     const reassigned = Boolean(assigneeId && assigneeId !== Number(this.config.chatwoot.agentId));
-    if (reassigned && this.workflow?.store?.findByConversationId?.(conversationId)?.status !== "payment_requested") return;
+    const pendingSale = this.workflow?.store?.findByConversationId?.(conversationId);
+    // También se procesa (sin que Mia responda) la respuesta a la plantilla de vigencia.
+    const awaitingValidity = Boolean(pendingSale?.validity?.awaiting_customer_reply);
+    if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity) return;
     let currentLabels = conversation?.labels || [];
-    if (currentLabels.some(label => stopLabels.has(label))) return;
+    const stopped = currentLabels.some(label => stopLabels.has(typeof label === "string" ? label : label?.title));
+    if (stopped && !awaitingValidity) return;
     // Pausa: global desde Operations o por conversación con la etiqueta "pausar_mia".
     // Mia no responde ni registra nada; los mensajes quedan para que los atienda una persona.
     const pausedByLabel = currentLabels.some(label => (typeof label === "string" ? label : label?.title) === PAUSE_LABEL);
@@ -299,6 +303,17 @@ export class ConversationProcessor {
     const messageIds = batch.map(m => m.id);
     // El cliente escribió: se cancelan los seguimientos pendientes.
     this.followUps?.customerWrote(conversationId);
+    // El cliente contestó a la plantilla de vigencia: se le entrega su documento y listo.
+    if (awaitingValidity && typeof this.onValidityReply === "function") {
+      let delivered = false;
+      try { delivered = await this.onValidityReply(conversationId); }
+      catch (error) { await this.record(conversationId, "validity_reply_delivery_failed", { error: String(error?.message || error).slice(0, 300) }); }
+      // Con el chat en manos de Operaciones (etiqueta de alto o reasignado) Mia no conversa.
+      if (delivered || stopped || reassigned) {
+        await this.memories.markProcessedMany(conversationId, messageIds);
+        return;
+      }
+    }
     // Fuera del horario de atención Mia no conversa: avisa una sola vez por periodo
     // cerrado y deja los mensajes sin marcar para que el equipo los vea al abrir.
     if (!this.inSchedule()) {

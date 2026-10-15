@@ -29,6 +29,7 @@ import { PendingSweep } from "./core/pending-sweep.js";
 import { MiaConsole } from "./inspector/mia-console.js";
 import { outOfScheduleMessage, parseSchedule } from "./core/business-hours.js";
 import path from "node:path";
+import { WhatsAppTemplates } from "./chatwoot/whatsapp-templates.js";
 
 // Última barrera: una promesa rechazada sin manejar se registra en vez de tumbar el
 // servicio (Node termina el proceso por defecto y se perderían los mensajes en espera).
@@ -60,7 +61,8 @@ try {
   const opsSessions = new SessionStore(config.storage.opsSessionsFile);
   const opsSettings = new OpsSettingsStore(config.storage.opsSettingsFile, config.storage.opsAccountsImageFile);
   const opsAudit = new OpsAuditStore(config.storage.opsAuditFile);
-  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId, settings: opsSettings });
+  const templates = new WhatsAppTemplates({ chatwoot, inboxId: config.chatwoot.inboxId, names: config.whatsappTemplates });
+  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId, settings: opsSettings, templates });
   workflowBridge.start();
   workflowBridge.reconcileCompletedSales().catch(error=>console.error("NEXT reconciliación de completados:",error));
   workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error));
@@ -77,13 +79,14 @@ try {
     minutes: config.ai.followUp.minutes,
     isMiaPaused: () => opsSettings.miaPaused(),
     sentTexts: new Set([outOfScheduleMessage(parseSchedule(config.ai.schedule))]),
-    selfSenders,
+    selfSenders, templates,
   }) : null;
   const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps, selfSenders });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot), {
     onError: (id, error, snapshot) => inspectorEvents.record(id, "processing_error", { error: String(error?.message || error).slice(0, 500), message_ids: (snapshot?.ids || []).map(String) }),
   });
   processor.requeue = (id, ids) => buffer.requeue(id, ids);
+  processor.onValidityReply = id => workflowBridge.deliverAwaitingValidity(id);
   // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
   if (followUps) {
     followUps.isOpen = now => processor.inSchedule(now);
@@ -122,6 +125,10 @@ try {
       0
     );
     const paymentSale = conversationId ? saleStore.findByConversationId(conversationId) : null;
+    if (paymentSale?.validity?.awaiting_customer_reply) {
+      console.log(`NEXT permitió message_created de ${conversationId}: respuesta a la plantilla de vigencia.`);
+      return next();
+    }
     if (paymentSale?.status === "payment_requested") {
       console.log(`NEXT permitió message_created de pago para conversación ${conversationId} aunque no esté asignada al usuario LAB.`);
       return next();

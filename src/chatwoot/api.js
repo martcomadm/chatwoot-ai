@@ -25,6 +25,15 @@ export class ChatwootApi {
       method: "POST", body: JSON.stringify({ content, message_type: "outgoing", private: isPrivate }),
     });
   }
+  // Plantilla aprobada de WhatsApp (Twilio Content). Chatwoot busca el content_sid por
+  // nombre e idioma entre las plantillas sincronizadas del inbox.
+  sendTemplate(id, { content, name, language, category = null, params = {} }) {
+    return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content, message_type: "outgoing", private: false, template_params: { name, language, ...(category ? { category } : {}), processed_params: params } }),
+    });
+  }
+  getInbox(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/inboxes/${id}`); }
   async sendMessageWithAttachment(id, content, attachment, isPrivate = false) {
     const form = new FormData();
     form.append("content", content || "");

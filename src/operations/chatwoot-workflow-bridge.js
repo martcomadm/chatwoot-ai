@@ -1,5 +1,6 @@
 import { onboardingStateFromSale } from "./onboarding-service.js";
 import { renderCustomerMessage } from "./customer-messages.js";
+import { replyWindowOpen, TEMPLATE_TEXTS } from "../chatwoot/whatsapp-templates.js";
 
 const ATTACHMENT_DELIVERIES = Object.freeze({
   validity: {
@@ -23,7 +24,7 @@ const ATTACHMENT_DELIVERIES = Object.freeze({
 });
 
 export class ChatwootWorkflowBridge{
-  constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0,settings=null}){this.saleStore=saleStore;this.settings=settings;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
+  constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0,settings=null,templates=null}){this.templates=templates;this.saleStore=saleStore;this.settings=settings;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
   start(){this.saleStore.on("sale",this.listener)}
   stop(){this.saleStore.off("sale",this.listener)}
   async reconcileCompletedSales(){
@@ -95,6 +96,10 @@ export class ChatwootWorkflowBridge{
       if (!Number(sale?.conversation_id)) continue;
       for (const [kind, spec] of Object.entries(ATTACHMENT_DELIVERIES)) {
         const section = sale[spec.section] || {};
+        if (kind === "validity" && section.awaiting_customer_reply) {
+          results.push({ sale_id: sale.sale_id, kind, delivered: await this.deliverAwaitingValidity(Number(sale.conversation_id), { checkWindow: true }) });
+          continue;
+        }
         if (!section[spec.base64] || section[spec.delivered] || !spec.statuses.includes(sale.status)) continue;
         const started = Date.parse(section[spec.started] || "");
         if (Number.isFinite(started) && Date.now() - started < staleMs) continue;
@@ -103,6 +108,58 @@ export class ChatwootWorkflowBridge{
       }
     }
     return results;
+  }
+
+  // ¿Se le puede escribir al cliente sin plantilla? Ante un error de Chatwoot se asume que sí
+  // (comportamiento anterior) para no frenar la entrega.
+  async windowOpen(conversationId) {
+    try { return replyWindowOpen(await this.chatwoot.getConversation(conversationId)); }
+    catch (error) { await this.record(conversationId, "reply_window_check_failed", { error: String(error?.message || error).slice(0, 200) }); return true; }
+  }
+
+  // Vigencia lista pero el cliente está fuera de las 24 h: se manda la plantilla "vigencia1"
+  // y el documento se entrega en cuanto el cliente conteste. Devuelve true si quedó en espera.
+  async holdValidityForReply(conversationId, sale) {
+    if (!this.templates?.enabled?.("validity") || await this.windowOpen(conversationId)) return false;
+    const result = await this.templates.send(conversationId, "validity");
+    await this.record(conversationId, result.sent ? "validity_template_sent" : "validity_template_failed", { sale_id: sale.sale_id, ...result });
+    if (!result.sent) return false;
+    const current = this.saleStore.get(sale.sale_id)?.validity || sale.validity || {};
+    await this.saleStore.update(sale.sale_id, { validity: { ...current, awaiting_customer_reply: true, template_sent_at: new Date().toISOString() } }, "validity.awaiting_customer_reply", { template: result.name });
+    return true;
+  }
+
+  // El cliente contestó a la plantilla de vigencia: se entrega el documento con su mensaje.
+  async deliverAwaitingValidity(conversationId, { checkWindow = false } = {}) {
+    const sale = this.saleStore.findByConversationId?.(conversationId);
+    const section = sale?.validity || {};
+    if (!section.awaiting_customer_reply) return false;
+    if (checkWindow && !(await this.windowOpen(conversationId))) return false;
+    if (checkWindow && !this.saleStore.get(sale.sale_id)?.validity?.awaiting_customer_reply) return false;
+    // Se libera la espera antes de enviar para que dos mensajes seguidos no lo manden dos veces.
+    await this.saleStore.update(sale.sale_id, { validity: { ...section, awaiting_customer_reply: false } }, "validity.customer_replied", {});
+    const fresh = this.saleStore.get(sale.sale_id) || sale;
+    const content = this.customerMessage({ type: "validity.confirmed", sale: fresh, details: {} });
+    let delivered = false;
+    if (fresh.validity?.document_base64 && !fresh.validity?.delivered_to_customer) delivered = await this.deliverAttachment(fresh, "validity", content);
+    else if (content) { await this.chatwoot.sendMessage(conversationId, content); delivered = true; }
+    await this.record(conversationId, "validity_delivered_after_reply", { sale_id: sale.sale_id, delivered });
+    return delivered;
+  }
+
+  // Al terminar el proceso: invitación a recomendar. Dentro de las 24 h como texto normal;
+  // fuera, con la plantilla "recomendacion2". Una sola vez por conversación.
+  async sendReferral(conversationId, sale) {
+    if (!this.templates?.enabled?.("referral")) return;
+    const memory = this.memories.get?.(conversationId) || {};
+    if (memory.referral_sent_at) return;
+    let result;
+    if (await this.windowOpen(conversationId)) {
+      try { await this.chatwoot.sendMessage(conversationId, TEMPLATE_TEXTS.referral); result = { sent: true, as: "text" }; }
+      catch (error) { result = { sent: false, reason: "send_error", error: String(error?.message || error).slice(0, 200) }; }
+    } else result = { ...(await this.templates.send(conversationId, "referral")), as: "template" };
+    if (result.sent) await this.memories.merge(conversationId, { referral_sent_at: new Date().toISOString() });
+    await this.record(conversationId, result.sent ? "referral_sent" : "referral_failed", { sale_id: sale.sale_id, ...result });
   }
 
   async handle(event) {
@@ -115,7 +172,7 @@ export class ChatwootWorkflowBridge{
       operations: {
         sale_id: sale.sale_id, status: sale.status, queue: sale.queue,
         validation_approved: Boolean(sale.validation?.approved), validation_rejected: Boolean(sale.validation?.rejected), validation_correction: sale.validation?.correction || null,
-        validity_confirmed: Boolean(sale.validity?.confirmed), validity_confirmed_at: sale.validity?.confirmed_at || null, validity_confirmed_by: sale.validity?.confirmed_by || null, validity_issue: sale.validity?.issue || null, validity_document_name: sale.validity?.document_name || null,
+        validity_confirmed: Boolean(sale.validity?.confirmed), validity_confirmed_at: sale.validity?.confirmed_at || null, validity_confirmed_by: sale.validity?.confirmed_by || null, validity_issue: sale.validity?.issue || null, validity_document_name: sale.validity?.document_name || null, validity_awaiting_reply: Boolean(sale.validity?.awaiting_customer_reply),
         payment_requested: Boolean(sale.payment?.requested), payment_requested_at: sale.payment?.requested_at || null, payment_due_date: sale.payment?.due_date || null, payment_accounts_image_name: sale.payment?.accounts_image_name || null,
         payment_received: Boolean(sale.payment?.received), payment_received_at: sale.payment?.received_at || null, payment_reference: sale.payment?.reference || null, payment_proof_name: sale.payment?.proof_name || null, payment_issue: sale.payment?.issue || null,
         payment_validated: Boolean(sale.payment?.validated), payment_validated_at: sale.payment?.validated_at || null, payment_validated_by: sale.payment?.validated_by || null,
@@ -127,7 +184,9 @@ export class ChatwootWorkflowBridge{
     await this.record(conversationId, "operations_state_changed", { sale_id: sale.sale_id, event: event.type, status: sale.status, queue: sale.queue, ...onboarding });
 
     const content = this.customerMessage(event);
-    if (content) {
+    if (content && event.type === "validity.confirmed" && !sale.validity?.delivered_to_customer && !sale.validity?.delivery_started_at && await this.holdValidityForReply(conversationId, sale)) {
+      // Queda en espera: el documento sale cuando el cliente conteste a la plantilla.
+    } else if (content) {
       let delivered = false;
       if (event.type === "validity.confirmed" && sale.validity?.document_base64 && !sale.validity?.delivery_started_at && !sale.validity?.delivered_to_customer) {
         delivered = await this.deliverAttachment(sale, "validity", content);
@@ -139,6 +198,9 @@ export class ChatwootWorkflowBridge{
       }
       if (delivered) await this.record(conversationId, "operations_customer_notification", { sale_id: sale.sale_id, event: event.type });
     }
-    if (event.type === "payment.validated") await this.completeHumanHandoff(conversationId, sale);
+    if (event.type === "payment.validated") {
+      await this.sendReferral(conversationId, sale);
+      await this.completeHumanHandoff(conversationId, sale);
+    }
   }
 }
