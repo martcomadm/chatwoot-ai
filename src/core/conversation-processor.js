@@ -230,6 +230,24 @@ export class ConversationProcessor {
       }
     }
 
+    // ── 1c. Mensajes que no vienen en la conversación ──
+    // GET /conversations/:id de Chatwoot solo trae los mensajes más recientes. Al retomar un
+    // chat de la noche (o rescatarlo) no hay webhook, y si el último mensaje es el aviso de
+    // horario el mensaje del cliente no aparecía: Mia no contestaba nada. Se completan con
+    // la lista de mensajes.
+    const knownIds = new Set(messagesOf(conversation).map(m => String(m?.id)));
+    const missingIds = (snapshot?.ids || []).map(String).filter(id => !knownIds.has(id));
+    if (missingIds.length && typeof this.chatwoot.getMessages === "function") {
+      try {
+        const raw = await this.chatwoot.getMessages(conversationId);
+        const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : messagesOf(raw);
+        const extra = list.filter(m => m?.id && !knownIds.has(String(m.id)));
+        if (extra.length) conversation.messages = [...messagesOf(conversation), ...extra].sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0));
+      } catch (error) {
+        await this.record(conversationId, "chatwoot_messages_fetch_failed", { error: String(error?.message || error).slice(0, 300) });
+      }
+    }
+
     // ── 2. Guardas de aislamiento: inbox, asignación y etiquetas de alto ──
     if (Number(conversation?.inbox_id || conversation?.inbox?.id) !== Number(this.config.chatwoot.inboxId)) return;
     const assigneeId = Number(conversation?.meta?.assignee?.id || conversation?.assignee?.id || 0);

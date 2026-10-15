@@ -99,7 +99,7 @@ test("si la IA pide transferir, se hace el handoff en vez de responder", async (
 
 test("las etiquetas de la IA se filtran: nunca venta/cliente ni etiquetas inventadas o protegidas", async () => {
   const { state, say } = harness({ ai: { generateDecision: async () => ({ reply: "Perfecto, quedo atenta por si tienes otra duda.", question_key: null, add_labels: ["seguimiento", "venta", "inventada"], remove_labels: ["asignado", "sin_atender"] }) }, memory: { presentacion_realizada: true, ultima_respuesta_agente: "x" } });
-  await say("ok gracias, lo reviso");
+  await say("ok, me queda claro, lo comento con mi esposo");
   assert.deepEqual(state.labels[0], { add: ["seguimiento"], remove: ["sin_atender"] });
 });
 

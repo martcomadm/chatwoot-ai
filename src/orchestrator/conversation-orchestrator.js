@@ -42,18 +42,21 @@ export function detectDirectRequest(text){
   if(asksRegisteredSalary) return {type:'registered_salary',priority:'high',answerKey:'registered_salary'};
   // Ubicación, legitimidad y "con qué empresa" son preguntas distintas (antes compartían
   // una sola respuesta y "un seguro que me cubra" se tomaba como desconfianza).
-  const asksLocation=/\b(donde se (?:encuentran|ubican)|donde (?:estan|esta|queda|quedan|se ubica)|en donde (?:estan|esta)|ubicacion|ubicados|oficinas?|direccion|domicilio de (?:la empresa|ustedes))\b/.test(v);
+  const asksLocation=/\b(donde (?:te|se|los|lo) (?:encuentro|encuentran|ubicas|ubican|ubico)|donde se (?:encuentran|ubican)|donde (?:estan|esta|queda|quedan|se ubica)|en donde (?:estan|esta)|ubicacion|ubicados|ubicada|ubicas|oficinas?|direccion|domicilio de (?:la empresa|ustedes))\b/.test(v);
   const asksLegitimacy=/\b(es legal|son legales|es legitimo|es real|son reales|estafa\w*|fraude|fraudes|confiable|confiables|es seguro esto|es de confianza|no me (?:van a )?(?:estafar|robar)|me (?:van a )?dar de baja|me dieron de baja)\b/.test(v);
   const asksCompany=/\b(razon social|cual es la empresa|que empresa|con que empresa|nombre de la empresa|cuantos patrones|con cuantos patrones|quien (?:seria|es) (?:mi )?patron)\b/.test(v);
   if([asksLocation,asksLegitimacy,asksCompany].filter(Boolean).length>1) return {type:'trust',priority:'high',answerKey:'trust'};
   if(asksLocation) return {type:'location',priority:'high',answerKey:'location'};
   if(asksLegitimacy) return {type:'legitimacy',priority:'high',answerKey:'legitimacy'};
   if(asksCompany) return {type:'operational_model',priority:'high',answerKey:'operational_model'};
-  if(/\b(que modalidad|cual modalidad|en que modalidad|modalidad (?:10|40|diez|cuarenta)|modalidad (?:manejan|atienden|es))\b/.test(v)){
+  if(/\b(que modalidad|cual modalidad|en que modalidad|alguna modalidad|por modalidad|es modalidad|modalidad (?:10|40|diez|cuarenta)|modalidad (?:manejan|atienden|es|o como))\b/.test(v)){
     return {type:'modality',priority:'high',answerKey:'modality'};
   }
   if(/\bincapacidad(?:es)?\b/.test(v) && /\b(cobrar|cobro|pagan|paga|cubre|cubren|incluye|agarr\w*|agarias|dan|tengo derecho|aplica|manejan|tienen|saber)\b/.test(v)){
     return {type:'disability',priority:'high',answerKey:'disability',maternity:/\b(maternidad|embaraz\w*|parto)\b/.test(v)};
+  }
+  if(/\bcomo (?:puedo|le hago|hago|se hace|seria|es) (?:para )?(?:cotizar|empezar|iniciar|darme de alta|dar de alta|afiliarme|contratar|inscribirme|el tramite|el proceso)\b|\bcomo me (?:doy|dan|puedo dar) de alta\b|\bcomo (?:es|funciona) el (?:tramite|proceso)\b|\bque (?:tengo|debo) que hacer para (?:empezar|iniciar|afiliarme|darme de alta)\b/.test(v)){
+    return {type:'how_to_start',priority:'high',answerKey:'how_to_start'};
   }
   // Preguntas sobre jubilación o pensión: dependen del caso; se responde con honestidad
   // y se ofrece seguir sumando semanas, en vez de un respaldo genérico.
@@ -66,7 +69,7 @@ export function detectDirectRequest(text){
   // Solo es pregunta de servicios cuando el cliente realmente pregunta por ellos.
   // Menciones declarativas como "me quedo con el Plan 1" o "quiero el Plan 1"
   // pertenecen al commitment-flow y no deben convertirse en catálogo de planes.
-  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el |los )?plan(?:es)?|que diferencia(?:s)? (?:hay|tienen|tiene)|cual es la diferencia|explicame (?:los )?(?:dos|ambos)|explicar (?:los )?(?:dos|ambos)|(?:los )?dos planes|ambos planes)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
+  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios|plan|paquete) (?:tienen|manejan|ofrecen|hay)|no se que plan(?:es)?|diferencia entre (?:el |los )?plan(?:es)?|que diferencia(?:s)? (?:hay|tienen|tiene)|cual es la diferencia|explicame (?:los )?(?:dos|ambos)|explicar (?:los )?(?:dos|ambos)|(?:los )?dos planes|ambos planes)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
   // ¿El pago es mensual? Va antes que el precio general para responder la frecuencia.
   if(/\b(?:es mensual|son mensuales|pago mensual|mensualmente|cada mes|al mes|por mes|cada cuanto (?:se paga|pago|se cobra|hay que pagar)|un solo pago|pago unico|es anual|se paga una vez)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
   if(/\b(es gratis|es gratuito|seria gratuito|seria gratis|sin costo|no tiene costo)\b/.test(v)) return {type:'not_free',priority:'high',answerKey:'not_free'};
@@ -95,6 +98,7 @@ export function directAnswerText(request){
   if(request.answerKey==='payment_frequency') return 'Sí, el pago es mensual: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes.';
   if(request.answerKey==='price') return 'El Plan 1 tiene un costo de $1,100 MXN mensuales y el Plan 2 de $1,500 MXN mensuales. Ambos manejan un salario diario registrado de $480 MXN; el Plan 2 además contempla AFORE, INFONAVIT e incapacidades conforme al caso.';
   if(request.answerKey==='disability') return `Las incapacidades se contemplan en el Plan 2, de $1,500 MXN mensuales, conforme a las reglas del IMSS y a tu caso. El Plan 1, de $1,100 MXN mensuales, se enfoca en servicio médico y semanas cotizadas.${request.maternity ? " Para la incapacidad por maternidad, el IMSS pide haber cotizado cierto número de semanas antes del parto, así que conviene revisarlo con anticipación." : ""} No manejamos incapacidades permanentes ni por riesgo de trabajo. ¿Quieres que te explique cómo funciona el Plan 2?`;
+  if(request.answerKey==='how_to_start') return 'Es sencillo y todo se hace por este medio: eliges tu plan (Plan 1 de $1,100 MXN mensuales o Plan 2 de $1,500 MXN mensuales), nos compartes CURP, NSS e INE del titular y, cuando se confirme tu expediente, realizas tu pago mensual. Con la documentación completa, el alta suele quedar en aproximadamente 48 horas hábiles. ¿Quieres que iniciemos tu trámite?';
   if(request.answerKey==='not_free') return 'El servicio no es gratuito: tiene un costo mensual. El Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes, e incluyen tu alta ante el IMSS con servicio médico y semanas cotizadas.';
   if(request.answerKey==='location') return 'Nuestra operación está en la Ciudad de México y atendemos a clientes de todo el país. Todo el trámite se hace por este medio, no necesitas acudir a ninguna oficina.';
   if(request.answerKey==='legitimacy') return 'Entiendo la duda. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica. Mientras tu pago mensual esté al corriente, no deberías tener ningún inconveniente.';

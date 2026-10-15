@@ -103,9 +103,10 @@ test("revisión de calidad: sin cotizaciones, direcciones inventadas, otro nombr
 });
 
 test("el respaldo ya no es '¿Me compartes un poco más sobre tu situación?'", () => {
-  assert.match(contextualNextStep({ sales_cycle: { recommended_plan: "plan_1" } }), /Plan 1 o quieres que iniciemos tu trámite/);
+  assert.match(contextualNextStep({ sales_cycle: { recommended_plan: "plan_1" } }), /el Plan 1 es el que mejor se ajusta.*explique cómo funciona/);
+  assert.match(contextualNextStep({ sales_cycle: { recommended_plan: "plan_1", explained_plans: ["plan_1"] } }), /Plan 1 o quieres que iniciemos tu trámite/);
   assert.match(contextualNextStep({}), /qué buscas principalmente/);
-  assert.equal(contextualNextStep({ sales_cycle: { recommended_plan: "plan_1" }, ultima_respuesta_agente: "¿Tienes alguna duda sobre el Plan 1 o quieres que iniciemos tu trámite?" }), "¿Hay algo más en lo que te pueda ayudar?");
+  assert.equal(contextualNextStep({ sales_cycle: { recommended_plan: "plan_1", explained_plans: ["plan_1"] }, ultima_respuesta_agente: "¿Tienes alguna duda sobre el Plan 1 o quieres que iniciemos tu trámite?" }), "¿Hay algo más en lo que te pueda ayudar?");
 });
 
 function processorWith({ memory = {}, messages, ai = {}, recent = [], requeue = null, turnLock = null }) {

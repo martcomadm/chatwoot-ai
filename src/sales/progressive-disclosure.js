@@ -85,13 +85,15 @@ function priorAgentOfferedExplanation(memory = {}) {
   const previous = norm(memory?.ultima_respuesta_agente || "");
   return /quieres que te explique como funciona/.test(previous)
     || /si quieres, te explico como funciona/.test(previous)
-    || /puedo explicarte como funciona/.test(previous);
+    || /puedo explicarte como funciona/.test(previous)
+    || /te explico como funciona/.test(previous);
 }
 
 export function contextualPlanExplanation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
   const value = norm(combinedText);
-  const explicitExplanationRequest = /\b(?:explicame|cuentame|dime)\b.{0,40}\b(?:como funciona|que incluye|incluye|del plan|sobre el plan|beneficios|que trae|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:que incluye|que trae|que beneficios tiene|como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
+  const asksMoreInfo = /\b(?:mas informacion|darme (?:mas )?informacion|mandame (?:la )?informacion|me (?:das|da|puedes dar|podrias dar|podria dar) (?:mas )?informacion|informes|mas detalles)\b/.test(value) && priorAgentOfferedExplanation(memory);
+  const explicitExplanationRequest = asksMoreInfo || /\b(?:explicame|cuentame|dime)\b.{0,40}\b(?:como funciona|que incluye|incluye|del plan|sobre el plan|beneficios|que trae|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:que incluye|que trae|que beneficios tiene|como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
   const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
   if (!explicitExplanationRequest && !contextualAffirmative) return null;
   const plan = effectivePlan(memory);

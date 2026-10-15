@@ -26,6 +26,7 @@ const FACT_LOCKED_TYPES = new Set([
   "pension_general",
   "disability",
   "not_free",
+  "how_to_start",
 ]);
 
 export function directAnswerDecision({ judgment, orchestration }) {

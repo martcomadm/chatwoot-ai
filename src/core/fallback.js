@@ -49,11 +49,17 @@ export function fallbackDecision(memory, planner, combinedText) {
 // clientes no entendían (aparecía tras responder "¿a qué te dedicas?" o al hacer una pregunta).
 // Ahora propone el siguiente paso según dónde va la conversación, sin repetirse.
 export function contextualNextStep(memory = {}) {
-  const plan = memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.recommended_plan || (memory?.commercial_need?.afore_infonavit ? "plan_2" : null);
   const need = memory?.commercial_need || {};
+  const plan = memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.recommended_plan
+    || (need.afore_infonavit ? "plan_2" : (need.service_medical || need.weeks || need.retirement) ? "plan_1" : null);
   const knowsNeed = Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement || memory?.necesidad_principal);
   const options = [];
-  if (plan) options.push(`¿Tienes alguna duda sobre el ${plan === "plan_2" ? "Plan 2" : "Plan 1"} o quieres que iniciemos tu trámite?`);
+  const label = plan === "plan_2" ? "Plan 2" : "Plan 1";
+  const explained = (memory?.sales_cycle?.explained_plans || []).includes(plan);
+  // Con el plan ya identificado pero sin explicar, lo natural es ofrecer explicarlo
+  // (caso real: tras "No estoy trabajando" Mia contestó "¿Hay algo más en lo que te pueda ayudar?").
+  if (plan && !explained) options.push(`Gracias. Con lo que me cuentas, el ${label} es el que mejor se ajusta a lo que buscas. ¿Quieres que te explique cómo funciona?`);
+  if (plan) options.push(`¿Tienes alguna duda sobre el ${label} o quieres que iniciemos tu trámite?`);
   else if (!knowsNeed) options.push("Para orientarte mejor, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?");
   options.push("¿Hay algo más en lo que te pueda ayudar?");
   const last = String(memory?.ultima_respuesta_agente || "").trim();
