@@ -6,7 +6,7 @@ import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
 import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan, medicalNotNeededDecision, coverageAndRequirementsDecision } from "../sales/progressive-disclosure.js";
-import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn } from "../sales/need-before-recommendation.js";
+import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, deriveCommercialNeed } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
 import { deferralDecision } from "../sales/customer-deferral.js";
@@ -372,6 +372,9 @@ export class ConversationProcessor {
     // ── 5. Extracción con IA (texto ambiguo y, tras autorización, documentos) ──
     const llmPatch = (await this.safeAi(conversationId, "extract", () => this.ai.extractAmbiguous(base, combinedText, conversation), {})) || {};
     llmPatch.contradicciones = [];
+    // La necesidad comercial se calcula sin IA: si la extracción falla o tarda, no se pierde
+    // ("quiero seguir sumando para pensionarme" y luego Mia volvía a preguntar qué buscaba).
+    if (!llmPatch.commercial_need) llmPatch.commercial_need = deriveCommercialNeed(combinedText, base.commercial_need);
     // La IA a veces toma frases como nombre ("Deje", "Claro que sí"): se descartan.
     if (llmPatch.nombre && !plausibleName(llmPatch.nombre)) { delete llmPatch.nombre; delete llmPatch.primer_nombre; }
     let documentPatch = {};

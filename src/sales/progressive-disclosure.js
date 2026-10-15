@@ -92,7 +92,11 @@ function priorAgentOfferedExplanation(memory = {}) {
 export function contextualPlanExplanation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
   const value = norm(combinedText);
-  const asksMoreInfo = /\b(?:mas informacion|darme (?:mas )?informacion|mandame (?:la )?informacion|me (?:das|da|puedes dar|podrias dar|podria dar) (?:mas )?informacion|informes|mas detalles)\b/.test(value) && priorAgentOfferedExplanation(memory);
+  // "Más información" también cuenta si Mia ya mencionó un plan que aún no explicó, aunque
+  // en medio haya contestado otra duda (caso real: modalidad → "Podría darme más información").
+  const cycle = memory?.sales_cycle || {};
+  const pitchedNotExplained = (cycle.pitched_plans || []).some(p => !(cycle.explained_plans || []).includes(p));
+  const asksMoreInfo = /\b(?:mas informacion|darme (?:mas )?informacion|mandame (?:la )?informacion|me (?:das|da|puedes dar|podrias dar|podria dar) (?:mas )?informacion|informes|mas detalles)\b/.test(value) && (priorAgentOfferedExplanation(memory) || pitchedNotExplained);
   const explicitExplanationRequest = asksMoreInfo || /\b(?:explicame|cuentame|dime)\b.{0,40}\b(?:como funciona|que incluye|incluye|del plan|sobre el plan|beneficios|que trae|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:que incluye|que trae|que beneficios tiene|como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
   const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
   if (!explicitExplanationRequest && !contextualAffirmative) return null;

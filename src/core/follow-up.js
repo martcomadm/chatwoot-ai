@@ -56,7 +56,12 @@ function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_
 function currentPlan(memory = {}) {
   const cycle = memory.sales_cycle || {};
   if (cycle.selected_plan || cycle.recommended_plan) return cycle.selected_plan || cycle.recommended_plan;
-  if (memory.commercial_need?.afore_infonavit) return "plan_2";
+  const pitched = cycle.pitched_plans || [];
+  if (pitched.length) return pitched.at(-1);
+  const need = memory.commercial_need || {};
+  if (need.afore_infonavit) return "plan_2";
+  // Ya dijo qué busca (semanas, pensión, servicio médico): el seguimiento habla del Plan 1.
+  if (need.weeks || need.retirement || need.service_medical) return "plan_1";
   return null;
 }
 

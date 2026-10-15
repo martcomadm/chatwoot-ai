@@ -32,9 +32,13 @@ export function fallbackDecision(memory, planner, combinedText) {
   if (planner?.direct_answer_first && !planner?.question_key && direct) {
     return { reply: direct, question_key:null, add_labels:[], remove_labels:[], handoff:false, handoff_reason:"" };
   }
-  const nextQuestion = questions[planner?.question_key] || (direct ? "" : contextualNextStep(memory));
+  // Si el cliente ya dijo qué busca, no se le vuelve a preguntar (caso real: Griselda, 14-oct).
+  const need = memory?.commercial_need || {};
+  const needKnown = Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement);
+  const askedKey = planner?.question_key === "necesidad_principal" && needKnown ? null : planner?.question_key;
+  const nextQuestion = questions[askedKey] || (direct ? "" : contextualNextStep(memory));
   const lastQuestion = memory?.ultima_pregunta || null;
-  const questionKey = planner?.question_key || null;
+  const questionKey = askedKey || null;
   // Never resend the exact pending question just because a duplicate/stale event
   // produced no new usable answer. The processor will ask again only after a real
   // customer turn changes the planner or supplies new information.

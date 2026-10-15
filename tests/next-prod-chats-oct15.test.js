@@ -52,3 +52,33 @@ test("chat retomado: si la conversación no trae el mensaje del cliente, se busc
   await processor.process(71, { ids: ["900"], webhookMessages: new Map(), force: true });
   assert.equal(sent.length, 1, `se enviaron: ${JSON.stringify(sent)}`);
 });
+
+test("Griselda (14-oct): necesidad sin IA, 'más información' tras otra duda y seguimientos con su plan", async () => {
+  const { followUpMessage } = await import("../src/core/follow-up.js");
+  const { contextualPlanExplanation } = await import("../src/sales/progressive-disclosure.js");
+  const { fallbackDecision } = await import("../src/core/fallback.js");
+  const memory = { commercial_need: { weeks: true, retirement: true }, sales_cycle: { pitched_plans: ["plan_1"] }, ultima_respuesta_agente: "Tu alta se realiza con una empresa…" };
+  assert.match(contextualPlanExplanation(memory, "Podría darme más información")?.reply || "", /El Plan 1 incluye/);
+  assert.equal(contextualPlanExplanation({ ...memory, sales_cycle: { pitched_plans: ["plan_1"], explained_plans: ["plan_1"] } }, "Podría darme más información"), null);
+  assert.match(followUpMessage({ commercial_need: { retirement: true } }, 0), /Plan 1/);
+  const fb = fallbackDecision(memory, { question_key: "necesidad_principal" }, "44");
+  assert.doesNotMatch(fb.reply, /Qué te interesa principalmente/);
+});
+
+test("la necesidad del cliente se guarda aunque falle la extracción con IA", async () => {
+  const sent = [];
+  let memory = { presentacion_realizada: true, ultima_respuesta_agente: "x" };
+  const m = msg(960, "Dejé de cotizar, quiero seguir sumando para pensionarme");
+  const processor = new ConversationProcessor({
+    config: { chatwoot: { inboxId: 7, agentId: 53 }, ai: { validationLabel: "validacion", publicName: "Mia de MARTCOM", maxReplyChars: 850 }, operations: {} },
+    chatwoot: { async getConversation() { return { id: 73, inbox_id: 7, meta: { assignee: { id: 53 } }, labels: [], messages: [m] }; }, async sendMessage(_id, text) { sent.push(text); }, async getMessages() { return { payload: [] }; } },
+    labels: { async mergeSafe() { return []; } },
+    memories: { get: () => structuredClone(memory), async set(_id, next) { memory = next; }, async merge() {}, hasProcessed: () => false, async markProcessedMany() {} },
+    agentRotation: {},
+    ai: { extractAmbiguous: async () => { throw new Error("timeout"); }, generateDecision: async () => ({ reply: "", question_key: null }), repairDecision: async () => ({ reply: "" }), handoffSummary: async () => "" },
+    inspectorEvents: { async record() {} }, handoffRouter: {}, workflow: null,
+  });
+  await processor.process(73, { ids: ["960"], webhookMessages: new Map([["960", m]]) });
+  assert.equal(memory.commercial_need?.weeks, true);
+  assert.equal(memory.commercial_need?.retirement, true);
+});
