@@ -68,8 +68,13 @@ export function extractFast(text,memory={}){
   const ageResult=extractAge(raw,memory);
   if(ageResult) patch.edad=ageResult.value;
 
-  if(/\b(no tengo|no cuento con|no estoy afiliad[oa]|sin)\b.{0,20}\b(imss|seguro)\b/i.test(raw)) patch.tiene_imss=false;
+  if(/\b(no tengo|no cuento con|no se cuenta con|no estoy afiliad[oa]|sin)\b.{0,20}\b(imss|seguro)\b/i.test(raw)) patch.tiene_imss=false;
   if(/\b(si tengo|sí tengo|cuento con|estoy afiliad[oa]|tengo)\b.{0,20}\b(imss|seguro)\b/i.test(raw) && !/no tengo|no cuento|no estoy|sin seguro/i.test(raw)) patch.tiene_imss=true;
+  // "Dejé de cotizar" / "ya no cotizo": hoy no tiene alta activa, pero cotizó antes.
+  if(/\b(dej[eé] de cotizar|ya no cotizo|ya no estoy cotizando|ya no estoy dad[oa] de alta|me dieron de baja)\b/i.test(raw)){
+    patch.tiene_imss=false;
+    patch.contexto_laboral.cotizo_anteriormente=true;
+  }
   if(/\b(contaba|ten[ií]a)\b.{0,20}\b(imss|seguro)\b/i.test(raw)){
     patch.tiene_imss=false;
     patch.contexto_laboral.cotizo_anteriormente=true;
@@ -80,6 +85,20 @@ export function extractFast(text,memory={}){
     patch.actividad=employment.value;
     patch.tipo_trabajo=employment.value;
     patch.contexto_laboral.empleado=employment.value==="empleado";
+  }
+  // Labores del hogar ("ama de casa", "al hogar", "solo aquí en casa").
+  if(!employment && /\b(ama de casa|amo de casa|labores del hogar|al hogar|a mi hogar|del hogar|hogar|aqui en (?:la )?casa|en casa)\b/i.test(raw.normalize("NFD").replace(/[\u0300-\u036f]/g,""))){
+    patch.actividad="hogar";
+    patch.tipo_trabajo="hogar";
+  }
+  // Respuesta corta a "¿A qué te dedicas?": se guarda tal cual ("Carpintero", "Soy obrero",
+  // "Tengo un taller"), para no volver a preguntarla ni contestar con un respaldo genérico.
+  if(!patch.actividad && memory?.ultima_pregunta==="actividad"){
+    const line=raw.split(/\n+/).map(v=>v.trim()).find(v=>v && !/[?¿]/.test(v) && v.split(/\s+/).length<=10);
+    const notActivity=/\b(quiero|quisiera|necesito|busco|me interesa|servicio|semanas|afore|infonavit|pensi|jubil|precio|costo|cuesta|plan|informaci)/i;
+    if(line && !/^(si|sí|no|ok|okey|gracias|hola|buen[oa]s?\b)/i.test(line) && !notActivity.test(line)){
+      patch.actividad=line.replace(/^(soy|trabajo de|trabajo como|me dedico a|me dedico al|me dedico)\s+/i,"").slice(0,60);
+    }
   }
 
   if(/no (?:me|nos) (?:dan|ponen|han puesto|dieron).{0,25}(imss|seguro)|empleo.{0,40}sin (imss|seguro)/i.test(raw)){
@@ -141,7 +160,11 @@ export function extractFast(text,memory={}){
   if(curp.valid){ patch.curp_recibida=true; patch.curp_valor=curp.value; }
   const subject=resolveSubject(raw,memory);
   if(subject.patch.caso_sujeto) patch.caso_sujeto=subject.patch.caso_sujeto;
-  if(NSS_RE.test(raw)) patch.nss_recibido=true;
+  const nssMatch=raw.match(NSS_RE);
+  if(nssMatch){
+    patch.nss_recibido=true;
+    patch.nss_valor=String(nssMatch[0]).replace(/\D/g,"");
+  }
 
   if(patch.intereses.infonavit || patch.intereses.afore) patch.necesidad_principal="plan_2";
   else if(patch.intereses.servicio_medico) patch.necesidad_principal="servicio_medico";

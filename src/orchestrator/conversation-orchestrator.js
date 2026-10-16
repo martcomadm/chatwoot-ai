@@ -1,27 +1,182 @@
+import { effectivePlan } from '../sales/progressive-disclosure.js';
+
 function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
+
+function isRequirementsQuestion(v){
+  const cleaned=String(v||"").replace(/[¿?¡!.,;:()[\]{}]/g," ").replace(/\s+/g," ").trim();
+  const hasRequirements=/\brequisitos?\b/.test(cleaned);
+  const hasDocuments=/\b(documentos?|documentacion|papeles?|papeleria)\b/.test(cleaned);
+  if(/\bque (?:necesita|necesitas|ocupa|ocupas|requiere|requieres) que (?:le|te) (?:envie|mande|pase|de)\b/.test(cleaned)) return true;
+  const askCue=/\b(que|cual|cuales|necesito|necesitas|necesitan|piden|solicitan|requieren|ocupo|hace falta|se necesita)\b/.test(cleaned);
+  const processCue=/\b(iniciar|tramite|tramitar|afiliarme|alta|darme de alta|empezar)\b/.test(cleaned);
+  const asksWhatIsNeeded=/\bque se necesita\b/.test(cleaned)||/\bque necesito\b/.test(cleaned)||/\bque hace falta\b/.test(cleaned);
+  return (hasRequirements && askCue) || (hasDocuments && (askCue || processCue)) || (asksWhatIsNeeded && processCue);
+}
+
+export const OPERATIONAL_MODEL_ANSWER='Tu alta se realiza con una empresa y, además, contamos con una empresa de respaldo. Mientras realices tu pago mensual en tiempo y forma, no deberías tener ningún inconveniente con tu afiliación.';
 
 export function detectDirectRequest(text){
   const v=norm(text);
-  if(/\b(donde se (encuentran|ubican)|donde estan|ubicacion|oficinas?|razon social|estafa|fraude|confiable|seguro que|son reales)\b/.test(v)){
-    return {type:'trust',priority:'high',answerKey:'trust'};
+  if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
+  if(/\b(cuanto tarda|cuanto tiempo tarda|cuanto demora|tiempo de proceso|tiempo del tramite|tramite cuanto tarda|en cuanto tiempo|cuantas horas tarda)\b/.test(v)) return {type:'process_time',priority:'high',answerKey:'process_time'};
+  if(/\b(?:el )?acceso (?:al )?(?:servicio medico|imss).{0,25}(?:es )?(?:total|completo|completo al cien|100)|\b(?:tengo|tendre|incluye|da)\b.{0,25}\b(?:acceso|servicio)\b.{0,20}\b(?:total|completo|100)\b/.test(v)) return {type:'medical_access_scope',priority:'high',answerKey:'medical_access_scope'};
+  if(/\b(medicamento|medicamentos|medicina|medicinas|cirugia|cirugias|operacion|operaciones|hospitalizacion|hospitalizar|estudios|consulta|consultas|especialista|especialidad)\b/.test(v) && /\b(puedo|puede|podria|incluye|cubre|dan|dar|solicitar|recibir|hacerme|atienden|atender)\b/.test(v)) return {type:'medical_benefit_followup',priority:'high',answerKey:'medical_benefit_followup'};
+  if(/\b(operar|operen|opere|operacion|cirugia|cirugia mayor|apendice|apendicitis|vesicula|hernia|rodilla|cadera|catarata|parto|cesarea)\b/.test(v) && /\b(quiero|necesito|requiero|me van|puedo|podrian|hacerme|realizarme|tratar|atiendan)\b/.test(v)) return {type:'medical_specific_procedure',priority:'high',answerKey:'medical_specific_procedure'};
+  const asksAforeAmount=/\b(?:cuanto|cuanta|cuantas|que porcentaje|porcentaje de|de cuanto)\b.{0,45}\b(?:aportacion(?:es)?|afore)\b|\b(?:aportacion(?:es)?|afore)\b.{0,45}\b(?:cuanto|cuanta|cuantas|que porcentaje|porcentaje)\b/.test(v);
+  const asksInfonavitPoints=/\b(?:cuantos?|cuantas?)\b.{0,30}\bpuntos?\b|\bpuntos?\b.{0,30}\b(?:cuantos?|cuantas?)\b/.test(v);
+  if(asksAforeAmount||asksInfonavitPoints) return {type:'plan_2_contributions',priority:'high',answerKey:'plan_2_contributions'};
+  // Pension outcome is case-specific. Detect the question so Mia always answers
+  // instead of letting a stale discovery planner swallow the customer turn.
+  if(/\b(?:mi pension|la pension)\b.{0,35}\b(?:aumenta|sube|incrementa|mejora|seria mayor|sera mayor)\b|\b(?:aumenta|sube|incrementa|mejora)\b.{0,35}\b(?:mi pension|la pension)\b/.test(v)) return {type:'pension_impact',priority:'high',answerKey:'pension_impact'};
+  // "¿Qué necesitas para revisar mi caso?" is a request to begin case review,
+  // not a request to hear the previously recommended plan again.
+  const asksCaseReview=/\b(?:para|pa)\s+(?:revisar|checar|ver|evaluar|analizar)\s+(?:mi|el)\s+caso\b.{0,45}\b(?:que necesitas|que ocupas|que te paso|que te doy|que requieres|que hace falta)\b|\b(?:que necesitas|que ocupas|que te paso|que te doy|que requieres|que hace falta)\b.{0,45}\b(?:revisar|checar|ver|evaluar|analizar)\s+(?:mi|el)\s+caso\b/.test(v);
+  // "¿Le podrían checar cómo ando?" (caso real 14-oct): pide revisar su situación.
+  const asksStatusCheck=/\b(?:checar|chekar|chequar|revisar|ver|checarme|revisarme)\b.{0,25}\b(?:como (?:ando|estoy|voy)|mis semanas|mi situacion|mi estatus|mi status)\b/.test(v);
+  if(asksCaseReview||asksStatusCheck) return {type:'case_review',priority:'high',answerKey:'case_review'};
+  // A CURP sent immediately after Mia requested NSS/CURP for a case review is
+  // an answer to that intake request. Keep the turn in case-review intake so
+  // stale retirement/Plan 1 context cannot trigger another recommendation.
+  const standaloneCurp=/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/i.test(String(text||"").replace(/\s+/g,"").trim());
+  if(standaloneCurp) return {type:'case_review_curp',priority:'high',answerKey:'case_review_curp'};
+  // "¿Primero verifican mi alta y después se deposita, o primero el depósito?" (caso real 15-oct).
+  const mentionsPayment=/\b(deposit\w*|pag\w*|transferencia|transfiero)\b/.test(v);
+  const mentionsAlta=/\b(alta|vigencia|verificar|verifica\w*|afiliacion|afiliarme|registr\w*)\b/.test(v);
+  if(mentionsPayment && (/\b(primero|despues|antes|luego)\b/.test(v) && mentionsAlta || /\b(cuando|en que momento)\s+(?:se\s+|hago\s+(?:el\s+)?|realizo\s+(?:el\s+)?)?(?:pag\w*|deposit\w*)\b/.test(v) || /\b(se paga|pago) (?:antes|despues)\b/.test(v))) return {type:'payment_order',priority:'high',answerKey:'payment_order'};
+  if(isRequirementsQuestion(v)) return {type:'requirements',priority:'high',answerKey:'requirements'};
+  const asksRegisteredSalary=/\b(?:que|cual|cuanto|de cuanto)\b.{0,35}\b(?:salario|sueldo)\b.{0,25}\b(?:cotizado|registrado|maneja|manejan|tiene|es)\b|\b(?:salario|sueldo)\b.{0,35}\b(?:cotizado|registrado|maneja|manejan)\b/.test(v);
+  // "¿Con ese salario registrado me conviene para una buena pensión?" no es solo el dato del salario.
+  if(/\b(salario|sueldo)\b/.test(v) && /\b(pension\w*|jubil\w*|conviene|me sirve|me ayuda|alcanza)\b/.test(v)) return {type:'salary_pension',priority:'high',answerKey:'salary_pension'};
+  if(asksRegisteredSalary) return {type:'registered_salary',priority:'high',answerKey:'registered_salary'};
+  // Ubicación, legitimidad y "con qué empresa" son preguntas distintas (antes compartían
+  // una sola respuesta y "un seguro que me cubra" se tomaba como desconfianza).
+  const asksLocation=/\b(donde (?:te|se|los|lo) (?:encuentro|encuentran|ubicas|ubican|ubico)|donde se (?:encuentran|ubican)|donde (?:estan|esta|queda|quedan|se ubica)|en donde (?:estan|esta)|ubicacion|ubicados|ubicada|ubicas|oficinas?|direccion|domicilio de (?:la empresa|ustedes))\b/.test(v)
+    || /\b(?:ustedes\s+)?(?:estan|se encuentran|son|atienden|tienen (?:oficina|sucursal)\w*)\s+(?:de|en)\s+(?!el plan|la afiliacion|el imss|linea|horario|confianza|verdad|proceso|tramite|espera|acuerdo)[a-z]{4,}/.test(v) && /[?¿]|\b(?:ustedes|estan|sucursal|oficina)\b/.test(String(text))
+    || /\b(?:hay|tienen)\s+(?:sucursal|oficina)\w*\b/.test(v);
+  const asksLegitimacy=/\b(es legal|son legales|es legitimo|es real|son reales|estafa\w*|fraude|fraudes|confiable|confiables|es seguro esto|es de confianza|no me (?:van a )?(?:estafar|robar)|me (?:van a )?dar de baja|me dieron de baja)\b/.test(v);
+  const asksCompany=/\b(razon social|cual es la empresa|que empresa|con que empresa|nombre de la empresa|cuantos patrones|con cuantos patrones|quien (?:seria|es) (?:mi )?patron)\b/.test(v);
+  if([asksLocation,asksLegitimacy,asksCompany].filter(Boolean).length>1) return {type:'trust',priority:'high',answerKey:'trust'};
+  if(asksLocation) return {type:'location',priority:'high',answerKey:'location'};
+  if(asksLegitimacy) return {type:'legitimacy',priority:'high',answerKey:'legitimacy'};
+  if(asksCompany) return {type:'operational_model',priority:'high',answerKey:'operational_model'};
+  if(/\bmodalidad\s*(?:40|cuarenta)\b|\bm40\b/.test(v)) return {type:'modality_40',priority:'high',answerKey:'modality_40'};
+  if(/\b(que modalidad|cual modalidad|en que modalidad|alguna modalidad|por modalidad|es modalidad|modalidad (?:10|40|diez|cuarenta)|modalidad (?:manejan|atienden|es|o como))\b/.test(v)){
+    return {type:'modality',priority:'high',answerKey:'modality'};
   }
-  if(/\b(que ofrecen|que incluye|que manejan|paquetes|planes|servicios)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
-  if(/\b(precio|cuanto cuesta|cuanto cobra|mensualidad|costo)\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
-  if(/\b(quiero vender|vender las afiliaciones|ser distribuidor|ser proveedor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
+  if(/\bincapacidad(?:es)?\b/.test(v) && /\b(cobrar|cobro|pagan|paga|cubre|cubren|incluye|agarr\w*|agarias|dan|tengo derecho|aplica|manejan|tienen|saber)\b/.test(v)){
+    return {type:'disability',priority:'high',answerKey:'disability',maternity:/\b(maternidad|embaraz\w*|parto)\b/.test(v)};
+  }
+  if(/\bcomo (?:puedo|le hago|hago|se hace|seria|es) (?:para )?(?:cotizar|empezar|iniciar|darme de alta|dar de alta|afiliarme|contratar|inscribirme|el tramite|el proceso)\b|\bcomo me (?:doy|dan|puedo dar) de alta\b|\bcomo (?:es|funciona) el (?:tramite|proceso)\b|\bque (?:tengo|debo) que hacer para (?:empezar|iniciar|afiliarme|darme de alta)\b/.test(v)){
+    return {type:'how_to_start',priority:'high',answerKey:'how_to_start'};
+  }
+  // Preguntas sobre jubilación o pensión: dependen del caso; se responde con honestidad
+  // y se ofrece seguir sumando semanas, en vez de un respaldo genérico.
+  const pensionWord=/\b(jubil\w*|pension\w*)\b/.test(v);
+  const pensionAsk=/\b(puedo|podre|podria|voy a poder|me toca|cuando|cuanto|cuantos|que edad|a que edad|requisitos|ya tengo las semanas|me falta|me faltan|tendria que|tengo que)\b/.test(v);
+  if(pensionWord && pensionAsk) return {type:'pension_general',priority:'high',answerKey:'pension_general'};
+  // Las preguntas por un plan concreto conservan el contexto del plan.
+  if(/\bque incluye (?:el )?plan\s*(1|uno)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services',plan:'plan_1'};
+  if(/\bque incluye (?:el )?plan\s*(2|dos)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services',plan:'plan_2'};
+  // Solo es pregunta de servicios cuando el cliente realmente pregunta por ellos.
+  // Menciones declarativas como "me quedo con el Plan 1" o "quiero el Plan 1"
+  // pertenecen al commitment-flow y no deben convertirse en catálogo de planes.
+  if(/\b(que beneficios|beneficios (?:me |nos )?(?:ofrece|ofrecen|tiene|tienen|incluye|da|dan)|que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios|plan|paquete) (?:tienen|manejan|ofrecen|hay)|no se que plan(?:es)?|diferencia entre (?:el |los )?plan(?:es)?|que diferencia(?:s)? (?:hay|tienen|tiene)|cual es la diferencia|explicame (?:los )?(?:dos|ambos)|explicar (?:los )?(?:dos|ambos)|(?:los )?dos planes|ambos planes)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
+  // ¿El pago es mensual? Va antes que el precio general para responder la frecuencia.
+  if(/\b(?:es mensual|son mensuales|pago mensual|mensualmente|cada mes|al mes|por mes|cada cuanto (?:se paga|pago|se cobra|hay que pagar)|un solo pago|pago unico|es anual|se paga una vez)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
+  if(/\b(es gratis|es gratuito|seria gratuito|seria gratis|sin costo|no tiene costo)\b/.test(v)) return {type:'not_free',priority:'high',answerKey:'not_free'};
+  if(/\b(tengo que pagar|hay que pagar|se paga|tiene costo|tiene algun costo)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
+  if(/\b(precio|cuanto cuesta|que cuesta|cuanto cobra|cuanto cobran|mensualidad|costo|cuanto sale|cuanto es|cuanto vale|cuanto seria|cuanto pagaria|cuanto pago)\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
+  if(/\b(quiero vender|quiero revender|quiero comercializar|quiero distribuir|quiero ofrecer (el|su) servicio|vender las afiliaciones|vender afiliaciones|ser distribuidor|ser proveedor|quiero ser asesor|ser asesor comercial|trabajar como asesor|integrarme como asesor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones|ofrecer afiliaciones a (mis )?clientes|generar afiliaciones para terceros)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
   return null;
 }
 
 export function directAnswerText(request){
   if(!request) return null;
-  if(request.answerKey==='services') return 'Manejamos opciones de afiliación que pueden incluir servicio médico, cotización de semanas y beneficiarios; también existe una opción con aportaciones relacionadas con AFORE e INFONAVIT.';
-  if(request.answerKey==='price') return 'El costo depende del plan y del salario con el que se realice el registro; no quiero darte una cantidad incorrecta sin revisar qué opción corresponde a tu caso.';
-  if(request.answerKey==='trust') return 'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, con gusto podemos ayudarte a hacerlo.';
-  if(request.answerKey==='b2b') return 'Claro. Si lo que buscas es comercializar afiliaciones o trabajar como proveedor, ese es un proceso distinto al de afiliación de un cliente.';
+  if(request.answerKey==='identity') return 'Me llamo Mia, soy la asistente virtual de MARTCOM. 😊';
+  if(request.answerKey==='process_time') return 'Una vez que recibimos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. El tiempo puede variar según la revisión del caso.';
+  if(request.answerKey==='medical_access_scope') return 'Sí. Una vez que tu alta esté vigente, tienes acceso al servicio médico del IMSS como trabajador asegurado: consultas, atención médica, medicamentos, estudios, hospitalización y cirugías cuando sean indicados por el personal médico del IMSS, conforme a sus procesos y reglas. También puedes registrar beneficiarios cuando corresponda. Si tienes una atención específica en mente, dime cuál y te explico cómo aplica.';
+  if(request.answerKey==='medical_benefit_followup') return 'Sí. Una vez que tu alta esté vigente, puedes recibir medicamentos y también atención quirúrgica a través del IMSS. En el caso de una cirugía, primero debes ser valorado por el personal médico del Instituto y la cirugía debe ser indicada y programada conforme a sus procesos médicos. Los medicamentos igualmente se entregan cuando son prescritos dentro de la atención del IMSS. Si ya tienes un diagnóstico o sabes qué cirugía necesitas, puedo orientarte sobre el siguiente paso.';
+  if(request.answerKey==='medical_specific_procedure') return 'Sí, ese tipo de atención puede realizarse a través del IMSS una vez que tu alta esté vigente. En un caso como una operación de apéndice, el IMSS debe valorarte y determinar médicamente la atención necesaria; si se trata de una urgencia, debes acudir directamente a Urgencias para valoración. La indicación y realización del procedimiento dependen del personal médico del Instituto. Si actualmente tienes dolor intenso o síntomas de una posible apendicitis, no esperes a completar un trámite: busca atención médica de urgencia.';
+  if(request.answerKey==='plan_2_contributions') return 'En el Plan 2, la aportación a AFORE se maneja de forma alternada: un mes es de 5.5% y el siguiente de 10%, repitiendo ese esquema. En INFONAVIT, la acumulación estimada es de entre 200 y 250 puntos. Si quieres, también puedo explicarte cómo se integra este beneficio con el resto del Plan 2.';
+  if(request.answerKey==='modality_40') return 'La Modalidad 40 es un trámite que haces por tu cuenta directamente ante el IMSS para seguir cotizando, y no incluye servicio médico. Lo nuestro es distinto: tu alta se realiza con una empresa, sigues sumando semanas con un salario diario registrado de $480 MXN y además tienes servicio médico del IMSS; el Plan 1 cuesta $1,100 MXN mensuales. Cuál te conviene más depende de tu caso (si empezaste a cotizar antes o después del 1 de julio de 1997, tus semanas y tus salarios registrados). ¿Quieres que te comunique con un asesor para revisarlo?';
+  if(request.answerKey==='payment_order') return 'Primero va tu alta: con tu CURP, NSS e INE realizamos tu registro y, cuando ya aparece vigente ante el IMSS, te enviamos tu documento de vigencia para que puedas comprobarlo. Después de eso realizas tu primer pago. ¿Quieres que iniciemos tu trámite?';
+  if(request.answerKey==='salary_pension') return 'Es una buena pregunta. En ambos planes el salario diario registrado es de $480 MXN y no se puede cambiar. Lo que te da el plan es seguir sumando semanas cotizadas. Cuánto sería tu pensión depende de tu caso: si empezaste a cotizar antes o después del 1 de julio de 1997, cuántas semanas tienes y los salarios registrados en tu historial; por eso no puedo asegurarte un monto. Con tu constancia de semanas cotizadas, un asesor puede revisar cómo te conviene. ¿Quieres que te comunique con un asesor?';
+  if(request.answerKey==='registered_salary') return 'Ambos planes manejan un salario diario registrado de $480 MXN.';
+  if(request.answerKey==='pension_impact') return 'Seguir cotizando semanas puede ayudarte a continuar construyendo tu historial ante el IMSS, pero no puedo asegurarte que tu pensión aumente solo por contratar la afiliación. El monto de una pensión depende de varios datos de tu historial y régimen. Si tu objetivo es pensión, podemos revisar primero tu caso para orientarte sin prometer un incremento que todavía no conocemos.';
+  if(request.answerKey==='case_review') return 'Para empezar a revisar tu caso, compárteme tu NSS si lo tienes a la mano. Si no lo tienes, no te preocupes: con tu CURP podemos localizarlo y continuar sin atrasar la revisión.';
+  if(request.answerKey==='case_review_curp') return 'Perfecto, ya tengo tu CURP. Con este dato podemos localizar tu NSS y continuar con la revisión de tu caso. No necesitas volver a enviarme la información anterior.';
+  if(request.answerKey==='requirements') return 'Para iniciar necesitamos CURP, NSS e INE del titular. La Constancia de Situación Fiscal es opcional al inicio y se solicitará a los 3 meses de que ya estés con nosotros. Si todavía estás revisando la opción, no necesitas enviar tus documentos aún.';
+  if(request.answerKey==='services' && request.plan==='plan_1') return 'El Plan 1 tiene un costo de $1,100 MXN mensuales e incluye:\n• Servicio médico del IMSS: consultas, medicamentos, estudios clínicos, cirugías, hospitalización, especialidades, maternidad y guardería cuando corresponda.\n• Seguir cotizando semanas con un salario diario registrado de $480 MXN.\n• Registrar como beneficiarios a tu pareja, hijos menores de 16 años y padres, sujeto a validación del IMSS.\nTodo conforme a las reglas del IMSS. ¿Hay algún beneficio en particular que quieras que te explique?';
+  if(request.answerKey==='services' && request.plan==='plan_2') return 'El Plan 2 tiene un costo de $1,500 MXN mensuales e incluye todo lo del Plan 1 (servicio médico del IMSS, semanas cotizadas con salario diario registrado de $480 MXN y beneficiarios) y además:\n• Aportaciones a tu AFORE, alternando un mes 5.5% y el siguiente 10%.\n• Puntos para crédito INFONAVIT, conforme a sus reglas (no garantiza la aprobación ni el monto del crédito).\n• Incapacidades conforme a las reglas del IMSS.\n¿Quieres que te explique cómo funcionan las aportaciones a AFORE?';
+  if(request.answerKey==='services') return 'Tenemos dos opciones: Plan 1 por $1,100 MXN mensuales, enfocado en servicio médico, semanas cotizadas y beneficiarios; y Plan 2 por $1,500 MXN mensuales, que además contempla AFORE, INFONAVIT e incapacidades conforme al caso. Ambos manejan un salario diario registrado de $480 MXN.';
+  if(request.answerKey==='payment_frequency') return 'Sí, el pago es mensual: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes.';
+  if(request.answerKey==='price') return 'El Plan 1 tiene un costo de $1,100 MXN mensuales y el Plan 2 de $1,500 MXN mensuales. Ambos manejan un salario diario registrado de $480 MXN; el Plan 2 además contempla AFORE, INFONAVIT e incapacidades conforme al caso.';
+  if(request.answerKey==='disability') return `Las incapacidades se contemplan en el Plan 2, de $1,500 MXN mensuales, conforme a las reglas del IMSS y a tu caso. El Plan 1, de $1,100 MXN mensuales, se enfoca en servicio médico y semanas cotizadas.${request.maternity ? " Para la incapacidad por maternidad, el IMSS pide haber cotizado cierto número de semanas antes del parto, así que conviene revisarlo con anticipación." : ""} No manejamos incapacidades permanentes ni por riesgo de trabajo. ¿Quieres que te explique cómo funciona el Plan 2?`;
+  if(request.answerKey==='how_to_start') return 'Es sencillo y todo se hace por este medio: eliges tu plan (Plan 1 de $1,100 MXN mensuales o Plan 2 de $1,500 MXN mensuales), nos compartes CURP, NSS e INE del titular y, cuando se confirme tu expediente, realizas tu pago mensual. Con la documentación completa, el alta suele quedar en aproximadamente 48 horas hábiles. ¿Quieres que iniciemos tu trámite?';
+  if(request.answerKey==='not_free') return 'El servicio no es gratuito: tiene un costo mensual. El Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes, e incluyen tu alta ante el IMSS con servicio médico y semanas cotizadas.';
+  if(request.answerKey==='location') return 'Nuestra operación está en la Ciudad de México y atendemos a clientes de todo el país. Todo el trámite se hace por este medio, no necesitas acudir a ninguna oficina.';
+  if(request.answerKey==='legitimacy') return 'Entiendo la duda. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica. Mientras tu pago mensual esté al corriente, no deberías tener ningún inconveniente.';
+  if(request.answerKey==='operational_model') return OPERATIONAL_MODEL_ANSWER;
+  if(request.answerKey==='modality') return 'Tu alta se realiza con una empresa y, además, contamos con una empresa de respaldo. Con ella cuentas con servicio médico del IMSS una vez que tu alta está vigente y sigues sumando semanas cotizadas. Si necesitas el detalle de la modalidad para un trámite específico, un asesor te lo confirma.';
+  if(['pension_general','pension_orientation','pension_min_term'].includes(request.answerKey)){
+    const plan2=request.plan==='plan_2';
+    const offer=plan2?'el Plan 2, de $1,500 MXN mensuales, que además incluye servicio médico del IMSS y aportaciones a AFORE e INFONAVIT':'el Plan 1, de $1,100 MXN mensuales, que además incluye servicio médico del IMSS';
+    const regime=request.pre1997?' Como empezaste a cotizar antes del 1 de julio de 1997, tu caso se revisa con las reglas de la Ley 73: necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos.':'';
+    if(request.answerKey==='pension_min_term') return request.pre1997
+      ? `Como empezaste a cotizar antes del 1 de julio de 1997, tu caso es Ley 73: necesitas mantener tu afiliación al menos 13 meses antes de tramitar tu pensión, para reactivar tus derechos. Cuánto te falta en semanas y cuánto sería tu pensión depende de tu historial; con tu constancia de semanas cotizadas, un asesor puede revisarlo contigo. ¿Quieres que te comunique con un asesor?`
+      : `Si empezaste a cotizar antes del 1 de julio de 1997 (Ley 73), necesitas mantener tu afiliación al menos 13 meses antes de tramitar tu pensión, para reactivar tus derechos. Si empezaste después, depende de tus semanas cotizadas. Con tu constancia de semanas, un asesor puede revisar tu caso. ¿Quieres que te comunique con un asesor?`;
+    if(request.answerKey==='pension_orientation') return `Con gusto. Para orientarte bien sobre tu pensión hay que revisar tu historial: cuántas semanas tienes reconocidas, tu edad y cuándo empezaste a cotizar.${regime} Con tu constancia de semanas cotizadas, un asesor puede decirte cuánto te falta y cómo te conviene avanzar. Mientras tanto, con ${offer.split(',')[0]} sigues sumando semanas desde ahora. ¿Quieres que te comunique con un asesor para revisarlo?`;
+    // Texto confirmado (15-oct); si el plan ya se explicó no se vuelve a ofrecer explicarlo.
+    return `Eso depende de tu caso: principalmente de si empezaste a cotizar antes o después del 1 de julio de 1997, de cuántas semanas tienes reconocidas y de tu edad.${regime} Con tu constancia de semanas cotizadas se puede revisar cuánto te falta. Lo que nosotros hacemos es ayudarte a seguir sumando semanas con ${offer}. ${request.explained?'¿Quieres que te comunique con un asesor para revisar tu caso?':'¿Quieres que te explique cómo funciona?'}`;
+  }
+  if(request.answerKey==='trust') return 'Entiendo la duda. Nuestra operación está en la Ciudad de México y atendemos a clientes de todo el país; todo el trámite se hace por este medio. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica.';
+  if(request.answerKey==='b2b') return 'Claro. Si buscas vender u ofrecer nuestras afiliaciones como asesor o proveedor, voy a revisar tu solicitud comercial para darle continuidad.';
   return null;
 }
 
+// Preguntas de catálogo ("¿qué planes tienen?", "¿qué ofrecen?", "diferencia entre planes")
+// piden ambos planes. "¿Qué incluye?" / "explícame lo que incluye" sin número se refiere
+// al plan del que ya se está hablando: antes respondía el catálogo genérico de dos planes
+// justo después de que Mia ofreciera explicar el Plan 1.
+function asksPlanCatalog(text){
+  const v=norm(text);
+  return /\b(planes|paquetes|opciones|que ofrecen|que manejan|diferencia|diferencias|cuales son|comparar|compara)\b/.test(v);
+}
+
+// Contexto de pensión del cliente: si ya habló de pensión o Mia le ofreció orientarlo.
+function pensionContext(memory={}){
+  const last=norm(memory?.ultima_respuesta_agente||'');
+  return Boolean(memory?.commercial_need?.retirement)||/\b(pension|orientarte|semanas cotizadas)\b/.test(last);
+}
+// ¿Empezó a cotizar antes del 1 de julio de 1997? ("Trabajé del 86 al 90", "empecé en el 87").
+export function startedBefore1997(text=''){
+  const v=norm(text);
+  // Un año 1950-1996 escrito completo, o abreviado tras "del", "en el", "desde" ("del 86 al 90").
+  // "tengo 57 años" no cuenta: es la edad.
+  const full=/\b19(?:[5-8]\d|9[0-6])\b/.test(v);
+  const short=/\b(?:del|en el|desde el|desde|en)\s+(?:[5-8]\d|9[0-6])\b(?!\s*a(?:n|ñ)os)/.test(v);
+  return (full||short)&&/\b(trabaje|cotice|cotize|empece|empeze|inicie|estuve|labore|cotizaba|trabajaba|cotizar|trabajar)\b/.test(v);
+}
+
 export function orchestrateConversation(text,memory={}){
-  const direct=detectDirectRequest(text);
+  let direct=detectDirectRequest(text);
+  // "Oriéntame por favor" con contexto de pensión: orientación + asesor (caso real: Silvia, 16-oct).
+  if(!direct&&/\b(orientame|orienteme|orientenme|asesorame|asesoreme|ayudame a entender|que me recomiendas|que me recomienda)\b/.test(norm(text))&&pensionContext(memory)){
+    direct={type:'pension_orientation',priority:'high',answerKey:'pension_orientation'};
+  }
+  // "¿Por cuánto tiempo?" / "¿cuántos meses tengo que pagar?" en contexto de pensión (caso Silvia).
+  if((!direct||direct.answerKey==='pension_general')&&/\b(?:por cuanto tiempo|cuanto tiempo (?:tengo|tendria|debo|hay) que|cuantos meses (?:tengo|tendria|debo|hay)|tiempo minimo|minimo de (?:meses|tiempo)|cuanto tiempo (?:debo|tengo que) (?:estar|pagar|cotizar|quedarme))\b/.test(norm(text))&&(pensionContext(memory)||/\bpension/.test(norm(text)))){
+    direct={type:'pension_min_term',priority:'high',answerKey:'pension_min_term'};
+  }
+  if(direct&&['pension_general','pension_orientation','pension_min_term'].includes(direct.answerKey)){
+    const plan=effectivePlan(memory)||'plan_1';
+    const history=String(text||'');
+    direct={...direct,plan,explained:(memory?.sales_cycle?.explained_plans||[]).includes(plan),pre1997:Boolean(memory?.pension_data?.cotizo_antes_1997)||startedBefore1997(history)};
+  }
+  if(direct?.answerKey==='services'&&!direct.plan&&!asksPlanCatalog(text)){
+    const plan=effectivePlan(memory);
+    if(plan==='plan_1'||plan==='plan_2') direct={...direct,plan,planFrom:'conversation'};
+  }
   return {
     directRequest:direct,
     directAnswer:directAnswerText(direct),
