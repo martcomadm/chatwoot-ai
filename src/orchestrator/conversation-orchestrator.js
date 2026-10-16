@@ -118,7 +118,14 @@ export function directAnswerText(request){
   if(request.answerKey==='legitimacy') return 'Entiendo la duda. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica. Mientras tu pago mensual esté al corriente, no deberías tener ningún inconveniente.';
   if(request.answerKey==='operational_model') return OPERATIONAL_MODEL_ANSWER;
   if(request.answerKey==='modality') return 'Tu alta se realiza con una empresa y, además, contamos con una empresa de respaldo. Con ella cuentas con servicio médico del IMSS una vez que tu alta está vigente y sigues sumando semanas cotizadas. Si necesitas el detalle de la modalidad para un trámite específico, un asesor te lo confirma.';
-  if(request.answerKey==='pension_general') return 'Eso depende de tu caso: principalmente de si empezaste a cotizar antes o después del 1 de julio de 1997, de cuántas semanas tienes reconocidas y de tu edad. Con tu constancia de semanas cotizadas se puede revisar cuánto te falta. Lo que nosotros hacemos es ayudarte a seguir sumando semanas con el Plan 1, de $1,100 MXN mensuales, que además incluye servicio médico del IMSS. ¿Quieres que te explique cómo funciona?';
+  if(request.answerKey==='pension_general'||request.answerKey==='pension_orientation'){
+    const plan2=request.plan==='plan_2';
+    const offer=plan2?'el Plan 2, de $1,500 MXN mensuales, que además incluye servicio médico del IMSS y aportaciones a AFORE e INFONAVIT':'el Plan 1, de $1,100 MXN mensuales, que además incluye servicio médico del IMSS';
+    const regime=request.pre1997?' Como empezaste a cotizar antes del 1 de julio de 1997, tu caso se revisa con las reglas de la Ley 73.':'';
+    if(request.answerKey==='pension_orientation') return `Con gusto. Para orientarte bien sobre tu pensión hay que revisar tu historial: cuántas semanas tienes reconocidas, tu edad y cuándo empezaste a cotizar.${regime} Con tu constancia de semanas cotizadas, un asesor puede decirte cuánto te falta y cómo te conviene avanzar. Mientras tanto, con ${offer.split(',')[0]} sigues sumando semanas desde ahora. ¿Quieres que te comunique con un asesor para revisarlo?`;
+    // Texto confirmado (15-oct); si el plan ya se explicó no se vuelve a ofrecer explicarlo.
+    return `Eso depende de tu caso: principalmente de si empezaste a cotizar antes o después del 1 de julio de 1997, de cuántas semanas tienes reconocidas y de tu edad.${regime} Con tu constancia de semanas cotizadas se puede revisar cuánto te falta. Lo que nosotros hacemos es ayudarte a seguir sumando semanas con ${offer}. ${request.explained?'¿Quieres que te comunique con un asesor para revisar tu caso?':'¿Quieres que te explique cómo funciona?'}`;
+  }
   if(request.answerKey==='trust') return 'Entiendo la duda. Nuestra operación está en la Ciudad de México y atendemos a clientes de todo el país; todo el trámite se hace por este medio. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica.';
   if(request.answerKey==='b2b') return 'Claro. Si buscas vender u ofrecer nuestras afiliaciones como asesor o proveedor, voy a revisar tu solicitud comercial para darle continuidad.';
   return null;
@@ -133,8 +140,32 @@ function asksPlanCatalog(text){
   return /\b(planes|paquetes|opciones|que ofrecen|que manejan|diferencia|diferencias|cuales son|comparar|compara)\b/.test(v);
 }
 
+// Contexto de pensión del cliente: si ya habló de pensión o Mia le ofreció orientarlo.
+function pensionContext(memory={}){
+  const last=norm(memory?.ultima_respuesta_agente||'');
+  return Boolean(memory?.commercial_need?.retirement)||/\b(pension|orientarte|semanas cotizadas)\b/.test(last);
+}
+// ¿Empezó a cotizar antes del 1 de julio de 1997? ("Trabajé del 86 al 90", "empecé en el 87").
+export function startedBefore1997(text=''){
+  const v=norm(text);
+  // Un año 1950-1996 escrito completo, o abreviado tras "del", "en el", "desde" ("del 86 al 90").
+  // "tengo 57 años" no cuenta: es la edad.
+  const full=/\b19(?:[5-8]\d|9[0-6])\b/.test(v);
+  const short=/\b(?:del|en el|desde el|desde|en)\s+(?:[5-8]\d|9[0-6])\b(?!\s*a(?:n|ñ)os)/.test(v);
+  return (full||short)&&/\b(trabaje|cotice|cotize|empece|empeze|inicie|estuve|labore|cotizaba|trabajaba|cotizar|trabajar)\b/.test(v);
+}
+
 export function orchestrateConversation(text,memory={}){
   let direct=detectDirectRequest(text);
+  // "Oriéntame por favor" con contexto de pensión: orientación + asesor (caso real: Silvia, 16-oct).
+  if(!direct&&/\b(orientame|orienteme|orientenme|asesorame|asesoreme|ayudame a entender|que me recomiendas|que me recomienda)\b/.test(norm(text))&&pensionContext(memory)){
+    direct={type:'pension_orientation',priority:'high',answerKey:'pension_orientation'};
+  }
+  if(direct&&['pension_general','pension_orientation'].includes(direct.answerKey)){
+    const plan=effectivePlan(memory)||'plan_1';
+    const history=String(text||'');
+    direct={...direct,plan,explained:(memory?.sales_cycle?.explained_plans||[]).includes(plan),pre1997:Boolean(memory?.pension_data?.cotizo_antes_1997)||startedBefore1997(history)};
+  }
   if(direct?.answerKey==='services'&&!direct.plan&&!asksPlanCatalog(text)){
     const plan=effectivePlan(memory);
     if(plan==='plan_1'||plan==='plan_2') direct={...direct,plan,planFrom:'conversation'};

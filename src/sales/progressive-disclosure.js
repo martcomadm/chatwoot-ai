@@ -112,6 +112,12 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
   if (!explicitExplanationRequest && !contextualAffirmative) return null;
   const plan = effectivePlan(memory);
+  // Ya se explicó este plan: no se manda otra vez el mismo bloque (caso real: Silvia recibió
+  // dos veces la explicación completa del Plan 2).
+  if (contextualAffirmative && !explicitExplanationRequest && (memory?.sales_cycle?.explained_plans || []).includes(plan) && /\b(plan [12]|incluye)\b/.test(norm(memory?.ultima_respuesta_agente || "")) === false) {
+    const label = plan === "plan_2" ? "Plan 2" : "Plan 1";
+    return { reply: `Te resumo el ${label}: ${plan === "plan_2" ? "$1,500 MXN mensuales; servicio médico del IMSS, semanas cotizadas, aportaciones a AFORE e INFONAVIT" : "$1,100 MXN mensuales; servicio médico del IMSS y semanas cotizadas"}. Para iniciar solo necesitamos CURP, NSS e INE. ¿Quieres que iniciemos tu trámite o prefieres que un asesor revise tu caso primero?`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
+  }
   if (plan === "plan_1") {
     return {
       reply: "Claro. El Plan 1 incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Se maneja con un salario diario registrado de $480 MXN y tiene un costo de $1,100 MXN mensuales. Una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si quieres, puedo explicarte qué atención médica puedes recibir o cuáles son los requisitos para iniciar.",

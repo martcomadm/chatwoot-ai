@@ -20,7 +20,7 @@ import { stopLabels } from "../chatwoot/labels.js";
 import { classifyIntent } from "../intent/intent-engine.js";
 import { analyzeReliability } from "../semantic/reliability.js";
 import { resolveNegationScope } from "../semantic/negation-scope-resolver.js";
-import { orchestrateConversation } from "../orchestrator/conversation-orchestrator.js";
+import { orchestrateConversation, startedBefore1997 } from "../orchestrator/conversation-orchestrator.js";
 import { extractConversationFacts } from "../orchestrator/fact-extractor.js";
 import { analyzeJudgment } from "../orchestrator/conversational-judgment.js";
 import { analyzePatience, sensitiveSlotSuppressed } from "../semantic/conversational-patience.js";
@@ -367,6 +367,8 @@ export class ConversationProcessor {
     const answerPatch = { ...(answerResolution.patch || {}), resolved_questions: [...(answerResolution.resolved || [])] };
     const activityPatch = contextualActivityPatch(combinedText, base);
     if (containsCurp(combinedText)) fastPatch.curp_recibida = true;
+    // "Trabajé del 86 al 90": cotizó antes de 1997 (Ley 73); sirve para orientar sobre pensión.
+    if (startedBefore1997(combinedText)) fastPatch.pension_data = { ...(fastPatch.pension_data || {}), cotizo_antes_1997: true };
     if (containsNss(combinedText)) fastPatch.nss_recibido = true;
     const facts = extractConversationFacts(combinedText, base);
     const reliability = analyzeReliability(combinedText, base, {
@@ -613,7 +615,10 @@ export class ConversationProcessor {
     if (firstReply && !decision.reply.toLowerCase().includes(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${publicName}. ${decision.reply}`;
     // La IA a veces abre con "Mia de MARTCOM. …" o "Soy Mia de MARTCOM. …" sin saludo: completar la presentación.
     if (firstReply && decision.reply.toLowerCase().startsWith(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${decision.reply}`;
-    if (firstReply) decision.reply = decision.reply.replace(/^(?:hola[,!.]?\s*)?soy\s+mia de martcom[.,:;]?\s*/i, `¡Hola! Soy ${publicName}. `);
+    if (firstReply) decision.reply = decision.reply.replace(/^(?:hola[,!.]?\s*)?soy\s+mia de martcom[.,:;]?\s*/i, `¡Hola! Soy ${publicName}. `)
+      // "Soy Mia de MARTCOM: buenos días." → no repetir el saludo en minúscula tras la presentación.
+      .replace(/^(¡Hola! Soy [^.]+\.\s*)(?:buen(?:os|as)?\s+(?:d[ií]as|tardes|noches)[.!,]?\s*)/i, "$1")
+      .replace(/^(¡Hola! Soy [^.]+\.\s*)([a-záéíóúñ])/, (_m, intro, ch) => intro + ch.toUpperCase());
     // Chat retomado al abrir: agradecer la espera justo después de la presentación (si la hay).
     if (resumedAfterHours) {
       const intro = decision.reply.match(/^(¡Hola!\s*Soy [^.]+\.\s*)/);

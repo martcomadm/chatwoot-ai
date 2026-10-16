@@ -20,6 +20,8 @@ const LATER_RE = [
   /\bcuando (?:yo )?(?:pueda|tenga|junte|me paguen|cobre|lo tenga|tenga el dinero)\b/,
   /\b(?:mas adelante|despues (?:le|les|te) (?:escribo|aviso)|luego (?:le|les|te) (?:escribo|aviso)|otro dia)\b/,
   /\blo (?:voy a pensar|pienso|consulto|platico|reviso|checo|analizo)\b/,
+  /\b(?:dej[ae]me|deja|deje|dejeme)\s+(?:lo\s+)?(?:platico|platicar|consulto|consultar|comento|comentar|hablo|hablar)\b|\b(?:lo\s+)?(?:platico|consulto|comento|hablo)\s+con\s+(?:mi|mis)\s+(?:esposo|esposa|pareja|familia|hijos?|hijas?|marido|senora|mama|papa)\b/,
+  /\b(?:me|nos)\s+vuelvo\s+a\s+(?:comunicar|poner en contacto)|\b(?:me|nos)\s+volvemos\s+a\s+comunicar|\b(?:te|le|les)\s+vuelvo\s+a\s+(?:escribir|marcar|contactar)\b/,
   /\b(?:dej[ae]me|deje|dejeme) (?:lo )?(?:reviso|revisar|checo|checar|pienso|pensar|veo|ver|analizo)\b|\bvoy a (?:revisar|checar|pensarlo|analizarlo)\b/,
   /\b(?:te|le|les) (?:mando|escribo|envio) (?:un )?(?:mensaje|msj)? ?mas tarde\b|\bmas tarde (?:te|le|les) (?:escribo|mando|aviso)\b|\bte puedo mandar mensaje mas tarde\b/,
   /\b(?:me|nos) (?:comunico|comunicamos|reporto|pongo en contacto)\b.{0,25}\b(?:mas adelante|maz adelante|despues|luego|en otro momento|otro dia)\b/,
