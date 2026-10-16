@@ -147,7 +147,7 @@ function renderLive() {
 }
 
 // ── Conversaciones ─────────────────────────────────────────────────────
-const CONV_FILTERS = [["all", "Todas"], ["authorized", "Aceptaron"], ["deferred", "Pospusieron"], ["waiting", "En espera"], ["handoff", "Con persona"]];
+const CONV_FILTERS = [["all", "Todas"], ["authorized", "Aceptaron"], ["deferred", "Pospusieron"], ["waiting", "En espera"], ["handoff", "Con persona"], ["tests", "Pruebas"]];
 
 function renderConversations() {
   const list = state.convs?.items || [];
@@ -179,8 +179,8 @@ function renderDetail(c) {
   const events = c.events.length ? `<ul class="events">${c.events.map(e => `<li><span class="muted">${esc(fmtDate(e.at))}</span><div><strong>${esc(e.label)}</strong>${e.source ? ` <span class="tag mia">${esc(e.source)}</span>` : ""}${eventDetail(e)}</div></li>`).join("")}</ul>` : `<div class="empty">Sin eventos.</div>`;
   return `<div class="detail-head">
       <div><button class="btn quiet small back" data-act="back">← Conversaciones</button><h2>${person(s.name, c.id)}</h2>
-        <div class="tags" style="margin-top:6px"><span class="tag">#${c.id}</span><span class="tag">${esc(s.stage)}</span>${s.plan ? `<span class="tag mia">${esc(s.plan)}</span>` : ""}${s.authorized ? `<span class="tag ok">Aceptó iniciar</span>` : ""}${s.deferral ? `<span class="tag warn">${esc(s.deferral)}</span>` : ""}</div></div>
-      <button class="btn small" data-act="reload-conv">Actualizar</button>
+        <div class="tags" style="margin-top:6px"><span class="tag">#${c.id}</span><span class="tag">${esc(s.stage)}</span>${s.plan ? `<span class="tag mia">${esc(s.plan)}</span>` : ""}${s.authorized ? `<span class="tag ok">Aceptó iniciar</span>` : ""}${s.deferral ? `<span class="tag warn">${esc(s.deferral)}</span>` : ""}${c.test ? `<span class="tag">Chat de prueba</span>` : ""}</div></div>
+      <div class="detail-actions"><button class="btn quiet small" data-act="toggle-test" title="Los chats de prueba no cuentan en Hoy, Calidad ni Embudo">${c.test ? "Quitar de pruebas" : "Marcar como prueba"}</button><button class="btn small" data-act="reload-conv">Actualizar</button></div>
     </div>
     ${facts.length ? `<div class="facts">${facts.map(f => `<div><span>${esc(f.label)}</span><b>${esc(f.value)}</b></div>`).join("")}</div>` : ""}
     ${notices.map(n => `<div class="notice">${esc(n)}</div>`).join("")}
@@ -304,6 +304,13 @@ app.addEventListener("click", async event => {
   if (act === "refresh") { await loadLive(); return render(); }
   if (act === "back") { state.conv = null; return render(); }
   if (act === "reload-conv") { await loadConv(state.conv.id); return render(); }
+  if (act === "toggle-test") {
+    await api(`/inspector/api/v2/conversations/${state.conv.id}/test`, { method: "POST", body: JSON.stringify({ test: !state.conv.test }) });
+    // Las demás vistas se recalculan sin el chat de prueba.
+    state.quality = null; state.funnel = null;
+    await Promise.all([loadConv(state.conv.id), loadConvs(), loadLive()]);
+    return render();
+  }
   if (act === "admin-off") { state.adminToken = ""; return render(); }
 });
 app.addEventListener("keydown", event => { if (event.key === "Enter" && event.target.matches(".qitem")) event.target.click(); });

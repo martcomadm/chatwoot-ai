@@ -43,6 +43,8 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
   router.get("/inspector/api/v2/live", v2(() => miaConsole.live()));
   router.get("/inspector/api/v2/conversations", v2(req => miaConsole.conversations({ search: req.query.search || "", filter: req.query.filter || "all" })));
   router.get("/inspector/api/v2/conversations/:id", v2(req => miaConsole.conversation(req.params.id)));
+  // Marcar / quitar un chat de prueba (no cuenta en Hoy, Calidad ni Embudo).
+  router.post("/inspector/api/v2/conversations/:id/test", express.json(), v2(req => miaConsole.setTest(req.params.id, Boolean(req.body?.test))));
   router.get("/inspector/api/v2/quality", v2(req => miaConsole.quality({ days: days(req.query.days, 7) })));
   router.get("/inspector/api/v2/funnel", v2(req => ({ funnel: miaConsole.funnel({ days: days(req.query.days, 30) }), config: miaConsole.configuration(), diagnostics: (d => ({ ...d, components: d.components.filter(c => !/Advisor Affinity/.test(c.name)) }))(buildDiagnostics({ config, memories, inspectorEvents })) })));
   router.get("/inspector/api/health", (req, res) => {

@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 // Datos del nuevo inspector de Mia (vista de Admin).
 // Cuatro vistas: Hoy (en vivo), Conversaciones, Calidad y Embudo/Configuración.
 // Todo se calcula a partir de la memoria por conversación, los eventos del inspector,
@@ -173,20 +175,51 @@ export const FLAG_LABELS = {
 };
 
 export class MiaConsole {
-  constructor({ config, memories, inspectorEvents, afterHours = null, followUps = null, isOpen = () => true, isMiaPaused = () => false, operationsConfig = null, chatwoot = null, selfSenders = null }) {
-    Object.assign(this, { config, memories, inspectorEvents, afterHours, followUps, isOpen, isMiaPaused, operationsConfig, chatwoot, selfSenders });
+  constructor({ config, memories, inspectorEvents, afterHours = null, followUps = null, isOpen = () => true, isMiaPaused = () => false, operationsConfig = null, chatwoot = null, selfSenders = null, testFile = null }) {
+    Object.assign(this, { config, memories, inspectorEvents, afterHours, followUps, isOpen, isMiaPaused, operationsConfig, chatwoot, selfSenders, testFile });
+    this.manualTests = new Set();
+    if (testFile) {
+      try { this.manualTests = new Set((JSON.parse(fs.readFileSync(testFile, "utf8"))?.ids || []).map(Number)); }
+      catch (error) { if (error.code !== "ENOENT") console.error("Inspector: no se pudo leer chats de prueba:", error.message); }
+    }
+  }
+
+  // Chats de prueba (no cuentan en Hoy, Calidad ni Embudo): marcados a mano en el Inspector,
+  // listados en INSPECTOR_TEST_CONVERSATIONS o reiniciados alguna vez desde el LAB de Operations.
+  testIds(allEvents = this.inspectorEvents.listAll()) {
+    const ids = new Set([...this.manualTests, ...(this.config.inspector?.testConversations || []).map(Number)]);
+    for (const e of allEvents) if (e.type === "lab.conversation_reset") ids.add(Number(e.conversationId));
+    return ids;
+  }
+
+  setTest(id, test) {
+    id = Number(id);
+    if (!Number.isFinite(id) || id <= 0) throw new Error("Conversación inválida");
+    if (test) this.manualTests.add(id); else this.manualTests.delete(id);
+    if (this.testFile) {
+      fs.mkdirSync(path.dirname(this.testFile), { recursive: true });
+      fs.writeFileSync(`${this.testFile}.tmp`, JSON.stringify({ ids: [...this.manualTests] }, null, 2));
+      fs.renameSync(`${this.testFile}.tmp`, this.testFile);
+    }
+    return { id, test: this.testIds().has(id) };
   }
 
   timezone() { return this.config.ai?.timezone || "America/Mexico_City"; }
   dayKey(date) { return localClock(new Date(date), this.timezone()).date; }
 
-  allMemories() {
-    return typeof this.memories.list === "function" ? this.memories.list() : [];
+  allMemories({ includeTests = false } = {}) {
+    const list = typeof this.memories.list === "function" ? this.memories.list() : [];
+    if (includeTests) return list;
+    const tests = this.testIds();
+    return list.filter(m => !tests.has(Number(m.id)));
   }
 
-  eventsByConversation() {
+  eventsByConversation({ includeTests = false } = {}) {
+    const all = this.inspectorEvents.listAll();
+    const tests = includeTests ? new Set() : this.testIds(all);
     const map = new Map();
-    for (const event of this.inspectorEvents.listAll()) {
+    for (const event of all) {
+      if (tests.has(Number(event.conversationId))) continue;
       if (!map.has(event.conversationId)) map.set(event.conversationId, []);
       map.get(event.conversationId).push(event);
     }
@@ -298,16 +331,20 @@ export class MiaConsole {
 
   // ── Conversaciones ───────────────────────────────────────────────
   conversations({ search = "", filter = "all", limit = 200 } = {}) {
-    const byConv = this.eventsByConversation();
+    const byConv = this.eventsByConversation({ includeTests: true });
+    const tests = this.testIds();
     const q = norm(search).toLowerCase();
     const queueIds = new Set((this.afterHours?.list?.() || []).map(e => Number(e.conversationId)));
     const followIds = new Set(this.followUpEntries().map(e => Number(e.conversationId)));
-    let items = this.allMemories().map(memory => ({
+    let items = this.allMemories({ includeTests: true }).map(memory => ({
       ...this.summarize(memory, byConv.get(Number(memory.id)) || []),
+      test: tests.has(Number(memory.id)),
       waiting_schedule: queueIds.has(Number(memory.id)),
       followup: followIds.has(Number(memory.id)),
     }));
     if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q));
+    // Los chats de prueba solo aparecen en su propio filtro.
+    items = filter === "tests" ? items.filter(i => i.test) : items.filter(i => !i.test);
     if (filter === "authorized") items = items.filter(i => i.authorized);
     if (filter === "deferred") items = items.filter(i => i.deferral);
     if (filter === "waiting") items = items.filter(i => i.waiting_schedule || i.followup);
@@ -365,6 +402,7 @@ export class MiaConsole {
     const queued = (this.afterHours?.list?.() || []).find(e => Number(e.conversationId) === id) || null;
     return {
       id,
+      test: this.testIds().has(id),
       summary: this.summarize({ ...memory, id }, events),
       facts: [
         ["Nombre", memory.nombre],

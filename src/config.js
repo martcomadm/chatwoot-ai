@@ -55,7 +55,7 @@ export function loadConfig() {
     // Plantillas aprobadas de WhatsApp. Vacío = desactivada.
     whatsappTemplates: { validity: process.env.TEMPLATE_VALIDITY ?? "vigencia1", referral: process.env.TEMPLATE_REFERRAL ?? "recomendacion2", followUp24h: process.env.TEMPLATE_FOLLOWUP_24H ?? "saludodia3" },
     webhookSecret: process.env.WEBHOOK_SECRET || "",
-    inspector: { token: process.env.INSPECTOR_TOKEN || "", maxEventsPerConversation: Number(process.env.INSPECTOR_MAX_EVENTS_PER_CONVERSATION || 200), adminToken: process.env.INSPECTOR_ADMIN_TOKEN || "" },
+    inspector: { token: process.env.INSPECTOR_TOKEN || "", maxEventsPerConversation: Number(process.env.INSPECTOR_MAX_EVENTS_PER_CONVERSATION || 200), adminToken: process.env.INSPECTOR_ADMIN_TOKEN || "", testConversations: parseIds(process.env.INSPECTOR_TEST_CONVERSATIONS) },
     operations: { token: process.env.OPERATIONS_TOKEN || process.env.INSPECTOR_ADMIN_TOKEN || "", customerServiceTeamId: Number(process.env.CUSTOMER_SERVICE_TEAM_ID || 0) },
   };
   validateNextIsolation(config); return config;

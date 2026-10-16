@@ -219,3 +219,5 @@ a { color: var(--focus); }
 .qitem .why{margin-top:6px;font-size:13px;color:var(--danger)}
 .qitem .draft{margin-top:6px;font-size:13px}
 .qitem .draft summary{cursor:pointer;color:var(--muted, #667085)}
+
+.detail-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}

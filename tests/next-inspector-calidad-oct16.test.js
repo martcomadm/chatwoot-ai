@@ -67,3 +67,31 @@ test("el evento guarda lo que escribió la IA y por qué se cambió; el Inspecto
   assert.equal(replacedReasonLabel("multiples_preguntas"), "Hacía más de una pregunta");
   assert.match(replacedReasonLabel("pregunta_ya_contestada:edad"), /ya contestado \(edad\)/);
 });
+
+test("chats de prueba: fuera de Hoy, Calidad y Embudo; visibles solo en el filtro Pruebas", async () => {
+  const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+  const { MiaConsole } = await import("../src/inspector/mia-console.js");
+  const now = new Date();
+  const events = [
+    { conversationId: 1, type: "ai_reply_sent", timestamp: now.toISOString(), details: { reply: "¿Me compartes un poco más sobre tu situación?", decision_source: "fallback" } },
+    { conversationId: 2, type: "ai_reply_sent", timestamp: now.toISOString(), details: { reply: "¿Me compartes un poco más sobre tu situación?", decision_source: "fallback" } },
+    { conversationId: 3, type: "lab.conversation_reset", timestamp: now.toISOString(), details: {} },
+    { conversationId: 3, type: "ai_reply_sent", timestamp: now.toISOString(), details: { reply: "x", decision_source: "fallback" } },
+  ];
+  const mems = [{ id: 1, nombre: "Cliente real" }, { id: 2, nombre: "YANEZ CASANOVA MIGUEL AXEL" }, { id: 3, nombre: "Lab" }];
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "insp-test-")), "t.json");
+  const make = () => new MiaConsole({
+    config: { ai: {}, inspector: { testConversations: [] }, chatwoot: {} },
+    memories: { list: () => mems, get: id => mems.find(m => m.id === Number(id)) || {} },
+    inspectorEvents: { listAll: () => events, get: id => events.filter(e => e.conversationId === Number(id)) },
+    testFile: file,
+  });
+  const c = make();
+  assert.deepEqual(c.quality({ days: 7, now }).items.map(i => i.id).sort(), [1, 2]);
+  c.setTest(2, true);
+  assert.deepEqual(c.quality({ days: 7, now }).items.map(i => i.id), [1], "la prueba marcada y la del LAB no cuentan");
+  assert.deepEqual(make().conversations({}).items.map(i => i.id), [1], "se guarda en archivo");
+  assert.deepEqual(make().conversations({ filter: "tests" }).items.map(i => i.id).sort(), [2, 3]);
+  make().setTest(2, false);
+  assert.deepEqual(make().quality({ days: 7, now }).items.map(i => i.id).sort(), [1, 2]);
+});
