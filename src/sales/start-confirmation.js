@@ -23,9 +23,11 @@ export function genericInterest(text) {
   return Boolean(value) && !negatesCommitment(value) && GENERIC_INTEREST_RE.test(value);
 }
 
+// "Ojalá me hiciera el favor", "Si me hace el favor", "Hágame el favor" (caso real 16-oct, con faltas).
+const FAVOR_RE = /^(?:si|ojala|pues|claro)?[ ,]*(?:que )?(?:me |nos )?(?:hiciera|iciera|hicieran|haria|harias|hace|haces|hagas|haga|hagame|aga|agame)s? (?:el |ese )?(?:favor|fabor)[ .!]*(?:gracias)?[ .!]*$/;
 export function shortAffirmative(text) {
   const value = norm(text);
-  return Boolean(value) && !negatesCommitment(value) && SHORT_AFFIRMATIVE_RE.test(value);
+  return Boolean(value) && !negatesCommitment(value) && (SHORT_AFFIRMATIVE_RE.test(value) || FAVOR_RE.test(value));
 }
 
 export function agentAskedToStart(memory = {}) {

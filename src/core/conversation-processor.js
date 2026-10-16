@@ -489,6 +489,7 @@ export class ConversationProcessor {
 
     // ── 10. Elegir la respuesta: reglas deterministas en orden de prioridad, luego IA ──
     let decision;
+    const replacedReasons = [];
     const onboardingDecision = buildOnboardingDecision(memory, combinedText);
     const openingDecision = progressiveOpeningDecision(memory, combinedText);
     const needDecision = needGuardDecision(memory, combinedText);
@@ -532,7 +533,10 @@ export class ConversationProcessor {
     else {
       const generated = await this.safeAi(conversationId, "decision", () => this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText), null);
       decision = generated ? { ...generated, __source: "llm" } : { ...fallbackDecision(memory, planner, combinedText), __source: "fallback_ai_error" };
+      if (!generated) replacedReasons.push("fallo_ia");
     }
+    // Para el Inspector: qué escribió la IA y por qué se cambió (antes solo se veía el respaldo).
+    const aiDraft = decision?.__source === "llm" ? String(decision.reply || "") : null;
 
     // ── 11. Guardas sobre respuestas de IA (las deterministas no se tocan) ──
     // Firmas reales: answered(memory, key), checkReply(reply, {memory, questionKey, maxChars}),
@@ -543,13 +547,17 @@ export class ConversationProcessor {
     const quality = reply => checkReply(reply, { memory, questionKey: decision?.question_key, maxChars: this.config.ai.maxReplyChars, customerText: combinedText });
     const applyCommercialGuards = () => {
       if (isDeterministicDecision(decision)) return;
+      const before = decision?.reply;
       decision = enforcePreAuthorizationDecision(decision, { memory, planner, combinedText, fallbackDecision });
+      if (decision?.reply !== before) replacedReasons.push("pidio_curp_nss_antes_de_autorizar");
+      const beforeNeed = decision?.reply;
       decision = suppressRecommendationWithoutNeed(decision, memory, combinedText);
+      if (decision?.reply !== beforeNeed) replacedReasons.push("recomendo_plan_sin_necesidad");
     };
     const applyDisclosureGuard = () => {
       if (isDeterministicDecision(decision)) return [];
       const reasons = disclosureViolations(decision?.reply, { memory, combinedText });
-      if (reasons.length && openingDecision && !directDecision && !commitment) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
+      if (reasons.length && openingDecision && !directDecision && !commitment) { decision = protectDeterministicDecision(openingDecision, "progressive_opening"); replacedReasons.push(...reasons); }
       return reasons;
     };
     if (memory.sales_cycle?.authorized && decision) {
@@ -562,18 +570,20 @@ export class ConversationProcessor {
       // La IA respondió pero terminó repitiendo una pregunta ya contestada: se conserva la
       // respuesta y se quita solo esa pregunta final, en lugar de tirar todo al respaldo.
       const trimmed = dropTrailingQuestion(decision.reply);
+      if (trimmed.length < 25) replacedReasons.push(`pregunta_ya_contestada:${decision.question_key}`);
       decision = trimmed.length >= 25 ? { ...decision, reply: trimmed, question_key: null } : fallback();
     }
     applyCommercialGuards();
     let disclosureReasons = applyDisclosureGuard();
     let qualityCheck = quality(decision?.reply);
     if (!qualityCheck.ok && !isDeterministicDecision(decision)) {
+      replacedReasons.push(...qualityCheck.reasons);
       try { decision = { ...(await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, qualityCheck.reasons) || {}), __source: "llm_repair" }; }
       catch { decision = fallback(); }
       qualityCheck = quality(decision?.reply);
     }
     if (!qualityCheck.ok && !isDeterministicDecision(decision) && memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
-    else if (!qualityCheck.ok && !isDeterministicDecision(decision)) decision = fallback();
+    else if (!qualityCheck.ok && !isDeterministicDecision(decision)) { replacedReasons.push("reparacion_fallida"); decision = fallback(); }
     applyCommercialGuards();
     disclosureReasons = applyDisclosureGuard();
     const decisionSource = decision?.__source || "unknown";
@@ -681,6 +691,7 @@ export class ConversationProcessor {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply });
     }
-    await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null });
+    await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null,
+      ...(aiDraft && aiDraft.trim() !== String(decision.reply || "").trim() ? { ai_draft: aiDraft.slice(0, 900), replaced_reasons: [...new Set(replacedReasons)] } : {}) });
   }
 }

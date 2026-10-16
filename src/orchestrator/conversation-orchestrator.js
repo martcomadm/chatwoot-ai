@@ -31,7 +31,9 @@ export function detectDirectRequest(text){
   // "¿Qué necesitas para revisar mi caso?" is a request to begin case review,
   // not a request to hear the previously recommended plan again.
   const asksCaseReview=/\b(?:para|pa)\s+(?:revisar|checar|ver|evaluar|analizar)\s+(?:mi|el)\s+caso\b.{0,45}\b(?:que necesitas|que ocupas|que te paso|que te doy|que requieres|que hace falta)\b|\b(?:que necesitas|que ocupas|que te paso|que te doy|que requieres|que hace falta)\b.{0,45}\b(?:revisar|checar|ver|evaluar|analizar)\s+(?:mi|el)\s+caso\b/.test(v);
-  if(asksCaseReview) return {type:'case_review',priority:'high',answerKey:'case_review'};
+  // "¿Le podrían checar cómo ando?" (caso real 14-oct): pide revisar su situación.
+  const asksStatusCheck=/\b(?:checar|chekar|chequar|revisar|ver|checarme|revisarme)\b.{0,25}\b(?:como (?:ando|estoy|voy)|mis semanas|mi situacion|mi estatus|mi status)\b/.test(v);
+  if(asksCaseReview||asksStatusCheck) return {type:'case_review',priority:'high',answerKey:'case_review'};
   // A CURP sent immediately after Mia requested NSS/CURP for a case review is
   // an answer to that intake request. Keep the turn in case-review intake so
   // stale retirement/Plan 1 context cannot trigger another recommendation.
@@ -78,7 +80,7 @@ export function detectDirectRequest(text){
   // Solo es pregunta de servicios cuando el cliente realmente pregunta por ellos.
   // Menciones declarativas como "me quedo con el Plan 1" o "quiero el Plan 1"
   // pertenecen al commitment-flow y no deben convertirse en catálogo de planes.
-  if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios|plan|paquete) (?:tienen|manejan|ofrecen|hay)|no se que plan(?:es)?|diferencia entre (?:el |los )?plan(?:es)?|que diferencia(?:s)? (?:hay|tienen|tiene)|cual es la diferencia|explicame (?:los )?(?:dos|ambos)|explicar (?:los )?(?:dos|ambos)|(?:los )?dos planes|ambos planes)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
+  if(/\b(que beneficios|beneficios (?:me |nos )?(?:ofrece|ofrecen|tiene|tienen|incluye|da|dan)|que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:paquetes|planes|servicios)|que (?:paquetes|planes|servicios|plan|paquete) (?:tienen|manejan|ofrecen|hay)|no se que plan(?:es)?|diferencia entre (?:el |los )?plan(?:es)?|que diferencia(?:s)? (?:hay|tienen|tiene)|cual es la diferencia|explicame (?:los )?(?:dos|ambos)|explicar (?:los )?(?:dos|ambos)|(?:los )?dos planes|ambos planes)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services'};
   // ¿El pago es mensual? Va antes que el precio general para responder la frecuencia.
   if(/\b(?:es mensual|son mensuales|pago mensual|mensualmente|cada mes|al mes|por mes|cada cuanto (?:se paga|pago|se cobra|hay que pagar)|un solo pago|pago unico|es anual|se paga una vez)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
   if(/\b(es gratis|es gratuito|seria gratuito|seria gratis|sin costo|no tiene costo)\b/.test(v)) return {type:'not_free',priority:'high',answerKey:'not_free'};

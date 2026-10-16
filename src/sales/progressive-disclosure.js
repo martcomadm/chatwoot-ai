@@ -23,6 +23,8 @@ export function customerAskedCommercialDetails(text) {
 
 export function isInformationOpening(text) {
   const value = norm(text);
+  // Botón del anuncio "Comenzar con mi afiliación al IMSS".
+  if (/^(?:hola[,.! ]*)?(?:quiero |quisiera )?(?:comenzar|iniciar|empezar) (?:con )?(?:mi |la )?afiliacion(?: al imss)?[.!? ]*$/.test(value)) return true;
   // Botón "Información" del menú de WhatsApp y aperturas cortas equivalentes.
   if (/^(?:hola[,.! ]*)?(?:buen(?:os|as)? (?:dias|tardes|noches)[,.! ]*)?(?:(?:mas |quiero |quisiera )?(?:informacion|info|informes))?(?:[.,!¡? ]*(?:por favor|porfavor|porfa|gracias|en perdona|perdon))?[.!¡? ]*$/.test(value) && /informacion|info|informes/.test(value)) return true;
   return /\b(quiero|quisiera|necesito|me gustaria|dame|busco)\b.{0,35}\b(informacion|informes|saber mas|orientacion)\b/.test(value)
@@ -50,6 +52,8 @@ export function progressiveOpeningDecision(memory = {}, combinedText = "") {
       // "Información y revisar mi caso con mi NSS" (botón del anuncio): reconocer lo que pidió.
       reply: /\b(caso|nss)\b/.test(norm(combinedText))
         ? "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo a revisar tu caso. Para empezar, ¿actualmente cuentas con IMSS o hace cuánto dejaste de cotizar?"
+        : /\b(comenzar|iniciar|empezar)\b/.test(norm(combinedText))
+        ? "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo con tu afiliación al IMSS. Para orientarte mejor, ¿actualmente cuentas con IMSS o ya habías cotizado antes?"
         : "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo. La afiliación puede ayudarte a contar con servicio médico del IMSS y continuar cotizando semanas. Para orientarte mejor, ¿actualmente cuentas con IMSS?",
       question_key: "tiene_imss",
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",

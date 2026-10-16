@@ -72,7 +72,7 @@ test("en el processor: se despide, no programa seguimientos y cancela los pendie
 
 test("si la IA abre con 'Mia de MARTCOM.' sin saludo, se completa la presentación", async () => {
   const sent = [];
-  const message = { id: 500, message_type: 0, sender_type: "Contact", sender: { type: "contact" }, private: false, content: "Comenzar con mi afiliación al IMSS", attachments: [] };
+  const message = { id: 500, message_type: 0, sender_type: "Contact", sender: { type: "contact" }, private: false, content: "Quiero darme de alta en el IMSS, ¿cómo le hago?", attachments: [] };
   const conversation = { id: 22, inbox_id: 7, meta: { assignee: { id: 53 } }, labels: [], messages: [message] };
   const processor = new ConversationProcessor({
     config: { chatwoot: { inboxId: 7, agentId: 53 }, ai: { validationLabel: "validacion", publicName: "Mia de MARTCOM", maxReplyChars: 850 }, operations: {} },

@@ -1,4 +1,11 @@
 import { effectivePlan } from "../sales/progressive-disclosure.js";
+const REPHRASED = {
+  nombre: "Para continuar, ¿me compartes tu nombre completo?",
+  edad: "¿Me confirmas tu edad, por favor? Solo el número de años.",
+  actividad: "¿Me cuentas a qué te dedicas actualmente? Por ejemplo: comerciante, empleado, hogar o sin trabajo.",
+  tiene_imss: "¿Me confirmas si actualmente estás dado de alta en el IMSS?",
+};
+
 export function fallbackDecision(memory, planner, combinedText) {
   const specialized = {
     afiliado_imss_al_fallecer: "Lamento mucho la pérdida. ¿Tu familiar tenía afiliación vigente al IMSS cuando falleció?",
@@ -40,11 +47,14 @@ export function fallbackDecision(memory, planner, combinedText) {
   const nextQuestion = questions[askedKey] || (direct ? "" : contextualNextStep(memory));
   const lastQuestion = memory?.ultima_pregunta || null;
   const questionKey = askedKey || null;
-  // Never resend the exact pending question just because a duplicate/stale event
-  // produced no new usable answer. The processor will ask again only after a real
-  // customer turn changes the planner or supplies new information.
+  // La misma pregunta pendiente: antes Mia se quedaba callada y el cliente no recibía nada
+  // ("ACTUALMENTE 58", "Podría darme más información"). Ahora la reformula una vez y, si ya la
+  // reformuló, propone el siguiente paso. Los mensajes duplicados los frenan TurnLock y la memoria.
   if (!direct && questionKey && questionKey === lastQuestion) {
-    return { reply: "", question_key: questionKey, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
+    const last = String(memory?.ultima_respuesta_agente || "").trim();
+    const rephrased = REPHRASED[questionKey];
+    const reply = rephrased && !last.endsWith(rephrased) ? rephrased : contextualNextStep(memory);
+    return { reply, question_key: rephrased && reply === rephrased ? questionKey : null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
   }
   const reply = [direct || prefix, nextQuestion].filter(Boolean).join(" ").trim();
   return { reply, question_key: questionKey, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };

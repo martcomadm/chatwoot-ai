@@ -223,6 +223,8 @@ function renderQuality() {
       ${items.length ? items.map(i => `<div class="qitem" data-open="${i.id}" data-goto="conversaciones" role="button" tabindex="0">
           <div class="line"><strong>${person(i.name, i.id)}</strong>${i.flag_labels.map(l => `<span class="tag bad">${esc(l)}</span>`).join("")}${i.source ? `<span class="tag">${esc(i.source)}</span>` : ""}<span class="muted" style="margin-left:auto;font-size:13px">${esc(fmtDate(i.at))}</span></div>
           ${i.customer ? `<div class="quote">${esc(i.customer)}</div>` : ""}${i.reply ? `<div class="quote mia">${esc(i.reply)}</div>` : ""}
+          ${i.why && i.why.length ? `<div class="why"><b>Por qué se cambió la respuesta de la IA:</b> ${i.why.map(esc).join(" · ")}</div>` : ""}
+          ${i.ai_draft ? `<details class="draft"><summary>Ver lo que había escrito la IA</summary><div class="quote">${esc(i.ai_draft)}</div></details>` : ""}
         </div>`).join("") : `<div class="empty">Sin casos en este periodo. 👍</div>`}
     </section>`;
 }
@@ -282,6 +284,8 @@ async function openConversation(id) {
 }
 
 app.addEventListener("click", async event => {
+  // Abrir "Ver lo que había escrito la IA" no debe llevar a la conversación.
+  if (event.target.closest("details.draft")) return;
   const el = event.target.closest("[data-view],[data-act],[data-open],[data-conv-filter],[data-conv-tab],[data-qdays],[data-qflag],[data-fdays],[data-rot-remove]");
   if (!el) return;
   if (el.dataset.view) { state.view = el.dataset.view; if (state.view === "hoy") await loadLive(); return render(); }

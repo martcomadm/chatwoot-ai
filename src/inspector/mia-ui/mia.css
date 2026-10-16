@@ -215,3 +215,7 @@ a { color: var(--focus); }
   .diag li span:last-child { grid-column: 1 / -1; color: var(--muted); }
   .events li { grid-template-columns: 1fr; gap: 2px; }
 }
+
+.qitem .why{margin-top:6px;font-size:13px;color:var(--danger)}
+.qitem .draft{margin-top:6px;font-size:13px}
+.qitem .draft summary{cursor:pointer;color:var(--muted, #667085)}

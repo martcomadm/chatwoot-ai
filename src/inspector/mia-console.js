@@ -117,6 +117,38 @@ function planOf(memory = {}) {
 
 const DEFERRAL_LABELS = { no_money: "Sin dinero por ahora", later: "Avisará después", closing: "Se despidió" };
 
+// Por qué se cambió lo que escribió la IA (reasons del processor y del quality-checker).
+const REPLACED_LABELS = {
+  fallo_ia: "La IA no respondió (error o tiempo agotado)",
+  pidio_curp_nss_antes_de_autorizar: "Pedía CURP/NSS antes de que el cliente aceptara",
+  recomendo_plan_sin_necesidad: "Recomendaba un plan sin saber qué busca el cliente",
+  reparacion_fallida: "La corrección automática tampoco pasó",
+  respuesta_vacia: "Respuesta vacía",
+  respuesta_larga: "Respuesta demasiado larga",
+  multiples_preguntas: "Hacía más de una pregunta",
+  respuesta_demasiado_similar_a_la_anterior: "Casi igual a la respuesta anterior",
+  nombre_ya_conocido: "Volvía a pedir el nombre",
+  edad_ya_conocida: "Volvía a pedir la edad",
+  actividad_ya_conocida: "Volvía a pedir la actividad",
+  imss_ya_conocido: "Volvía a preguntar si tiene IMSS",
+  politica_pago_prematura: "Hablaba de plazos de pago antes de autorizar",
+  cotizacion_inventada: "Mencionaba una “cotización”",
+  ubicacion_inventada: "Inventaba una dirección",
+  identidad_incorrecta: "Se presentaba con otro nombre",
+  fuera_de_tema_indebido: "Dijo “no era para nosotros” a una respuesta del cliente",
+  catalogo_completo_prematuro: "Mostraba los dos planes demasiado pronto",
+  precio_no_solicitado_en_apertura: "Daba precio sin que lo pidieran",
+  detalle_operativo_prematuro: "Daba detalles operativos demasiado pronto",
+};
+export function replacedReasonLabel(reason = "") {
+  const [key, detail] = String(reason).split(":");
+  if (key === "pregunta_ya_contestada") return `Volvía a preguntar algo ya contestado (${detail || "dato"})`;
+  if (key.startsWith("frase_prohibida")) return `Usaba una frase prohibida (${detail || ""})`;
+  if (key.startsWith("pregunta_resuelta")) return `Preguntaba algo ya resuelto (${detail || ""})`;
+  if (key.startsWith("dato_sensible_suprimido")) return `Pedía un dato que el cliente dijo que no tiene a la mano (${detail || ""})`;
+  return REPLACED_LABELS[key] || key;
+}
+
 // Señales de calidad de una respuesta de Mia, en el contexto de la conversación.
 function replyFlags(event, previousReplies) {
   const d = event.details || {};
@@ -374,7 +406,8 @@ export class MiaConsole {
           if (!inRange) continue;
           replies++;
           sources[sourceKind(e.details?.decision_source)]++;
-          if (flags.length) items.push({ ...base, flags, customer: e.details?.customer_text || null, reply: e.details?.reply || null, source: sourceLabel(e.details?.decision_source) });
+          if (flags.length) items.push({ ...base, flags, customer: e.details?.customer_text || null, reply: e.details?.reply || null, source: sourceLabel(e.details?.decision_source),
+            ai_draft: e.details?.ai_draft || null, why: (e.details?.replaced_reasons || []).map(replacedReasonLabel) });
           continue;
         }
         if (!inRange) continue;
