@@ -30,8 +30,14 @@ export function contextualActivityPatch(text, memory = {}) {
   };
 }
 
+// Solo cuenta como pedir datos sensibles si Mia los PIDE (pregunta o "compárteme/envíame…").
+// Antes bastaba con mencionarlos ("para iniciar necesitamos CURP, NSS e INE") y la respuesta
+// completa de la IA se cambiaba por la pregunta de respaldo (casos reales del 15-oct).
+const ASK_VERB_RE = /\b(?:comp[aá]rte(?:me|nos)|env[ií]a(?:me|nos)|m[aá]nda(?:me|nos)|p[aá]sa(?:me|nos)|proporci[oó]na(?:me|nos)|reg[aá]la(?:me|nos)|me (?:compartes|compartir[ií]as|env[ií]as|mandas|pasas|das|proporcionas|regalas)|nos (?:compartes|env[ií]as|mandas|pasas|das|proporcionas)|ind[ií]ca(?:me|nos)|escr[ií]be(?:me|nos))\b/i;
 export function requestsSensitiveData(decision = {}) {
-  return [decision.question_key, decision.reply].some(value => SENSITIVE_REQUEST_RE.test(String(value || "")));
+  if (["curp", "nss"].includes(String(decision.question_key || "").toLowerCase())) return true;
+  const sentences = String(decision.reply || "").split(/(?<=[.?!])\s+|\n+/);
+  return sentences.some(sentence => SENSITIVE_REQUEST_RE.test(sentence) && (/[?¿]/.test(sentence) || ASK_VERB_RE.test(sentence)));
 }
 
 export function enforcePreAuthorizationDecision(decision, { memory, planner, combinedText, fallbackDecision }) {

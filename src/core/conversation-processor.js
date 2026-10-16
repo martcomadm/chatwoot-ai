@@ -27,7 +27,7 @@ import { resolveAnswer } from "../semantic/answer-resolver.js";
 import { ensureAuthorizedSale } from "../operations/sale-factory.js";
 import { buildOnboardingDecision } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
-import { explicitHumanRequest } from "./human-request.js";
+import { explicitHumanRequest, acceptsAdvisorOffer } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
 
@@ -87,6 +87,16 @@ function recoverCommercialContext(conversation, memory = {}) {
   const plan = /\bplan\s*(2|dos)\b/.test(recent) ? "plan_2" : /\bplan\s*(1|uno)\b/.test(recent) ? "plan_1" : null;
   if (!plan) return memory;
   return { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), stage: memory.sales_cycle?.stage || "plan_recommended", recommended_plan: plan } };
+}
+
+// ¿La respuesta explica a fondo un plan? Devuelve "plan_1" | "plan_2" | null.
+export function explainedPlanInReply(reply = "") {
+  const text = String(reply || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const detail = [/\$?480\b|salario diario/, /incluye|seguro medico|servicio medico/, /48 horas|beneficiari|pareja|hijos/].filter(re => re.test(text)).length;
+  if (detail < 2) return null;
+  if (/plan 2\b/.test(text) && /1,?500/.test(text) && !/plan 1\b/.test(text)) return "plan_2";
+  if (/plan 1\b/.test(text) && /1,?100/.test(text) && !/plan 2\b/.test(text)) return "plan_1";
+  return null;
 }
 
 export class ConversationProcessor {
@@ -375,6 +385,11 @@ export class ConversationProcessor {
     // La necesidad comercial se calcula sin IA: si la extracción falla o tarda, no se pierde
     // ("quiero seguir sumando para pensionarme" y luego Mia volvía a preguntar qué buscaba).
     if (!llmPatch.commercial_need) llmPatch.commercial_need = deriveCommercialNeed(combinedText, base.commercial_need);
+    // "Todo" a "¿qué es lo más importante para ti…?" = servicio médico, semanas y AFORE/INFONAVIT (caso real 15-oct).
+    const askedNeed = base.ultima_pregunta === "necesidad_principal" || /lo mas importante para ti|que te interesa principalmente|que buscas principalmente/.test(String(base.ultima_respuesta_agente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+    if (askedNeed && /^(?:todo|todos|todas|las tres|los tres|todo eso|todo lo anterior|de todo|me interesa todo|quiero todo)\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, " ").trim())) {
+      llmPatch.commercial_need = { ...(llmPatch.commercial_need || {}), service_medical: true, weeks: true, afore_infonavit: true, unknown: false };
+    }
     // La IA a veces toma frases como nombre ("Deje", "Claro que sí"): se descartan.
     if (llmPatch.nombre && !plausibleName(llmPatch.nombre)) { delete llmPatch.nombre; delete llmPatch.primer_nombre; }
     let documentPatch = {};
@@ -413,9 +428,10 @@ export class ConversationProcessor {
     const b2b = orchestration.shouldHandoffB2B || memory.intent?.id === "PROVEEDOR";
     const frustrated = Number(memory.experiencia?.frustration_score || 0) >= 2 || judgment.shouldHandoff;
     const specialized = specializedAdviceHandoff(combinedText, memory);
-    if (explicitHumanRequest(combinedText) || b2b || frustrated || specialized) {
+    const wantsHuman = explicitHumanRequest(combinedText) || acceptsAdvisorOffer(combinedText, base.ultima_respuesta_agente);
+    if (wantsHuman || b2b || frustrated || specialized) {
       if (b2b) await this.labels.mergeSafe(conversationId, ["proveedor", this.config.ai.validationLabel], [], conversation);
-      const reason = explicitHumanRequest(combinedText) ? "El cliente solicitó atención humana."
+      const reason = wantsHuman ? "El cliente solicitó atención humana."
         : b2b ? "Solicitud comercial de proveedor/asesor."
         : specialized?.reason || judgment.handoffReason || "El caso requiere intervención humana.";
       if (specialized && Number(this.config.operations?.customerServiceTeamId) > 0) {
@@ -644,6 +660,10 @@ export class ConversationProcessor {
     const pitchKey = { compact_plan_recommendation: "pitched_plans", contextual_plan_explanation: "explained_plans" }[decisionSource];
     const pitchedPlan = pitchKey ? effectivePlan(memory) : null;
     if (pitchedPlan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), [pitchKey]: arrays(memory.sales_cycle?.[pitchKey], [pitchedPlan]) } };
+    // Si la IA explicó un plan con su detalle (precio + salario registrado o lo que incluye), cuenta
+    // como explicado: antes el respaldo volvía a ofrecer "¿Quieres que te explique cómo funciona?".
+    const explainedByText = explainedPlanInReply(decision.reply);
+    if (explainedByText) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), pitched_plans: arrays(memory.sales_cycle?.pitched_plans, [explainedByText]), explained_plans: arrays(memory.sales_cycle?.explained_plans, [explainedByText]) } };
     if (decisionState.nss_resolution) {
       memory = { ...memory, nss_resolution: decisionState.nss_resolution, operations: { ...(memory.operations || {}), nss_resolution: decisionState.nss_resolution } };
     }

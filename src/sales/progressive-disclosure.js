@@ -76,9 +76,11 @@ export function effectivePlan(memory = {}) {
 
 
 function affirmativeFollowUp(text = "") {
-  const value = norm(text);
-  return /^(?:si|sí|claro|por favor|va|vale|adelante|ok|okay|perfecto)(?:[ ,.!¡¿?]+(?:explicame|explícame|cuentame|cuéntame|dime|por favor))?$/.test(value)
-    || /\b(?:si|sí)\s+(?:explicame|explícame|cuentame|cuéntame|dime)\b/.test(value);
+  // "Si.", "Porfavor.", "Porfavor explíqueme…!!" también son un sí (casos reales del 15-oct).
+  const value = norm(text).replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
+  return /^(?:(?:si|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno)\s*)+(?:(?:explicame|cuentame|dime|por favor)\s*)*$/.test(value)
+    || /^(?:explicame|cuentame)(?: por favor)?$/.test(value)
+    || /\b(?:si|por favor)\s+(?:explicame|cuentame|dime)\b/.test(value);
 }
 
 function priorAgentOfferedExplanation(memory = {}) {
@@ -201,8 +203,9 @@ export function medicalNotNeededDecision(memory = {}, combinedText = "") {
   const wantsPlan2 = /\b(?:afore|infonavit)\b/.test(value) || effectivePlan(memory) === "plan_2";
   const plan = wantsPlan2 ? "Plan 2" : "Plan 1";
   const purpose = wantsPlan2 ? "seguir sumando semanas y además aportar a tu AFORE e INFONAVIT" : "seguir sumando semanas cotizadas para tu pensión";
+  const explained = (memory?.sales_cycle?.explained_plans || []).includes(wantsPlan2 ? "plan_2" : "plan_1");
   return {
-    reply: `Entendido. El ${plan} es justamente para ${purpose}. El servicio médico del IMSS viene incluido en el mismo costo; no se paga aparte y lo usas solo si lo necesitas. ¿Quieres que te explique cómo funciona?`,
+    reply: `Entendido. El ${plan} es justamente para ${purpose}. El servicio médico del IMSS viene incluido en el mismo costo; no se paga aparte y lo usas solo si lo necesitas. ${explained ? "¿Quieres que iniciemos tu trámite?" : "¿Quieres que te explique cómo funciona?"}`,
     question_key: null,
     add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
   };

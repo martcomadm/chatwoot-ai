@@ -26,3 +26,10 @@ export function explicitHumanRequest(text) {
   if (!value) return false;
   return PATTERNS.some(pattern => pattern.test(value));
 }
+
+// Mia ofreció "¿Quieres que te comunique con un asesor?" y el cliente dijo que sí.
+export function acceptsAdvisorOffer(text, lastReply = "") {
+  if (!/quieres que te comunique con un asesor/.test(norm(lastReply))) return false;
+  const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
+  return /^(?:si|claro|por favor|porfavor|ok|okay|va|sale|de acuerdo|me parece|esta bien|bueno)\b/.test(value) && !/\bno\b/.test(value);
+}
