@@ -118,10 +118,13 @@ export function directAnswerText(request){
   if(request.answerKey==='legitimacy') return 'Entiendo la duda. Tu alta queda registrada ante el IMSS con una empresa y, además, contamos con una empresa de respaldo. Cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, por ejemplo en la app IMSS Digital o en tu clínica. Mientras tu pago mensual esté al corriente, no deberías tener ningún inconveniente.';
   if(request.answerKey==='operational_model') return OPERATIONAL_MODEL_ANSWER;
   if(request.answerKey==='modality') return 'Tu alta se realiza con una empresa y, además, contamos con una empresa de respaldo. Con ella cuentas con servicio médico del IMSS una vez que tu alta está vigente y sigues sumando semanas cotizadas. Si necesitas el detalle de la modalidad para un trámite específico, un asesor te lo confirma.';
-  if(request.answerKey==='pension_general'||request.answerKey==='pension_orientation'){
+  if(['pension_general','pension_orientation','pension_min_term'].includes(request.answerKey)){
     const plan2=request.plan==='plan_2';
     const offer=plan2?'el Plan 2, de $1,500 MXN mensuales, que además incluye servicio médico del IMSS y aportaciones a AFORE e INFONAVIT':'el Plan 1, de $1,100 MXN mensuales, que además incluye servicio médico del IMSS';
-    const regime=request.pre1997?' Como empezaste a cotizar antes del 1 de julio de 1997, tu caso se revisa con las reglas de la Ley 73.':'';
+    const regime=request.pre1997?' Como empezaste a cotizar antes del 1 de julio de 1997, tu caso se revisa con las reglas de la Ley 73: necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos.':'';
+    if(request.answerKey==='pension_min_term') return request.pre1997
+      ? `Como empezaste a cotizar antes del 1 de julio de 1997, tu caso es Ley 73: necesitas mantener tu afiliación al menos 13 meses antes de tramitar tu pensión, para reactivar tus derechos. Cuánto te falta en semanas y cuánto sería tu pensión depende de tu historial; con tu constancia de semanas cotizadas, un asesor puede revisarlo contigo. ¿Quieres que te comunique con un asesor?`
+      : `Si empezaste a cotizar antes del 1 de julio de 1997 (Ley 73), necesitas mantener tu afiliación al menos 13 meses antes de tramitar tu pensión, para reactivar tus derechos. Si empezaste después, depende de tus semanas cotizadas. Con tu constancia de semanas, un asesor puede revisar tu caso. ¿Quieres que te comunique con un asesor?`;
     if(request.answerKey==='pension_orientation') return `Con gusto. Para orientarte bien sobre tu pensión hay que revisar tu historial: cuántas semanas tienes reconocidas, tu edad y cuándo empezaste a cotizar.${regime} Con tu constancia de semanas cotizadas, un asesor puede decirte cuánto te falta y cómo te conviene avanzar. Mientras tanto, con ${offer.split(',')[0]} sigues sumando semanas desde ahora. ¿Quieres que te comunique con un asesor para revisarlo?`;
     // Texto confirmado (15-oct); si el plan ya se explicó no se vuelve a ofrecer explicarlo.
     return `Eso depende de tu caso: principalmente de si empezaste a cotizar antes o después del 1 de julio de 1997, de cuántas semanas tienes reconocidas y de tu edad.${regime} Con tu constancia de semanas cotizadas se puede revisar cuánto te falta. Lo que nosotros hacemos es ayudarte a seguir sumando semanas con ${offer}. ${request.explained?'¿Quieres que te comunique con un asesor para revisar tu caso?':'¿Quieres que te explique cómo funciona?'}`;
@@ -161,7 +164,11 @@ export function orchestrateConversation(text,memory={}){
   if(!direct&&/\b(orientame|orienteme|orientenme|asesorame|asesoreme|ayudame a entender|que me recomiendas|que me recomienda)\b/.test(norm(text))&&pensionContext(memory)){
     direct={type:'pension_orientation',priority:'high',answerKey:'pension_orientation'};
   }
-  if(direct&&['pension_general','pension_orientation'].includes(direct.answerKey)){
+  // "¿Por cuánto tiempo?" / "¿cuántos meses tengo que pagar?" en contexto de pensión (caso Silvia).
+  if((!direct||direct.answerKey==='pension_general')&&/\b(?:por cuanto tiempo|cuanto tiempo (?:tengo|tendria|debo|hay) que|cuantos meses (?:tengo|tendria|debo|hay)|tiempo minimo|minimo de (?:meses|tiempo)|cuanto tiempo (?:debo|tengo que) (?:estar|pagar|cotizar|quedarme))\b/.test(norm(text))&&(pensionContext(memory)||/\bpension/.test(norm(text)))){
+    direct={type:'pension_min_term',priority:'high',answerKey:'pension_min_term'};
+  }
+  if(direct&&['pension_general','pension_orientation','pension_min_term'].includes(direct.answerKey)){
     const plan=effectivePlan(memory)||'plan_1';
     const history=String(text||'');
     direct={...direct,plan,explained:(memory?.sales_cycle?.explained_plans||[]).includes(plan),pre1997:Boolean(memory?.pension_data?.cotizo_antes_1997)||startedBefore1997(history)};

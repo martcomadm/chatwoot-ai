@@ -208,6 +208,12 @@ export class FollowUpService {
         }
 
         const memory = this.memories.get(id);
+        // El cliente ya pospuso, se despidió o dijo "no gracias" después de programarse la serie:
+        // no se le vuelve a escribir (caso real: Silvia, 16-oct).
+        const deferredAt = Date.parse(memory?.sales_cycle?.deferral_at || "");
+        if (Number.isFinite(deferredAt) && deferredAt >= Date.parse(entry.mia_at) - 1000) {
+          this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "customer_deferred" }); continue;
+        }
         // No repetir un seguimiento que el cliente ya recibió en esta conversación.
         const used = new Set(memory.followups_sent || []);
         let text = null;

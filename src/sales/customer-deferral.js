@@ -21,6 +21,7 @@ const LATER_RE = [
   /\b(?:mas adelante|despues (?:le|les|te) (?:escribo|aviso)|luego (?:le|les|te) (?:escribo|aviso)|otro dia)\b/,
   /\blo (?:voy a pensar|pienso|consulto|platico|reviso|checo|analizo)\b/,
   /\b(?:dej[ae]me|deja|deje|dejeme)\s+(?:lo\s+)?(?:platico|platicar|consulto|consultar|comento|comentar|hablo|hablar)\b|\b(?:lo\s+)?(?:platico|consulto|comento|hablo)\s+con\s+(?:mi|mis)\s+(?:esposo|esposa|pareja|familia|hijos?|hijas?|marido|senora|mama|papa)\b/,
+  /\b(?:yo\s+)?(?:me|nos)\s+(?:comunicaria|comunicariamos|comunico|comunicamos|pongo en contacto|reporto)\s+con\s+(?:ustedes|usted|contigo|ella|el)\b|\b(?:aun|todavia)\s+no\s+(?:he|eh|e|hemos)\s+(?:hablado|platicado|consultado|decidido)\b/,
   /\b(?:me|nos)\s+vuelvo\s+a\s+(?:comunicar|poner en contacto)|\b(?:me|nos)\s+volvemos\s+a\s+comunicar|\b(?:te|le|les)\s+vuelvo\s+a\s+(?:escribir|marcar|contactar)\b/,
   /\b(?:dej[ae]me|deje|dejeme) (?:lo )?(?:reviso|revisar|checo|checar|pienso|pensar|veo|ver|analizo)\b|\bvoy a (?:revisar|checar|pensarlo|analizarlo)\b/,
   /\b(?:te|le|les) (?:mando|escribo|envio) (?:un )?(?:mensaje|msj)? ?mas tarde\b|\bmas tarde (?:te|le|les) (?:escribo|mando|aviso)\b|\bte puedo mandar mensaje mas tarde\b/,
@@ -70,7 +71,31 @@ function planLabel(memory = {}) {
   return plan === "plan_2" ? "el Plan 2" : plan === "plan_1" ? "el Plan 1" : null;
 }
 
+// "No gracias" a una oferta (p. ej. al seguimiento "¿Te gustaría que iniciemos…?").
+const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^no[ ,.!]*(?:me interesa|por ahora|por el momento|de momento)\b/;
+
+// Mensajes de cortesía que no piden nada ("Ok", "Gracias", "👍", "No gracias, yo les aviso").
+export function isCourtesy(text) {
+  const raw = String(text || "").trim();
+  if (!raw || /[?¿]/.test(raw)) return false;
+  // "Ok gracias Mia!" — el nombre de Mia no cambia que sea cortesía.
+  const value = norm(raw).replace(/[^a-z ]+/g, " ").replace(/\b(?:mia|martcom|senorita|seno?r)\b/g, " ").replace(/\s+/g, " ").trim();
+  if (!value) return true; // solo emojis o signos
+  return CLOSING_ONLY_RE.test(value) || DECLINE_RE.test(value) || Boolean(detectDeferral(raw))
+    || /^(?:ok|okey|okay|va|sale|vale|listo|entendido|enterado|de acuerdo|perfecto|bien|muy bien|si|claro|igualmente|buen dia|bonito dia|que este bien)(?: gracias| muchas gracias| igualmente)?$/.test(value);
+}
+
 export function deferralDecision(memory = {}, combinedText = "", { resumedAfterHours = false } = {}) {
+  // Mia ya se despidió: a la cortesía ya no se contesta ni se programan seguimientos
+  // (caso real: Silvia recibió dos despedidas más y otro "¿Te gustaría que iniciemos…?").
+  const closedBefore = String(memory.ultima_respuesta_agente || "").includes(CLOSING_MARK);
+  if (closedBefore && isCourtesy(combinedText)) {
+    return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: detectDeferral(combinedText) || "closing" };
+  }
+  if (!resumedAfterHours && Boolean(memory.ultima_respuesta_agente) && DECLINE_RE.test(norm(combinedText)) && !/[?¿]/.test(String(combinedText))) {
+    const name = firstName(memory);
+    return { reply: `Entendido${name}, gracias por tu tiempo. Si más adelante te interesa, ${CLOSING_MARK} y con gusto te ayudo.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: "declined" };
+  }
   const kind = detectDeferral(combinedText);
   // Un "gracias" solo cierra la plática si Mia ya había contestado algo real (no al aviso
   // de horario ni al retomar un chat de la noche).
