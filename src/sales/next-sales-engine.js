@@ -34,8 +34,8 @@ const ALTA_INTEREST_PATTERNS = [
 ];
 
 const PLAN_SELECTION_PATTERNS = [
-  { plan: "plan_2", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa)(?:\s+el)?\s+plan\s*(2|dos)\b/ },
-  { plan: "plan_1", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa)(?:\s+el)?\s+plan\s*(1|uno)\b/ },
+  { plan: "plan_2", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(2|dos)\b|^(?:el\s+)?plan\s*(2|dos)(?:\s+(?:por favor|porfa|mejor|esta bien))?$/ },
+  { plan: "plan_1", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(1|uno)\b|^(?:el\s+)?plan\s*(1|uno)(?:\s+(?:por favor|porfa|mejor|esta bien))?$/ },
 ];
 
 const PAUSE_PATTERNS = [

@@ -12,6 +12,7 @@ import { negatesCommitment } from "../sales/commitment-negation.js";
 import { deferralDecision } from "../sales/customer-deferral.js";
 import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
+import { isAutoReply } from "../semantic/auto-reply.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
@@ -341,6 +342,12 @@ export class ConversationProcessor {
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
+    // Respuesta automática de otro negocio: no se contesta (no es el cliente escribiendo).
+    if (isAutoReply(combinedText) && !batch.some(hasAttachments)) {
+      await this.record(conversationId, "auto_reply_ignored", { customer_text: combinedText.slice(0, 300) });
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
     if (reassigned) {
       await this.registerPaymentProof(conversationId, batch, snapshot, combinedText);
       await this.memories.markProcessedMany(conversationId, messageIds);
@@ -533,7 +540,7 @@ export class ConversationProcessor {
     // {memory, planner, combinedText, fallbackDecision}). Llamarlas con otros argumentos hacía que
     // toda respuesta de la IA se reemplazara por la pregunta de respaldo.
     const fallback = () => ({ ...fallbackDecision(memory, planner, combinedText), __source: "fallback" });
-    const quality = reply => checkReply(reply, { memory, questionKey: decision?.question_key, maxChars: this.config.ai.maxReplyChars });
+    const quality = reply => checkReply(reply, { memory, questionKey: decision?.question_key, maxChars: this.config.ai.maxReplyChars, customerText: combinedText });
     const applyCommercialGuards = () => {
       if (isDeterministicDecision(decision)) return;
       decision = enforcePreAuthorizationDecision(decision, { memory, planner, combinedText, fallbackDecision });
@@ -596,7 +603,7 @@ export class ConversationProcessor {
     if (firstReply && !decision.reply.toLowerCase().includes(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${publicName}. ${decision.reply}`;
     // La IA a veces abre con "Mia de MARTCOM. …" o "Soy Mia de MARTCOM. …" sin saludo: completar la presentación.
     if (firstReply && decision.reply.toLowerCase().startsWith(publicName.toLowerCase())) decision.reply = `¡Hola! Soy ${decision.reply}`;
-    if (firstReply) decision.reply = decision.reply.replace(/^(?:hola[,!.]?\s*)?soy\s+mia de martcom[.,]?\s*/i, `¡Hola! Soy ${publicName}. `);
+    if (firstReply) decision.reply = decision.reply.replace(/^(?:hola[,!.]?\s*)?soy\s+mia de martcom[.,:;]?\s*/i, `¡Hola! Soy ${publicName}. `);
     // Chat retomado al abrir: agradecer la espera justo después de la presentación (si la hay).
     if (resumedAfterHours) {
       const intro = decision.reply.match(/^(¡Hola!\s*Soy [^.]+\.\s*)/);

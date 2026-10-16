@@ -1,3 +1,4 @@
+import { effectivePlan } from "../sales/progressive-disclosure.js";
 export function fallbackDecision(memory, planner, combinedText) {
   const specialized = {
     afiliado_imss_al_fallecer: "Lamento mucho la pérdida. ¿Tu familiar tenía afiliación vigente al IMSS cuando falleció?",
@@ -54,8 +55,7 @@ export function fallbackDecision(memory, planner, combinedText) {
 // Ahora propone el siguiente paso según dónde va la conversación, sin repetirse.
 export function contextualNextStep(memory = {}) {
   const need = memory?.commercial_need || {};
-  const plan = memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.recommended_plan
-    || (need.afore_infonavit ? "plan_2" : (need.service_medical || need.weeks || need.retirement) ? "plan_1" : null);
+  const plan = effectivePlan(memory);
   const knowsNeed = Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement || memory?.necesidad_principal);
   const options = [];
   const label = plan === "plan_2" ? "Plan 2" : "Plan 1";

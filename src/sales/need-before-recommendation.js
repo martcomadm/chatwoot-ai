@@ -6,7 +6,7 @@ function norm(value) {
 const MEDICAL = /\b(servicio medico|seguro medico|atencion medica|consultas|medicinas|hospital|maternidad|guarderia|beneficiarios?)\b/;
 const WEEKS = /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas|continuar semanas)\b/;
 const AFORE_INFONAVIT = /\b(afore|infonavit|credito de vivienda|credito infonavit|puntos infonavit|vivienda)\b/;
-const RETIREMENT = /\b(pension|pensionarme|retiro|jubilarme|jubilacion)\b/;
+const RETIREMENT = /\b(pension\w*|pensionar\w*|retiro|jubilar\w*|jubilacion)\b/;
 
 export function deriveCommercialNeed(text, previous = {}) {
   const value = norm(text);
@@ -71,5 +71,5 @@ export function suppressRecommendationWithoutNeed(decision, memory = {}, combine
   const text = String(decision?.reply || "");
   const recommendsPlan = /\b(te recomiendo|recomiendo|mejor opcion|mejor opción|plan\s*[12])\b/i.test(text);
   if (!recommendsPlan) return decision;
-  return needGuardDecision(memory, combinedText) || { ...decision, reply: "Antes de recomendarte un plan, cuéntame qué buscas principalmente con la afiliación.", question_key: "necesidad_principal" };
+  return needGuardDecision(memory, combinedText) || { ...decision, reply: "Con gusto te ayudo. Para recomendarte la mejor opción, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?", question_key: "necesidad_principal" };
 }

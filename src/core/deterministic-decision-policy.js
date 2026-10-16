@@ -1,4 +1,5 @@
 const FACT_LOCKED_TYPES = new Set([
+  "modality_40",
   "payment_order",
   "salary_pension",
   "identity",

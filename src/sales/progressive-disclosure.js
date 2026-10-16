@@ -24,8 +24,8 @@ export function customerAskedCommercialDetails(text) {
 export function isInformationOpening(text) {
   const value = norm(text);
   // Botón "Información" del menú de WhatsApp y aperturas cortas equivalentes.
-  if (/^(?:hola[,.! ]*)?(?:buen(?:os|as)? (?:dias|tardes|noches)[,.! ]*)?(?:(?:mas |quiero |quisiera )?(?:informacion|info|informes))?[.!¡? ]*$/.test(value) && /informacion|info|informes/.test(value)) return true;
-  return /\b(quiero|quisiera|necesito|me gustaria|dame|busco)\b.{0,35}\b(informacion|saber mas|orientacion)\b/.test(value)
+  if (/^(?:hola[,.! ]*)?(?:buen(?:os|as)? (?:dias|tardes|noches)[,.! ]*)?(?:(?:mas |quiero |quisiera )?(?:informacion|info|informes))?(?:[.,!¡? ]*(?:por favor|porfavor|porfa|gracias|en perdona|perdon))?[.!¡? ]*$/.test(value) && /informacion|info|informes/.test(value)) return true;
+  return /\b(quiero|quisiera|necesito|me gustaria|dame|busco)\b.{0,35}\b(informacion|informes|saber mas|orientacion)\b/.test(value)
     || /\binformacion\b.{0,30}\b(afiliacion|imss|caso|nss)\b/.test(value)
     || /\binformacion\b.{0,45}\b(?:revisar|revision)\b.{0,30}\b(?:caso|nss|imss)\b/.test(value);
 }
@@ -47,7 +47,10 @@ export function progressiveOpeningDecision(memory = {}, combinedText = "") {
     return {
       // An explicit information/menu entry is a fresh customer opening. Greet here
       // even if this Chatwoot conversation has older persisted presentation state.
-      reply: "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo. La afiliación puede ayudarte a contar con servicio médico del IMSS y continuar cotizando semanas. Para orientarte mejor, ¿actualmente cuentas con IMSS?",
+      // "Información y revisar mi caso con mi NSS" (botón del anuncio): reconocer lo que pidió.
+      reply: /\b(caso|nss)\b/.test(norm(combinedText))
+        ? "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo a revisar tu caso. Para empezar, ¿actualmente cuentas con IMSS o hace cuánto dejaste de cotizar?"
+        : "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo. La afiliación puede ayudarte a contar con servicio médico del IMSS y continuar cotizando semanas. Para orientarte mejor, ¿actualmente cuentas con IMSS?",
       question_key: "tiene_imss",
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
@@ -67,9 +70,11 @@ function pendingQuestion(memory = {}) {
 
 export function effectivePlan(memory = {}) {
   if (memory?.sales_cycle?.selected_plan) return memory.sales_cycle.selected_plan;
-  if (memory?.sales_cycle?.recommended_plan) return memory.sales_cycle.recommended_plan;
   const need = memory?.commercial_need || {};
+  // Si el cliente quiere AFORE/INFONAVIT es Plan 2 aunque antes se le haya sugerido el 1
+  // (caso real: Karla recibió seguimientos del Plan 1 después de elegir el 2).
   if (need.afore_infonavit) return "plan_2";
+  if (memory?.sales_cycle?.recommended_plan) return memory.sales_cycle.recommended_plan;
   if (need.service_medical || need.weeks || need.retirement) return "plan_1";
   return null;
 }
@@ -78,7 +83,7 @@ export function effectivePlan(memory = {}) {
 function affirmativeFollowUp(text = "") {
   // "Si.", "Porfavor.", "Porfavor explíqueme…!!" también son un sí (casos reales del 15-oct).
   const value = norm(text).replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
-  return /^(?:(?:si|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno)\s*)+(?:(?:explicame|cuentame|dime|por favor)\s*)*$/.test(value)
+  return /^(?:(?:si|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno|me parece bien|me parece|muy bien|y gracias|gracias)\s*)+(?:(?:explicame|cuentame|dime|por favor|y gracias|gracias)\s*)*$/.test(value) && !/^(?:y gracias|gracias)/.test(value)
     || /^(?:explicame|cuentame)(?: por favor)?$/.test(value)
     || /\b(?:si|por favor)\s+(?:explicame|cuentame|dime)\b/.test(value);
 }
@@ -98,7 +103,7 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   // en medio haya contestado otra duda (caso real: modalidad → "Podría darme más información").
   const cycle = memory?.sales_cycle || {};
   const pitchedNotExplained = (cycle.pitched_plans || []).some(p => !(cycle.explained_plans || []).includes(p));
-  const asksMoreInfo = /\b(?:mas informacion|darme (?:mas )?informacion|mandame (?:la )?informacion|me (?:das|da|puedes dar|podrias dar|podria dar) (?:mas )?informacion|informes|mas detalles)\b/.test(value) && (priorAgentOfferedExplanation(memory) || pitchedNotExplained);
+  const asksMoreInfo = /\b(?:mas informacion|darme (?:mas )?informacion|mandame (?:la )?informacion|dame (?:mas )?(?:informacion|info|informes)|me (?:das|da|puedes dar|podrias dar|podria dar) (?:mas )?informacion|informes|mas detalles)\b/.test(value) && (priorAgentOfferedExplanation(memory) || pitchedNotExplained);
   const explicitExplanationRequest = asksMoreInfo || /\b(?:explicame|cuentame|dime)\b.{0,40}\b(?:como funciona|que incluye|incluye|del plan|sobre el plan|beneficios|que trae|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:que incluye|que trae|que beneficios tiene|como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
   const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
   if (!explicitExplanationRequest && !contextualAffirmative) return null;

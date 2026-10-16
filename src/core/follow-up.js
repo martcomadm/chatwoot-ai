@@ -3,6 +3,7 @@ import path from "node:path";
 import { stopLabels } from "../chatwoot/labels.js";
 import { onboardingLabel } from "../operations/onboarding-service.js";
 import { SelfSenders } from "./self-senders.js";
+import { effectivePlan } from "../sales/progressive-disclosure.js";
 
 // Seguimiento automático cuando el cliente deja de contestar.
 //
@@ -54,15 +55,8 @@ export class FollowUpStore {
 function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_1" ? "Plan 1" : null; }
 
 function currentPlan(memory = {}) {
-  const cycle = memory.sales_cycle || {};
-  if (cycle.selected_plan || cycle.recommended_plan) return cycle.selected_plan || cycle.recommended_plan;
-  const pitched = cycle.pitched_plans || [];
-  if (pitched.length) return pitched.at(-1);
-  const need = memory.commercial_need || {};
-  if (need.afore_infonavit) return "plan_2";
-  // Ya dijo qué busca (semanas, pensión, servicio médico): el seguimiento habla del Plan 1.
-  if (need.weeks || need.retirement || need.service_medical) return "plan_1";
-  return null;
+  // Mismo criterio que el resto de Mia: plan elegido > AFORE/INFONAVIT > recomendado > necesidad.
+  return effectivePlan(memory) || (memory.sales_cycle?.pitched_plans || []).at(-1) || null;
 }
 
 // Mensaje según dónde se quedó la conversación. null = no corresponde dar seguimiento.

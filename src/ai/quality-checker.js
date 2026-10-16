@@ -29,7 +29,7 @@ function similarity(a,b){
   return common/Math.max(aa.size,bb.size);
 }
 
-export function checkReply(reply,{memory,questionKey,maxChars=850}){
+export function checkReply(reply,{memory,questionKey,maxChars=850,customerText=""}){
   const text=String(reply||"").trim();
   const reasons=[];
   if(!text) reasons.push("respuesta_vacia");
@@ -62,6 +62,9 @@ export function checkReply(reply,{memory,questionKey,maxChars=850}){
   if(!memory?.sales_cycle?.authorized && /(antes de las 6|d[eé] de baja|darse de baja|dar de baja el proceso)/i.test(text)) reasons.push("politica_pago_prematura");
   if(/\bcotizaci[oó]n\b/i.test(text)) reasons.push("cotizacion_inventada");
   if(/\bxochimilco\b|\bcolonia\b|\balcald[ií]a\b/i.test(text)) reasons.push("ubicacion_inventada");
+  // "Parece que ese mensaje no era para nosotros" solo cabe ante cadenas o avisos largos;
+  // a "No lo conozco" (respuesta a una pregunta de Mia) se le contestó eso (caso real 15-oct).
+  if(/no era para nosotros/i.test(text)&&String(customerText||"").trim().length<120) reasons.push("fuera_de_tema_indebido");
   if(/\bsoy\s+axel\b|\baxel\s+(?:de|ia)\b/i.test(text)) reasons.push("identidad_incorrecta");
   return {ok:reasons.length===0,reasons};
 }
