@@ -158,7 +158,8 @@ test("la IA que repite una pregunta ya contestada conserva su respuesta sin la p
     ai: { generateDecision: async () => ({ reply: "Sí, puedes registrar a tus padres como beneficiarios conforme a las reglas del IMSS. ¿A qué te dedicas actualmente?", question_key: "actividad" }) },
   });
   await run();
-  assert.equal(state.sent[0], "Sí, puedes registrar a tus padres como beneficiarios conforme a las reglas del IMSS.");
+  // Se quita la pregunta repetida y, para no dejar la plática sin rumbo, se agrega el siguiente paso.
+  assert.match(state.sent[0], /^Sí, puedes registrar a tus padres como beneficiarios conforme a las reglas del IMSS\. ¿Tienes alguna duda sobre el Plan 1 o quieres que iniciemos tu trámite\?$/);
 });
 
 test("la presentación 'Soy Mia de MARTCOM.' siempre lleva saludo", async () => {

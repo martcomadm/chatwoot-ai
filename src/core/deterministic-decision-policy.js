@@ -1,4 +1,8 @@
-const FACT_LOCKED_TYPES = new Set([
+export const FACT_LOCKED_TYPES = new Set([
+  "multi",
+  "check_weeks",
+  "already_pensioned",
+  "which_plan",
   "pension_min_term",
   "pension_orientation",
   "modality_40",

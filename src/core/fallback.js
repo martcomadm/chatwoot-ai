@@ -66,7 +66,6 @@ export function fallbackDecision(memory, planner, combinedText) {
 export function contextualNextStep(memory = {}) {
   const need = memory?.commercial_need || {};
   const plan = effectivePlan(memory);
-  const knowsNeed = Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement || memory?.necesidad_principal);
   const options = [];
   const label = plan === "plan_2" ? "Plan 2" : "Plan 1";
   const explained = (memory?.sales_cycle?.explained_plans || []).includes(plan);
@@ -74,8 +73,11 @@ export function contextualNextStep(memory = {}) {
   // (caso real: tras "No estoy trabajando" Mia contestó "¿Hay algo más en lo que te pueda ayudar?").
   if (plan && !explained) options.push(`Gracias. Con lo que me cuentas, el ${label} es el que mejor se ajusta a lo que buscas. ¿Quieres que te explique cómo funciona?`);
   if (plan) options.push(`¿Tienes alguna duda sobre el ${label} o quieres que iniciemos tu trámite?`);
-  else if (!knowsNeed) options.push("Para orientarte mejor, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?");
-  options.push("¿Hay algo más en lo que te pueda ayudar?");
+  // Sin plan identificado se pregunta qué busca (antes salía "¿Hay algo más…?" porque la IA
+  // había anotado una necesidad en texto libre; caso Laura, 17-oct).
+  else options.push("Para orientarte mejor, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?");
+  if (plan) options.push("¿Hay algo más en lo que te pueda ayudar?");
+  else options.push("Cuéntame un poco más de lo que buscas y te digo qué plan te conviene: ¿te interesa sobre todo el servicio médico o también aportar a tu AFORE?");
   const last = String(memory?.ultima_respuesta_agente || "").trim();
   return options.find(option => !last.endsWith(option)) || options.at(-1);
 }

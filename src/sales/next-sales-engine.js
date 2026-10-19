@@ -129,6 +129,9 @@ function commercialContextReady(memory = {}) {
   return Boolean(
     cycle.selected_plan ||
     cycle.recommended_plan ||
+    // Mia ya recomendó o explicó un plan y preguntó "¿Quieres que iniciemos tu trámite?"
+    // (venta real del 17-oct: el "Si" no abría el expediente y la IA improvisaba).
+    (cycle.pitched_plans || []).length || (cycle.explained_plans || []).length ||
     ["plan_recommended", "explaining", "objection_handling", "interested"].includes(cycle.stage)
   );
 }
@@ -159,7 +162,7 @@ export function analyzeNextSale(text, memory = {}) {
 
   const selectedPlan = explicitSelection
     || previous.selected_plan
-    || (authorized ? previous.recommended_plan || detectedPlan || null : null);
+    || (authorized ? previous.recommended_plan || detectedPlan || (previous.explained_plans || []).at(-1) || (previous.pitched_plans || []).at(-1) || null : null);
 
   const patch = {
     sales_cycle: {

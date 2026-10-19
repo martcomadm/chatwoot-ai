@@ -60,6 +60,6 @@ export function renderCustomerMessage(eventType, { sale, details } = {}, overrid
   const template = String(overrides?.[eventType] || "").trim() || DEFAULT_CUSTOMER_MESSAGES[eventType];
   if (!template) return null;
   return template
-    .replaceAll("{monto}", formatAmount(sale?.payment?.amount))
+    .replaceAll("{monto}", formatAmount(sale?.payment?.amount ?? sale?.sale?.precio ?? ({ plan_1: 1100, plan_2: 1500 })[sale?.sale?.plan] ?? null))
     .replaceAll("{motivo}", String(details?.reason || "").trim() || "revisar la información enviada");
 }

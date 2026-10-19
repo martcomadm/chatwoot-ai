@@ -46,14 +46,39 @@ export function onboardingStateFromSale(sale = {}) {
   };
 }
 
+export const ONBOARDING_COMPLETE_TEXT = "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.";
+
+// Qué decirle a un cliente con expediente completo según dónde va su trámite en Operations.
+export function operationsStatusText(ops = {}) {
+  if (ops.payment_validated || ops.status === "completed" || ops.status === "payment_validated") return "Tu proceso ya quedó completado. Cualquier duda, nuestro equipo de Atención a Clientes te apoya por este medio.";
+  if (ops.payment_received || ops.status === "payment_received") return "Ya recibimos tu comprobante y lo estamos validando; te confirmo por aquí en cuanto quede aplicado.";
+  if (ops.payment_requested || ops.status === "payment_requested") return "Para continuar solo falta tu pago. Cuando lo realices, envíame por aquí tu comprobante, por favor.";
+  if (ops.validity_confirmed || ops.status === "validity_confirmed") return "Tu afiliación ya está vigente. En breve te comparto los datos para realizar tu primer pago.";
+  if (ops.validation_approved) return "Tu validación ya fue aprobada; estamos esperando la confirmación de vigencia ante el IMSS. Te aviso por aquí en cuanto quede.";
+  return "Tu expediente está completo y tu alta está en proceso. Te aviso por aquí conforme avance.";
+}
+
+function isCourtesyText(text = "") {
+  const raw = String(text || "").trim();
+  if (/[?¿]/.test(raw)) return false;
+  const v = norm(raw).replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  return !v || /^(?:(?:ok|okey|okay|oki|oi|va|sale|vale|si|claro|listo|perfecto|bien|muy bien|de acuerdo|entendido|enterado|gracias|muchas gracias|mil gracias|que amable|quedo pendiente|quedo al pendiente|quedo atento|quedo atenta|pendiente|igualmente|bendiciones|buen dia|excelente|mia)\s*)+$/.test(v);
+}
+
 export function buildOnboardingDecision(memory = {}, combinedText = "") {
   if (!memory.sales_cycle?.authorized || !memory.operations?.sale_id) return null;
   if (memory.operations.documents_complete) {
-    return {
-      reply: "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.",
-      question_key: null,
-      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
-    };
+    const last = String(memory.ultima_respuesta_agente || "").trim();
+    // La primera vez se avisa que el expediente quedó completo. Después ya no se repite a cada
+    // "Ok" o "Gracias" (ventas reales del 17-oct): se contesta el estado del trámite o nada.
+    const ops = memory.operations;
+    const advanced = ops.validation_approved || ops.validity_confirmed || ops.payment_requested || ops.payment_received || ops.payment_validated;
+    if (!memory.onboarding_complete_notified && !advanced && last !== ONBOARDING_COMPLETE_TEXT) {
+      return { reply: ONBOARDING_COMPLETE_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true };
+    }
+    const status = operationsStatusText(memory.operations);
+    const reply = isCourtesyText(combinedText) || last === status ? "" : status;
+    return { reply, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true };
   }
 
   const text = norm(combinedText);
@@ -97,6 +122,11 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
 
   const key = memory.operations.onboarding_next || memory.operations.documents_missing?.[0] || null;
   if (!key) return null;
+  // "Ok", "Permítame" a la solicitud del documento: no repetir la misma solicitud palabra por palabra.
+  const samePrompt = String(memory.ultima_respuesta_agente || "").trim() === onboardingPrompt(key);
+  if (samePrompt && !containsRequestedData && isCourtesyText(combinedText)) {
+    return { reply: "", question_key: key === "curp" || key === "nss" ? key : null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: key };
+  }
   return {
     reply: onboardingPrompt(key),
     question_key: key === "curp" || key === "nss" ? key : null,

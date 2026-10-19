@@ -3,7 +3,7 @@ import { parseSchedule, isOpen, nextOpeningDate, outOfScheduleMessage } from "./
 import { analyzeSales, planNext, answered } from "../sales/sales-engine.js";
 import { checkReply } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
-import { fallbackDecision } from "./fallback.js";
+import { fallbackDecision, contextualNextStep } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
 import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan, medicalNotNeededDecision, coverageAndRequirementsDecision } from "../sales/progressive-disclosure.js";
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, deriveCommercialNeed } from "../sales/need-before-recommendation.js";
@@ -26,7 +26,7 @@ import { analyzeJudgment } from "../orchestrator/conversational-judgment.js";
 import { analyzePatience, sensitiveSlotSuppressed } from "../semantic/conversational-patience.js";
 import { resolveAnswer } from "../semantic/answer-resolver.js";
 import { ensureAuthorizedSale } from "../operations/sale-factory.js";
-import { buildOnboardingDecision } from "../operations/onboarding-service.js";
+import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { explicitHumanRequest, acceptsAdvisorOffer } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
@@ -90,6 +90,15 @@ function recoverCommercialContext(conversation, memory = {}) {
   return { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), stage: memory.sales_cycle?.stage || "plan_recommended", recommended_plan: plan } };
 }
 
+// Algunos clientes escriben con puntos en vez de espacios; sin esto ninguna regla los entiende.
+export function undotted(text = "") {
+  const value = String(text || "");
+  const dotted = (value.match(/[\p{L}\d]\.[\p{L}\d]/gu) || []).length;
+  const spaces = (value.match(/ /g) || []).length;
+  if (dotted < 3 || spaces >= dotted) return value;
+  return value.replace(/([\p{L}\d])\.(?=[\p{L}\d])/gu, "$1 ");
+}
+
 // ¿La respuesta explica a fondo un plan? Devuelve "plan_1" | "plan_2" | null.
 export function explainedPlanInReply(reply = "") {
   const text = String(reply || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -101,7 +110,8 @@ export function explainedPlanInReply(reply = "") {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null }) {
+    this.templates = templates;
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -337,7 +347,8 @@ export class ConversationProcessor {
       await this.record(conversationId, "duplicate_turn_skipped", { message_ids: messageIds.map(String) });
       return;
     }
-    const combinedText = batch.map(m => m.content || "").filter(Boolean).join("\n").trim();
+    // "Si.laberdad.tengo.apenas.55.años." (caso real 19-oct): puntos en lugar de espacios.
+    const combinedText = undotted(batch.map(m => m.content || "").filter(Boolean).join("\n").trim());
     if (!combinedText && !batch.some(hasAttachments)) {
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
@@ -396,7 +407,7 @@ export class ConversationProcessor {
     if (!llmPatch.commercial_need) llmPatch.commercial_need = deriveCommercialNeed(combinedText, base.commercial_need);
     // "Todo" a "¿qué es lo más importante para ti…?" = servicio médico, semanas y AFORE/INFONAVIT (caso real 15-oct).
     const askedNeed = base.ultima_pregunta === "necesidad_principal" || /lo mas importante para ti|que te interesa principalmente|que buscas principalmente/.test(String(base.ultima_respuesta_agente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-    if (askedNeed && /^(?:todo|todos|todas|las tres|los tres|todo eso|todo lo anterior|de todo|me interesa todo|quiero todo)\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, " ").trim())) {
+    if (askedNeed && /^(?:(?:en si|pues|si|bueno)\s+)?(?:en\s+)?(?:todo|todos|todas|las tres|los tres|todo eso|todo lo anterior|de todo|me interesa todo|quiero todo|todo completo)\b|\b(?:requiero|necesito|quiero) todo\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, " ").trim())) {
       llmPatch.commercial_need = { ...(llmPatch.commercial_need || {}), service_medical: true, weeks: true, afore_infonavit: true, unknown: false };
     }
     // La IA a veces toma frases como nombre ("Deje", "Claro que sí"): se descartan.
@@ -432,6 +443,8 @@ export class ConversationProcessor {
       await this.record(conversationId, "conversation_patience_pause", { sensitive_state: patience.state || null, reply: patience.reply });
       await this.chatwoot.sendMessage(conversationId, patience.reply);
       await this.memories.markProcessedMany(conversationId, messageIds);
+      // Si después ya no regresa, el seguimiento normal lo retoma.
+      this.followUps?.afterReply?.(conversationId, { customerAt: new Date(), reply: patience.reply });
       return;
     }
     const b2b = orchestration.shouldHandoffB2B || memory.intent?.id === "PROVEEDOR";
@@ -498,7 +511,9 @@ export class ConversationProcessor {
     const contextualExplanation = contextualPlanExplanation(base, combinedText);
     const compactRecommendation = compactPlanRecommendation(memory, combinedText);
     const priceObjection = priceObjectionDecision(memory, combinedText);
-    const directDecision = directAnswerDecision({ judgment, orchestration });
+    // Con el trámite iniciado, una CURP es un documento del expediente, no una "revisión de caso".
+    const directDecisionRaw = directAnswerDecision({ judgment, orchestration });
+    const directDecision = memory.sales_cycle?.authorized && /^direct:case_review/.test(directDecisionRaw?.__source || "") ? null : directDecisionRaw;
     const commitment = commitmentDecision(memory, combinedText);
     // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
     const deferral = deferralDecision(memory, combinedText, { resumedAfterHours });
@@ -608,6 +623,25 @@ export class ConversationProcessor {
       return;
     }
 
+    // La IA a veces contesta sin siguiente paso ("Anotado que eres transportista/chofer."): el cliente
+    // no sabe qué sigue y la plática se muere (casos 17-oct). Se agrega el siguiente paso.
+    const closingLike = /escr[ií]beme por aqu[ií]|quedo al pendiente|aqu[ií] te espero|aqu[ií] estar[eé]|cuando (?:lo tengas|puedas|regreses|est[eé]s list)|te aviso por aqu[ií]/i;
+    const openEnded = ["llm", "llm_repair"].includes(decisionSource) || /^direct:(services|price|location|registered_salary|requirements|process_time|payment_frequency|not_free|identity)$/.test(decisionSource);
+    if (openEnded && !memory.sales_cycle?.authorized && !/[?¿]/.test(decision.reply) && !closingLike.test(decision.reply)) {
+      const next = String(contextualNextStep(memory) || "").replace(/^Gracias\.\s*/, "");
+      if (next && !decision.reply.includes(next) && (decision.reply.length + next.length + 1) <= (this.config.ai.maxReplyChars || 850)) {
+        decision.reply = `${decision.reply} ${next}`;
+        await this.record(conversationId, "next_step_appended", { next });
+      }
+    }
+    // Nunca la misma respuesta fija dos veces seguidas (Modalidad 40 repetida a Martín, 17-19 oct):
+    // la segunda vez se ofrece un asesor.
+    const CONSULTATIVE = /^direct:(modality_40|modality|pension_general|pension_orientation|pension_min_term|salary_pension|legitimacy|trust|operational_model|already_pensioned|disability)$/;
+    if (CONSULTATIVE.test(decisionSource) && decision.reply.trim() === String(memory.ultima_respuesta_agente || "").trim()) {
+      decision.reply = "Para revisar bien tu caso y resolver lo que me comentas, lo mejor es que lo vea un asesor. ¿Quieres que te comunique con uno?";
+      await this.record(conversationId, "repeated_answer_replaced", { source: decisionSource });
+    }
+
     // ── 12. Presentarse, deduplicar y enviar ──
     // Mia se presenta en su primera respuesta de la conversación, venga de la IA o de una regla.
     const publicName = this.config.ai.publicName || "Mia de MARTCOM";
@@ -666,9 +700,23 @@ export class ConversationProcessor {
       return;
     }
     this.supersedes?.delete(conversationId);
+    // Fuera de la ventana de 24 h de WhatsApp el texto libre no llega ("Error al enviar"): pasaba al
+    // retomar el lunes chats del sábado en la noche. Se manda la plantilla de seguimiento, una vez.
+    if (conversation?.can_reply === false) {
+      const already = Date.now() - Date.parse(memory.reengage_template_at || 0) < 24 * 60 * 60 * 1000;
+      let result = { sent: false, reason: already ? "already_sent" : "no_templates" };
+      if (!already && this.templates?.enabled?.("followUp24h")) result = await this.templates.send(conversationId, "followUp24h");
+      await this.record(conversationId, "reply_outside_window", { reply: decision.reply, template: result });
+      this.followUps?.cancel?.(conversationId);
+      if (result.sent) memory = { ...memory, reengage_template_at: new Date().toISOString(), ultima_respuesta_agente: "Hola, buen día. Si aún estás interesado en afiliarte al IMSS, con gusto puedo ayudarte a iniciar tu proceso." };
+      await this.memories.set(conversationId, memory);
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
     await this.chatwoot.sendMessage(conversationId, decision.reply);
     memory = {
       ...memory,
+      ...(decision.reply === ONBOARDING_COMPLETE_TEXT ? { onboarding_complete_notified: true } : {}),
       ultima_respuesta_agente: decision.reply,
       ultima_pregunta: decision.question_key || null,
       preguntas_realizadas: decision.question_key ? arrays(memory.preguntas_realizadas, [decision.question_key]) : memory.preguntas_realizadas,
@@ -684,6 +732,8 @@ export class ConversationProcessor {
     if (pitchedPlan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), [pitchKey]: arrays(memory.sales_cycle?.[pitchKey], [pitchedPlan]) } };
     // Si la IA explicó un plan con su detalle (precio + salario registrado o lo que incluye), cuenta
     // como explicado: antes el respaldo volvía a ofrecer "¿Quieres que te explique cómo funciona?".
+    // Ya se le respondió una duda de legitimidad: si vuelve a dudar, se le ofrece un asesor.
+    if (/^direct:(legitimacy|trust)$/.test(decisionSource) || /^direct:multi$/.test(decisionSource) && /Tu alta queda registrada ante el IMSS con una empresa/.test(decision.reply)) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), trust_answered: true } };
     const explainedByText = explainedPlanInReply(decision.reply);
     if (explainedByText) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), pitched_plans: arrays(memory.sales_cycle?.pitched_plans, [explainedByText]), explained_plans: arrays(memory.sales_cycle?.explained_plans, [explainedByText]) } };
     if (decisionState.nss_resolution) {

@@ -25,12 +25,12 @@ function titleCaseName(value){
 }
 
 function possibleStandaloneName(text, memory){
-  const value=clean(text).replace(/[.,;:!?]+$/g,"");
+  const value=clean(text).replace(/[.,;:!?]+$/g,"").replace(/\b([A-Za-z]{1,3})\.(?=[A-ZÁÉÍÓÚÑ])/g,"$1. ");
   if(!value || value.length<5 || value.length>90 || /\d/.test(value)) return null;
   const words=value.split(/\s+/).filter(Boolean);
   if(words.length<2 || words.length>7) return null;
   if(words.some(w => NAME_STOP_WORDS.has(w.toLowerCase()))) return null;
-  if(words.some(w => !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'-]+$/.test(w))) return null;
+  if(words.some(w => !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'-]+$/.test(w) && !/^[A-Za-zÁÉÍÓÚÑáéíóúñ]{1,3}\.$/.test(w))) return null;
   const askedForName=memory?.ultima_pregunta==="nombre" || memory?.flujo?.siguiente_paso==="nombre";
   const looksLikeFullName=words.length>=3;
   return askedForName || looksLikeFullName ? titleCaseName(value) : null;

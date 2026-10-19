@@ -111,10 +111,12 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   const explicitExplanationRequest = asksMoreInfo || /\b(?:explicame|cuentame|dime)\b.{0,40}\b(?:como funciona|que incluye|incluye|del plan|sobre el plan|beneficios|que trae|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:que incluye|que trae|que beneficios tiene|como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
   const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
   if (!explicitExplanationRequest && !contextualAffirmative) return null;
-  const plan = effectivePlan(memory);
+  // "¿Quieres que te explique cómo funciona el Plan 2?" → explicar ese plan (caso 17-oct: explicó el 1).
+  const offered = /explique como funciona el plan ([12])/.exec(norm(memory?.ultima_respuesta_agente || ""))?.[1];
+  const plan = offered ? `plan_${offered}` : effectivePlan(memory);
   // Ya se explicó este plan: no se manda otra vez el mismo bloque (caso real: Silvia recibió
   // dos veces la explicación completa del Plan 2).
-  if (contextualAffirmative && !explicitExplanationRequest && (memory?.sales_cycle?.explained_plans || []).includes(plan) && /\b(plan [12]|incluye)\b/.test(norm(memory?.ultima_respuesta_agente || "")) === false) {
+  if (contextualAffirmative && !explicitExplanationRequest && (memory?.sales_cycle?.explained_plans || []).includes(plan)) {
     const label = plan === "plan_2" ? "Plan 2" : "Plan 1";
     return { reply: `Te resumo el ${label}: ${plan === "plan_2" ? "$1,500 MXN mensuales; servicio médico del IMSS, semanas cotizadas, aportaciones a AFORE e INFONAVIT" : "$1,100 MXN mensuales; servicio médico del IMSS y semanas cotizadas"}. Para iniciar solo necesitamos CURP, NSS e INE. ¿Quieres que iniciemos tu trámite o prefieres que un asesor revise tu caso primero?`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
   }

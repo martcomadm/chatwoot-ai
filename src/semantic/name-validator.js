@@ -16,7 +16,7 @@ const NEVER_FIRST = new Set(["que", "qué", "como", "cómo", "cual", "cuál", "c
 const NEVER_ANY = /\b(?:gracias|modalidad|atienden|trabajar|legal|empresa|patron(?:es)?|planes?|diferencia|hay|cuesta|costo|ubicaci[oó]n|informes?|favor|semanas|años|anos|hogar|casa|esposo|esposa|hijos?)\b/i;
 
 export function validateNameCandidate(value) {
-  const text = String(value ?? "").trim().replace(/[.,;:!?]+$/g, "");
+  const text = String(value ?? "").trim().replace(/[.,;:!?]+$/g, "").replace(/\b([A-Za-z]{1,3})\.(?=[A-ZÁÉÍÓÚÑ])/g, "$1. ");
   const firstWord = text.split(/\s+/)[0]?.toLowerCase() || "";
   if (NEVER_FIRST.has(firstWord) || NEVER_ANY.test(text)) return { ok: false, reason: "not_a_name" };
   if (!text || text.length < 4 || text.length > 90 || /\d/.test(text)) return { ok: false, reason: "shape" };
@@ -25,7 +25,8 @@ export function validateNameCandidate(value) {
   if (STOP_PATTERNS.some((pattern) => pattern.test(text))) return { ok: false, reason: "conversation_phrase" };
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length < 2 || words.length > 7) return { ok: false, reason: "word_count" };
-  if (words.some((word) => !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'-]+$/.test(word))) return { ok: false, reason: "characters" };
+  // Abreviaturas como "Ma." (María) o "J." son parte del nombre (caso real: "Ma.Magdalena Banda Mendoza").
+  if (words.some((word) => !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'-]+$/.test(word) && !/^[A-Za-zÁÉÍÓÚÑáéíóúñ]{1,3}\.$/.test(word))) return { ok: false, reason: "characters" };
   return { ok: true, reason: "valid" };
 }
 

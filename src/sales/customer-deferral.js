@@ -22,6 +22,13 @@ const LATER_RE = [
   /\blo (?:voy a pensar|pienso|consulto|platico|reviso|checo|analizo)\b/,
   /\b(?:dej[ae]me|deja|deje|dejeme)\s+(?:lo\s+)?(?:platico|platicar|consulto|consultar|comento|comentar|hablo|hablar)\b|\b(?:lo\s+)?(?:platico|consulto|comento|hablo)\s+con\s+(?:mi|mis)\s+(?:esposo|esposa|pareja|familia|hijos?|hijas?|marido|senora|mama|papa)\b/,
   /\b(?:yo\s+)?(?:me|nos)\s+(?:comunicaria|comunicariamos|comunico|comunicamos|pongo en contacto|reporto)\s+con\s+(?:ustedes|usted|contigo|ella|el)\b|\b(?:aun|todavia)\s+no\s+(?:he|eh|e|hemos)\s+(?:hablado|platicado|consultado|decidido)\b/,
+  // Casos reales 17-oct: "lo estoy considerando", "te mando mañana", "para el siguiente mes",
+  // "lunes o martes", "voy de salida… le mando mensaje", "sería ahora que renuncie".
+  /\b(?:lo|la)\s+estoy\s+(?:considerando|pensando|analizando|viendo|revisando)\b|\b(?:estoy|estamos)\s+(?:platicando|viendo|consultando|hablando)(?:lo)?\s+con\s+(?:mi|mis)\b/,
+  /\b(?:te|le|les)\s+(?:lo\s+|los\s+|las\s+)?(?:mando|envio|paso|comparto)\s+(?:manana|el lunes|el martes|en la semana|mas tarde|al rato|despues)\b|\bmanana\s+(?:te|le|les)\s+(?:mando|envio|paso|escribo)\b/,
+  /\b(?:para|hasta|a partir de)\s+(?:el\s+)?(?:siguiente|proximo|otro)\s+mes\b|\b(?:el\s+)?(?:1|primero)\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b|\b(?:la\s+)?(?:proxima|siguiente|otra)\s+semana\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado)\s+o\s+(?:lunes|martes|miercoles|jueves|viernes|sabado)\b/,
+  /\bvoy de salida\b|\b(?:le|te)\s+mando\s+mensaje\b.{0,25}\b(?:regrese|regreso|llegue|pueda)\b|\bestoy ocupad[oa]\b/,
+  /\b(?:seria|sera|cuando)\s+(?:ahora\s+)?(?:que\s+)?(?:renuncie|me liquiden|deje de trabajar|salga del trabajo|me den de baja)\b/,
   /\b(?:me|nos)\s+vuelvo\s+a\s+(?:comunicar|poner en contacto)|\b(?:me|nos)\s+volvemos\s+a\s+comunicar|\b(?:te|le|les)\s+vuelvo\s+a\s+(?:escribir|marcar|contactar)\b/,
   /\b(?:dej[ae]me|deje|dejeme) (?:lo )?(?:reviso|revisar|checo|checar|pienso|pensar|veo|ver|analizo)\b|\bvoy a (?:revisar|checar|pensarlo|analizarlo)\b/,
   /\b(?:te|le|les) (?:mando|escribo|envio) (?:un )?(?:mensaje|msj)? ?mas tarde\b|\bmas tarde (?:te|le|les) (?:escribo|mando|aviso)\b|\bte puedo mandar mensaje mas tarde\b/,
@@ -60,7 +67,7 @@ export function detectClosing(text, { lastReply = "" } = {}) {
 const CLOSING_MARK = "escríbeme por aquí";
 
 function firstName(memory = {}) {
-  const raw = String(memory.nombre || "").trim().split(/\s+/)[0] || "";
+  const raw = String(memory.primer_nombre || memory.nombre || "").trim().split(/\s+/)[0] || "";
   // Nombres mal capturados antes de la corrección ("Claro", "Deje", "Si") no se usan.
   if (!raw || raw.length < 2 || !plausibleName(raw)) return "";
   return `, ${raw.charAt(0).toUpperCase()}${raw.slice(1).toLowerCase()}`;
@@ -86,6 +93,9 @@ export function isCourtesy(text) {
 }
 
 export function deferralDecision(memory = {}, combinedText = "", { resumedAfterHours = false } = {}) {
+  // Cliente con trámite iniciado: "Muchas gracias" no es despedida de venta ("cuando quieras
+  // continuar…" no aplica). Lo atiende el seguimiento del expediente.
+  if (memory.sales_cycle?.authorized) return null;
   // Mia ya se despidió: a la cortesía ya no se contesta ni se programan seguimientos
   // (caso real: Silvia recibió dos despedidas más y otro "¿Te gustaría que iniciemos…?").
   const closedBefore = String(memory.ultima_respuesta_agente || "").includes(CLOSING_MARK);
@@ -106,7 +116,7 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   const alreadyClosed = String(memory.ultima_respuesta_agente || "").includes(CLOSING_MARK);
   let reply;
   if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
-  else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando lo decidas, ${CLOSING_MARK} y con gusto retomamos tu trámite. Aquí estaré para ayudarte.`;
+  else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando puedas, ${CLOSING_MARK} y con gusto continuamos con tu trámite. Aquí estaré para ayudarte.`;
   // Un "gracias" después de que Mia ya se despidió no necesita otra respuesta.
   else reply = alreadyClosed ? "" : `Con gusto${name}. Quedo al pendiente; cuando quieras continuar, ${CLOSING_MARK}.`;
   return {

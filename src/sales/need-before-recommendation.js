@@ -24,12 +24,16 @@ export function deriveCommercialNeed(text, previous = {}) {
   const rejectsAforeInfonavit = /\b(?:no|sin|ni)\s+(?:me interesa\s+|quiero\s+|necesito\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b|\b(?:afore|infonavit)\b.{0,20}\b(?:no me interesa|no quiero|no necesito)\b/.test(value);
   if (rejectsAforeInfonavit) next.afore_infonavit = false;
   else if (AFORE_INFONAVIT.test(value)) next.afore_infonavit = true;
+  // "¿Cómo puedo hacer esas aportaciones?" = AFORE (caso Laura, 17-oct); "sin aportaciones" no.
+  else if (/\baportaciones?\b/.test(value) && !/\b(?:sin|ninguna|no tengo|no hay)\s+(?:\w+\s+)?aportaciones?\b/.test(value)) next.afore_infonavit = true;
   if (RETIREMENT.test(value)) next.retirement = true;
   next.unknown = !(next.service_medical || next.weeks || next.afore_infonavit || next.retirement);
   return next;
 }
 
 export function hasCommercialNeed(memory = {}) {
+  // Si el cliente ya eligió un plan ("Me interesa el plan 1"), no se le vuelve a preguntar qué busca.
+  if (memory.sales_cycle?.selected_plan) return true;
   const need = memory.commercial_need || {};
   // Only deterministic, structured signals count as commercial need. The LLM field
   // necesidad_principal may contain contextual prose (for example "desempleado") and
