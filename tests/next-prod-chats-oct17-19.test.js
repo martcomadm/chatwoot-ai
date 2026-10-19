@@ -154,3 +154,15 @@ test("'¿Me podrías proporcionar una página?' recibe la página oficial", () =
   }
   assert.notEqual(detectDirectRequest("¿En qué página del contrato viene?")?.type, "website");
 });
+
+test("venta de Jesús Miguel completa: el aviso de expediente completo sale una sola vez", () => {
+  let mem = { sales_cycle: { authorized: true }, operations: { sale_id: "S1", documents_complete: true }, ultima_respuesta_agente: "Gracias. Ahora compárteme por favor el NSS del titular." };
+  const replies = [];
+  for (const [text, ops] of [["11796275789", {}], ["Muchas gracias", {}], ["Gracias quedó pendiente", {}], ["RECIBO77", { validation_approved: true }], ["Oi\nOk", { validity_confirmed: true }], ["Ok", { payment_requested: true }], ["Gracias, quedo pendiente de su comprobante y tenga excelente día", {}]]) {
+    mem.operations = { ...mem.operations, ...ops };
+    const d = deferralDecision(mem, text) || buildOnboardingDecision(mem, text);
+    if (d?.reply) { replies.push(d.reply); mem.ultima_respuesta_agente = d.reply; if (d.reply === ONBOARDING_COMPLETE_TEXT) mem.onboarding_complete_notified = true; }
+  }
+  assert.deepEqual(replies, [ONBOARDING_COMPLETE_TEXT]);
+  assert.match(buildOnboardingDecision(mem, "¿Ya quedó mi alta?").reply, /solo falta tu pago/);
+});

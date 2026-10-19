@@ -76,8 +76,14 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     if (!memory.onboarding_complete_notified && !advanced && last !== ONBOARDING_COMPLETE_TEXT) {
       return { reply: ONBOARDING_COMPLETE_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true };
     }
+    // Con el expediente completo, Mia solo contesta si el cliente pregunta algo o habla de su pago;
+    // a "Ok", "Gracias", "RECIBO77" o similares no responde (los avisos de cada etapa los manda
+    // Operaciones). Caso real Jesús Miguel, 17-19 oct.
     const status = operationsStatusText(memory.operations);
-    const reply = isCourtesyText(combinedText) || last === status ? "" : status;
+    const asks = /[?¿]/.test(combinedText) || /\b(cuando|como va|como vamos|que sigue|ya quedo|ya esta|estatus|status|avance|pago|pague|pagar|deposit\w*|transferi\w*|comprobante|vigencia|alta)\b/.test(norm(combinedText));
+    const question = /[?¿]/.test(combinedText);
+    const thanks = /\b(gracias|que tenga|buen dia|excelente dia|bendiciones)\b/.test(norm(combinedText));
+    const reply = !asks || isCourtesyText(combinedText) || (thanks && !question) || (last === status && !question) ? "" : status;
     return { reply, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true };
   }
 
