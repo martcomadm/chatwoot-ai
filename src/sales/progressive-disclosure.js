@@ -186,7 +186,8 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
 
   if (plan === "plan_1" && retirementContext && weeksContext) {
     return {
-      reply: "Entiendo. Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN mensuales. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.",
+      // Si ya dijo que empezó a cotizar antes de 1997 (anuncio de pensión), se le dice que es Ley 73.
+      reply: `Entiendo. ${memory?.pension_data?.cotizo_antes_1997 ? "Como empezaste a cotizar antes del 1 de julio de 1997, tu caso es Ley 73: necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos. " : ""}Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN mensuales. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.`,
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };

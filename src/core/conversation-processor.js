@@ -13,6 +13,7 @@ import { deferralDecision } from "../sales/customer-deferral.js";
 import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
+import { adOpeningDecision } from "../sales/ad-openings.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
@@ -379,7 +380,10 @@ export class ConversationProcessor {
     const activityPatch = contextualActivityPatch(combinedText, base);
     if (containsCurp(combinedText)) fastPatch.curp_recibida = true;
     // "Trabajé del 86 al 90": cotizó antes de 1997 (Ley 73); sirve para orientar sobre pensión.
-    if (startedBefore1997(combinedText)) fastPatch.pension_data = { ...(fastPatch.pension_data || {}), cotizo_antes_1997: true };
+    // Respuesta a "¿en qué año empezaste a cotizar?" (apertura del anuncio de pensión): basta el año.
+    const askedStartYear = /en que ano empezaste a cotizar/.test(String(base.ultima_respuesta_agente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ñ/g, "n"));
+    const yearAnswer = askedStartYear && /\b(?:19[5-8]\d|199[0-6])\b|\b(?:el|del|en el|desde el|desde|en)\s+(?:[5-8]\d|9[0-6])\b(?!\s*a(?:n|ñ)os)/i.test(combinedText);
+    if (startedBefore1997(combinedText) || yearAnswer) fastPatch.pension_data = { ...(fastPatch.pension_data || {}), cotizo_antes_1997: true };
     if (containsNss(combinedText)) fastPatch.nss_recibido = true;
     const facts = extractConversationFacts(combinedText, base);
     const reliability = analyzeReliability(combinedText, base, {
@@ -535,7 +539,9 @@ export class ConversationProcessor {
       planner = { ...planner, action: "asesoria_conversacional", question_key: null, specialized: true, advisory: true, customer_question_priority: true };
       await this.record(conversationId, "advisory_turn", { text: combinedText, commercial_need: memory.commercial_need || null });
     }
+    const adOpening = adOpeningDecision(base, combinedText);
     if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
+    else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
     else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
     else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
     else if (medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
@@ -626,7 +632,7 @@ export class ConversationProcessor {
     // La IA a veces contesta sin siguiente paso ("Anotado que eres transportista/chofer."): el cliente
     // no sabe qué sigue y la plática se muere (casos 17-oct). Se agrega el siguiente paso.
     const closingLike = /escr[ií]beme por aqu[ií]|quedo al pendiente|aqu[ií] te espero|aqu[ií] estar[eé]|cuando (?:lo tengas|puedas|regreses|est[eé]s list)|te aviso por aqu[ií]/i;
-    const openEnded = ["llm", "llm_repair"].includes(decisionSource) || /^direct:(services|price|location|registered_salary|requirements|process_time|payment_frequency|not_free|identity|website)$/.test(decisionSource);
+    const openEnded = ["llm", "llm_repair"].includes(decisionSource) || /^direct:(services|price|location|registered_salary|requirements|process_time|payment_frequency|not_free|identity|website|are_you_imss)$/.test(decisionSource);
     if (openEnded && !memory.sales_cycle?.authorized && !/[?¿]/.test(decision.reply) && !closingLike.test(decision.reply)) {
       const next = String(contextualNextStep(memory) || "").replace(/^Gracias\.\s*/, "");
       if (next && !decision.reply.includes(next) && (decision.reply.length + next.length + 1) <= (this.config.ai.maxReplyChars || 850)) {
