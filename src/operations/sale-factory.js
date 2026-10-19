@@ -1,5 +1,5 @@
 import { extractConversationAttachments } from "./document-service.js";
-import { onboardingStateFromSale } from "./onboarding-service.js";
+import { onboardingStateFromSale, operationsMemoryFromSale } from "./onboarding-service.js";
 
 function normalizePhone(value) {
   const raw = String(value || "").trim();
@@ -78,7 +78,9 @@ export async function ensureAuthorizedSale({ workflow, memories, inspectorEvents
   const onboarding = onboardingStateFromSale(sale);
   await memories.merge(conversationId, {
     sale_id: sale.sale_id,
-    operations: { sale_id: sale.sale_id, status: sale.status, queue: sale.queue, ...onboarding, updated_at: sale.updated_at },
+    // Estado completo (no solo documentos) y conservando lo que ya tenía la memoria
+    // (onboarding_last_requested, nss_resolution…).
+    operations: { ...(memories.get(conversationId)?.operations || {}), ...operationsMemoryFromSale(sale) },
     sales_cycle: { ...memory.sales_cycle, stage: "authorized" },
   });
   try { await inspectorEvents?.record(conversationId, "operations_sale_ready", { sale_id: sale.sale_id, status: sale.status, queue: sale.queue, ...onboarding }); } catch {}

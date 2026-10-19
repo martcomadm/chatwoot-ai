@@ -46,6 +46,27 @@ export function onboardingStateFromSale(sale = {}) {
   };
 }
 
+// Estado completo del expediente para la memoria de la conversación. Lo usan el bridge de
+// Operations y ensureAuthorizedSale: si uno de los dos guardara solo los documentos, se
+// borrarían las banderas de validación/vigencia/pago y Mia volvería a avisar "expediente
+// completo" a un cliente que ya está en Cobranza (caso real 19-oct).
+export function operationsMemoryFromSale(sale = {}) {
+  return {
+    sale_id: sale.sale_id, status: sale.status, queue: sale.queue,
+    validation_approved: Boolean(sale.validation?.approved), validation_rejected: Boolean(sale.validation?.rejected), validation_correction: sale.validation?.correction || null,
+    validity_confirmed: Boolean(sale.validity?.confirmed), validity_confirmed_at: sale.validity?.confirmed_at || null, validity_confirmed_by: sale.validity?.confirmed_by || null, validity_issue: sale.validity?.issue || null, validity_document_name: sale.validity?.document_name || null, validity_awaiting_reply: Boolean(sale.validity?.awaiting_customer_reply),
+    payment_requested: Boolean(sale.payment?.requested), payment_requested_at: sale.payment?.requested_at || null, payment_due_date: sale.payment?.due_date || null, payment_accounts_image_name: sale.payment?.accounts_image_name || null,
+    payment_received: Boolean(sale.payment?.received), payment_received_at: sale.payment?.received_at || null, payment_reference: sale.payment?.reference || null, payment_proof_name: sale.payment?.proof_name || null, payment_issue: sale.payment?.issue || null,
+    payment_validated: Boolean(sale.payment?.validated), payment_validated_at: sale.payment?.validated_at || null, payment_validated_by: sale.payment?.validated_by || null,
+    completed_at: sale.completed_at || null,
+    ...onboardingStateFromSale(sale),
+    updated_at: sale.updated_at,
+  };
+}
+
+// Estados en los que el expediente ya salió de Captura: el aviso de "expediente completo" ya no aplica.
+const PAST_CAPTURE = new Set(["alta_processed", "waiting_validation", "validation_in_progress", "validation_approved", "validation_rejected", "waiting_validity", "validity_confirmed", "validity_issue", "payment_requested", "payment_received", "payment_issue", "payment_validated", "completed", "cancelled"]);
+
 export const ONBOARDING_COMPLETE_TEXT = "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.";
 
 // Qué decirle a un cliente con expediente completo según dónde va su trámite en Operations.
@@ -72,7 +93,8 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     // La primera vez se avisa que el expediente quedó completo. Después ya no se repite a cada
     // "Ok" o "Gracias" (ventas reales del 17-oct): se contesta el estado del trámite o nada.
     const ops = memory.operations;
-    const advanced = ops.validation_approved || ops.validity_confirmed || ops.payment_requested || ops.payment_received || ops.payment_validated;
+    const advanced = ops.validation_approved || ops.validity_confirmed || ops.payment_requested || ops.payment_received || ops.payment_validated
+      || PAST_CAPTURE.has(String(ops.status || "")) || ["validation", "validity", "payment", "completed"].includes(String(ops.queue || ""));
     if (!memory.onboarding_complete_notified && !advanced && last !== ONBOARDING_COMPLETE_TEXT) {
       return { reply: ONBOARDING_COMPLETE_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true };
     }
