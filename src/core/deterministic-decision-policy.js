@@ -1,4 +1,5 @@
 export const FACT_LOCKED_TYPES = new Set([
+  "website",
   "multi",
   "check_weeks",
   "already_pensioned",

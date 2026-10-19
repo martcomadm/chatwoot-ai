@@ -145,3 +145,12 @@ test("la misma respuesta de consulta no se manda dos veces seguidas (Modalidad 4
   assert.notEqual(h.sent[0], m40);
   assert.match(h.sent[0], /comunique con uno/);
 });
+
+test("'¿Me podrías proporcionar una página?' recibe la página oficial", () => {
+  for (const t of ["Me podrías proporcionar una página para conocer más de sus servicios", "¿Tienen página web?", "Me pasas su facebook"]) {
+    const o = orchestrateConversation(t, {});
+    assert.equal(o.directRequest?.type, "website", t);
+    assert.match(o.directAnswer, /https:\/\/martcom-econtact\.mx\//);
+  }
+  assert.notEqual(detectDirectRequest("¿En qué página del contrato viene?")?.type, "website");
+});

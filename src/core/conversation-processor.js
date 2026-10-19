@@ -626,7 +626,7 @@ export class ConversationProcessor {
     // La IA a veces contesta sin siguiente paso ("Anotado que eres transportista/chofer."): el cliente
     // no sabe qué sigue y la plática se muere (casos 17-oct). Se agrega el siguiente paso.
     const closingLike = /escr[ií]beme por aqu[ií]|quedo al pendiente|aqu[ií] te espero|aqu[ií] estar[eé]|cuando (?:lo tengas|puedas|regreses|est[eé]s list)|te aviso por aqu[ií]/i;
-    const openEnded = ["llm", "llm_repair"].includes(decisionSource) || /^direct:(services|price|location|registered_salary|requirements|process_time|payment_frequency|not_free|identity)$/.test(decisionSource);
+    const openEnded = ["llm", "llm_repair"].includes(decisionSource) || /^direct:(services|price|location|registered_salary|requirements|process_time|payment_frequency|not_free|identity|website)$/.test(decisionSource);
     if (openEnded && !memory.sales_cycle?.authorized && !/[?¿]/.test(decision.reply) && !closingLike.test(decision.reply)) {
       const next = String(contextualNextStep(memory) || "").replace(/^Gracias\.\s*/, "");
       if (next && !decision.reply.includes(next) && (decision.reply.length + next.length + 1) <= (this.config.ai.maxReplyChars || 850)) {
