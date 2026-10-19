@@ -45,7 +45,8 @@ test("ventas: el 'Listo, ya tengo los datos…' sale una vez; luego estado del t
   const after = { ...base, onboarding_complete_notified: true, ultima_respuesta_agente: ONBOARDING_COMPLETE_TEXT };
   for (const t of ["Ok", "Muchas gracias", "Gracias quedó pendiente", "Oi\nOk"]) assert.equal(buildOnboardingDecision(after, t).reply, "", t);
   const paying = { ...after, operations: { ...base.operations, payment_requested: true } };
-  assert.match(buildOnboardingDecision(paying, "RECIBO77").reply, /solo falta tu pago/);
+  assert.equal(buildOnboardingDecision(paying, "RECIBO77").reply, "");
+  assert.match(buildOnboardingDecision(paying, "¿cómo va mi trámite?").reply, /solo falta tu pago/);
   assert.match(operationsStatusText({ validation_approved: true }), /validación ya fue aprobada/);
 });
 
