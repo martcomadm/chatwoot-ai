@@ -71,6 +71,8 @@ async function withTeam(t) {
     ["vale.valida", "Vale Validación", ["validacion"]],
     ["sergio.super", "Sergio Supervisión", ["supervision"]],
     ["carla.cobra", "Carla Cobranza", ["cobranza"]],
+    ["olga.observa", "Olga Observadora", ["observador"]],
+    ["cris.captura", "Cris Captura y Observador", ["captura", "observador"]],
   ];
   const sessions = {};
   for (const [username, name, areas] of people) {
@@ -130,6 +132,47 @@ test("cada área solo ve y opera su propia cola", async t => {
   const supList = await team["sergio.super"]("/operations/api/sales");
   assert.equal(supList.body.items.length, 2, "Supervisión ve todas las colas");
   assert.equal((await team["sergio.super"](`/operations/api/sales/${captureSale.sale_id}/capture/start`, { method: "POST" })).status, 403, "Supervisión no ejecuta acciones de área");
+});
+
+test("Observador ve todas las ventas y su avance, pero no puede modificar nada", async t => {
+  const team = await withTeam(t);
+  const captureSale = seedSale(team.workflow, team.saleStore, 201, { toQueue: "capture" });
+  const paymentSale = seedSale(team.workflow, team.saleStore, 202, { toQueue: "payment" });
+  const olga = team["olga.observa"];
+
+  const me = await olga("/operations/api/me");
+  assert.deepEqual(me.body.areas.map(a => a.key), ["observador"]);
+  assert.equal(me.body.can.supervise, false);
+  assert.equal(me.body.can.admin, false);
+  assert.deepEqual(new Set(me.body.visible_queues), new Set(["capture", "validation", "validity", "payment", "completed", "cancelled"]));
+
+  const list = await olga("/operations/api/sales");
+  assert.deepEqual(list.body.items.map(s => s.sale_id).sort(), [captureSale.sale_id, paymentSale.sale_id].sort());
+  const detail = await olga(`/operations/api/sales/${paymentSale.sale_id}`);
+  assert.equal(detail.status, 200);
+  assert.ok(Array.isArray(detail.body.sale.events), "ve el historial del expediente");
+
+  const writes = [
+    [captureSale, "capture/start"], [captureSale, "capture/complete"], [captureSale, "capture/nss"], [captureSale, "documents/sync"],
+    [captureSale, "take"], [captureSale, "release"],
+    [paymentSale, "payment/receive"], [paymentSale, "payment/validate"], [paymentSale, "payment/issue"],
+    [paymentSale, "supervision/return"], [paymentSale, "supervision/cancel"], [paymentSale, "supervision/assign"],
+  ];
+  for (const [sale, action] of writes) {
+    const res = await olga(`/operations/api/sales/${sale.sale_id}/${action}`, { method: "POST", body: { reason: "x", nss: "12345678901", target: "capture" } });
+    assert.equal(res.status, 403, `${action} debe estar bloqueado para Observador`);
+  }
+  assert.equal((await olga("/operations/api/sales", { method: "POST", body: {} })).status, 403);
+  assert.equal((await olga("/operations/api/supervision/overview")).status, 403);
+  assert.equal((await olga("/operations/api/admin/users")).status, 403);
+  assert.equal((await olga("/operations/api/mia/pause", { method: "POST", body: { paused: true } })).status, 403);
+  assert.equal(team.saleStore.get(captureSale.sale_id).status, "waiting_capture", "nada cambió");
+
+  // Capturista con Observador: trabaja su cola y además sigue las demás ventas.
+  const cris = team["cris.captura"];
+  assert.equal((await cris("/operations/api/sales")).body.items.length, 2);
+  assert.equal((await cris(`/operations/api/sales/${captureSale.sale_id}/capture/start`, { method: "POST" })).status, 200);
+  assert.equal((await cris(`/operations/api/sales/${paymentSale.sale_id}/payment/receive`, { method: "POST", body: {} })).status, 403);
 });
 
 test("las acciones quedan a nombre de la persona en sesión, no de lo que mande el navegador", async t => {

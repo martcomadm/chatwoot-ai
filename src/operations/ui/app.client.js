@@ -9,10 +9,11 @@
 const QUEUE_AREA = { capture: "captura", validation: "validacion", validity: "vigencia", payment: "cobranza" };
 const AREA_QUEUE = { captura: "capture", validacion: "validation", vigencia: "validity", cobranza: "payment" };
 const WORK_AREAS = ["captura", "validacion", "vigencia", "cobranza"];
-const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", supervision: "Supervisión", admin: "Admin" };
+const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
 const STAGES = [["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completado"]];
 
 const AREA_INTRO = {
+  observador: "Sigue en qué etapa va cada venta, de Captura a Cobranza. Solo lectura: puedes ver los expedientes, pero no modificarlos.",
   captura: "Expedientes autorizados por el cliente, listos para dar de alta.",
   validacion: "Altas capturadas que esperan revisión de datos y documentos.",
   vigencia: "Expedientes validados que esperan confirmación de vigencia del IMSS.",
@@ -451,7 +452,38 @@ async function renderView() {
   if (!view) return;
   if (WORK_AREAS.includes(state.view)) return renderWorkArea(view);
   if (state.view === "supervision") return renderSupervision(view);
+  if (state.view === "observador") return renderObserver(view);
   if (state.view === "admin") return renderAdmin(view);
+}
+
+// ── Observador: seguimiento de todas las ventas, solo lectura ──────────
+function renderObserver(view) {
+  view.style.setProperty("--area", areaVar("observador"));
+  const active = state.sales.filter(sale => !["completed", "cancelled"].includes(sale.queue));
+  const flow = STAGES.filter(([queue]) => queue !== "completed").map(([queue, label]) => {
+    const items = state.sales.filter(sale => sale.queue === queue);
+    const late = items.filter(sale => sale.urgency === "overdue" || sale.urgency === "issue").length;
+    return `<button class="flow-step" style="--area:${areaVar(QUEUE_AREA[queue])}" data-flow="${queue}">
+      <h3>${esc(label)}</h3>
+      <div class="big">${items.length}</div>
+      <ul>${late ? `<li class="bad">${plural(late, "atrasado o con incidencia", "atrasados o con incidencia")}</li>` : "<li>Al día</li>"}</ul>
+    </button>`;
+  }).join("");
+  const queueOptions = [["active", "Activos"], ["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completados"], ["cancelled", "Cancelados"]];
+  const search = state.filter.search.toLowerCase();
+  const list = state.sales.filter(sale => (state.filter.queue === "active" ? !["completed", "cancelled"].includes(sale.queue) : sale.queue === state.filter.queue))
+    .filter(sale => !search || [sale.sale_id, sale.customer?.nombre, sale.customer?.telefono, sale.customer?.curp, sale.customer?.nss, sale.conversation_id].some(value => String(value || "").toLowerCase().includes(search)))
+    .sort(state.filter.queue === "completed" || state.filter.queue === "cancelled" ? (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) : byUrgency);
+  view.innerHTML = `
+    ${pageHead("observador", "Seguimiento de ventas", AREA_INTRO.observador, `<p class="muted" style="margin:0">${plural(active.length, "venta en proceso", "ventas en proceso")}</p>`)}
+    <div class="flow">${flow}</div>
+    <div class="section-gap">
+      <div class="toolbar">
+        ${segmented("queue", state.filter.queue, queueOptions)}
+        <input class="input" type="search" placeholder="Buscar nombre, folio, CURP, NSS, teléfono" value="${esc(state.filter.search)}" data-search aria-label="Buscar expedientes">
+      </div>
+      <div class="queue" role="table" aria-label="Todas las ventas">${list.length ? saleRows(list, { showArea: true }) : `<div class="empty"><strong>Sin expedientes</strong>No hay expedientes con estos filtros.</div>`}</div>
+    </div>`;
 }
 
 function pageHead(area, title, subtitle, extra = "") {
@@ -582,6 +614,12 @@ function stagesHtml(sale) {
     const cls = sale.queue === "completed" || index < currentIndex ? "done" : index === currentIndex ? "current" : "";
     return `<li class="${cls}" ${index === currentIndex ? 'aria-current="step"' : ""}>${esc(label)}</li>`;
   }).join("")}</ol>`;
+}
+
+// El usuario solo observa este expediente: no trabaja su área ni supervisa.
+function readOnlyFor(sale) {
+  const areas = state.me?.user?.areas || [];
+  return areas.includes("observador") && !hasArea("supervision") && !(QUEUE_AREA[sale.queue] && hasArea(QUEUE_AREA[sale.queue]));
 }
 
 function canAct(sale, area) { return sale.queue === AREA_QUEUE[area] && hasArea(area); }
@@ -716,6 +754,7 @@ function renderPanel() {
           </div>
           ${workArea ? `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap"><div><span class="muted">Responsable:</span> <strong>${sale.assignee ? esc(sale.assignee.name) : "Sin asignar"}</strong></div><div class="actions">${assignButtons.join("")}</div></div>` : ""}
           ${actions.length ? `<div class="actions" style="margin-top:14px">${actions.join("")}</div>` : ""}
+          ${readOnlyFor(sale) ? `<p class="readonly-note">Modo observador: puedes seguir el avance de esta venta, pero no modificarla.</p>` : ""}
         </section>
         ${stageInfo(sale) ? `<section>${stageInfo(sale)}</section>` : ""}
         ${["validation", "validity", "payment", "completed"].includes(sale.queue) ? `<section><h3>Revisión de validación</h3>${validationChecks(sale)}</section>` : ""}
@@ -1193,7 +1232,7 @@ document.addEventListener("click", async event => {
   if (target.dataset.saleLink) { event.preventDefault(); return openSale(target.dataset.saleLink); }
   if (target.dataset.saleAct) { target.disabled = true; try { await saleAction(target.dataset.saleAct); } finally { target.disabled = false; } return; }
   if (target.dataset.filter) { state.filter[target.dataset.filter] = target.dataset.value; return state.view === "supervision" ? drawSupervision(document.getElementById("view")) : renderView(); }
-  if (target.dataset.flow) { state.filter.queue = target.dataset.flow; drawSupervision(document.getElementById("view")); document.querySelector(".section-gap")?.scrollIntoView({ behavior: "smooth" }); return; }
+  if (target.dataset.flow) { state.filter.queue = target.dataset.flow; if (state.view === "observador") renderView(); else drawSupervision(document.getElementById("view")); document.querySelector(".section-gap")?.scrollIntoView({ behavior: "smooth" }); return; }
   if (target.dataset.adminTab) { state.adminTab = target.dataset.adminTab; return renderView(); }
   if (target.dataset.userAct) return userAction(target.dataset.userAct, target.dataset.user);
   if (target.dataset.settingsAct) return settingsAction(target.dataset.settingsAct);

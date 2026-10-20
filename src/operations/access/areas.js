@@ -2,12 +2,15 @@
 //
 // Un usuario puede pertenecer a varias áreas. Cada área operativa trabaja una
 // sola cola del flujo del expediente; Supervisión y Admin ven todas.
+// Observador ve todas las colas (para seguir cómo va cada venta) pero no tiene
+// ninguna acción: no aparece en ACTION_AREAS ni trabaja una cola.
 
 export const AREAS = Object.freeze([
   { key: "captura", label: "Captura", queue: "capture" },
   { key: "validacion", label: "Validación", queue: "validation" },
   { key: "vigencia", label: "Vigencia", queue: "validity" },
   { key: "cobranza", label: "Cobranza", queue: "payment" },
+  { key: "observador", label: "Observador", queue: null },
   { key: "supervision", label: "Supervisión", queue: null },
   { key: "admin", label: "Admin", queue: null },
 ]);
@@ -56,9 +59,9 @@ export function hasArea(user, area) {
   return areas.includes("admin") || areas.includes(area);
 }
 
-// Supervisión y Admin ven todas las colas, incluidos completados y cancelados.
+// Supervisión, Admin y Observador ven todas las colas, incluidos completados y cancelados.
 export function seesAllQueues(user) {
-  return hasArea(user, "supervision");
+  return hasArea(user, "supervision") || (user?.areas || []).includes("observador");
 }
 
 export function visibleQueues(user) {
