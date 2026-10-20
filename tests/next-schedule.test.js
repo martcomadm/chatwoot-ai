@@ -11,7 +11,10 @@ import { MARTCOM_KNOWLEDGE } from "../src/knowledge/martcom.js";
 // Hora local de Ciudad de México (UTC-6, sin horario de verano).
 // 2026-10-12 es lunes, 2026-10-17 sábado y 2026-10-18 domingo.
 const mx = (date, hour, minute = 15) => new Date(`${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-06:00`);
-const week = parseSchedule(DEFAULT_SCHEDULE);
+// Estas pruebas cubren el parser con un horario con sábado corto y domingo cerrado
+// (el horario anterior); el horario por defecto actual se prueba en next-knowledge-schedule.
+const LEGACY_SCHEDULE = "1-5=7-21;6=8-16";
+const week = parseSchedule(LEGACY_SCHEDULE);
 const TZ = "America/Mexico_City";
 
 test("lunes a viernes: abierto de 7:00 a 20:59", () => {
@@ -51,7 +54,7 @@ test("un AI_SCHEDULE mal escrito se rechaza", () => {
   assert.throws(() => parseSchedule("lunes=9-18"));
 });
 
-function harness(schedule = DEFAULT_SCHEDULE) {
+function harness(schedule = LEGACY_SCHEDULE) {
   const state = { sent: [], events: [], processed: new Set() };
   const message = { id: 90, message_type: 0, sender_type: "Contact", sender: { type: "contact" }, private: false, content: "Hola, quiero información", attachments: [] };
   const conversation = { id: 8, inbox_id: 7, meta: { assignee: { id: 53 } }, labels: [], messages: [message] };
@@ -100,5 +103,6 @@ test("sábado en la tarde y domingo cuentan como un solo periodo cerrado (un avi
 });
 
 test("la base de conocimiento incluye el horario de atención", () => {
-  assert.match(MARTCOM_KNOWLEDGE, /lunes a viernes de 7:00 a\.m\. a 9:00 p\.m\. y sábado de 8:00 a\.m\. a 4:00 p\.m\. Los domingos no hay servicio/);
+  assert.match(MARTCOM_KNOWLEDGE, /lunes a domingo de 7:00 a\.m\. a 9:00 p\.m\./);
+  assert.doesNotMatch(MARTCOM_KNOWLEDGE, /Los domingos no hay servicio/);
 });

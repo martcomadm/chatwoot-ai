@@ -4,9 +4,10 @@
 // Días: 0 = domingo … 6 = sábado; se aceptan rangos ("1-5") y listas ("1,3").
 // Las horas son enteras en formato 24 h y el fin es exclusivo (18 = hasta las 17:59).
 // Un día que no aparece está cerrado.
-// Ejemplo (default): "1-5=7-21;6=8-16" → lunes a viernes 7-21, sábado 8-16, domingo cerrado.
+// Ejemplo: "1-5=7-21;6=8-16" → lunes a viernes 7-21, sábado 8-16, domingo cerrado.
+// Default (desde 20-oct-2026): todos los días de 7:00 a.m. a 9:00 p.m.
 
-export const DEFAULT_SCHEDULE = "1-5=7-21;6=8-16";
+export const DEFAULT_SCHEDULE = "0-6=7-21";
 const WEEKDAYS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 const DAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
@@ -57,8 +58,8 @@ function hourLabel(hour) { return `${hour % 12 || 12}:00 ${hour < 12 ? "a.m." : 
 
 function dayRange(days) {
   if (days.length === 1) return `${DAY_NAMES[days[0]]}`;
-  const consecutive = days.every((d, i) => i === 0 || d === days[i - 1] + 1);
-  if (consecutive) return `${DAY_NAMES[days[0]]} a ${DAY_NAMES[days.at(-1)]}`;
+  const consecutive = days.every((d, i) => i === 0 || d === (days[i - 1] + 1) % 7);
+  if (consecutive && days.length > 2) return `${DAY_NAMES[days[0]]} a ${DAY_NAMES[days.at(-1)]}`;
   return `${days.slice(0, -1).map(d => DAY_NAMES[d]).join(", ")} y ${DAY_NAMES[days.at(-1)]}`;
 }
 
@@ -69,7 +70,7 @@ export function describeSchedule(week) {
     const slot = week[day];
     if (!slot) continue;
     const last = groups.at(-1);
-    if (last && last.start === slot.start && last.end === slot.end && last.days.at(-1) === day - 1) last.days.push(day);
+    if (last && last.start === slot.start && last.end === slot.end && (last.days.at(-1) + 1) % 7 === day) last.days.push(day);
     else groups.push({ ...slot, days: [day] });
   }
   const parts = groups.map(g => `${dayRange(g.days)} de ${hourLabel(g.start)} a ${hourLabel(g.end)}`);
