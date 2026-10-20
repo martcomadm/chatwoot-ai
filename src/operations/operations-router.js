@@ -281,6 +281,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
 
   // ── Supervisión ──────────────────────────────────────────────────────────
   router.post(salePath("supervision/return"), areaAction("supervision/return", (req, body) => workflow.returnToStage(req.params.id, body)));
+  router.post(salePath("supervision/plan"), areaAction("supervision/plan", (req, body) => workflow.changePlan(req.params.id, body)));
   router.post(salePath("supervision/cancel"), areaAction("supervision/cancel", (req, body) => workflow.cancelSale(req.params.id, body)));
   router.post(salePath("supervision/assign"), areaAction("supervision/assign", (req, body, sale) => {
     if (!body.username) return workflow.assign(sale.sale_id, null);

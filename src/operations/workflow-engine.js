@@ -421,6 +421,23 @@ export class SaleWorkflowEngine {
     }, "supervision.cancelled", { reason, from_status: sale.status, from_queue: sale.queue });
   }
 
+  // Supervisión cambia el plan en cualquier etapa (el cliente pidió otro). Si ya se pidió el pago,
+  // el monto se actualiza al nuevo precio.
+  changePlan(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status === SALE_STATUSES.CANCELLED) throw new Error("Un expediente cancelado no puede cambiar de plan");
+    const plan = String(payload.plan || "");
+    const prices = { plan_1: 1100, plan_2: 1500 };
+    if (!prices[plan]) throw new Error("Elige Plan 1 o Plan 2");
+    if (sale.sale?.plan === plan) throw new Error("El expediente ya tiene ese plan");
+    const reason = requireReason(payload);
+    const precio = prices[plan];
+    const payment = sale.payment && sale.payment.amount != null ? { ...sale.payment, amount: precio } : sale.payment;
+    return this.store.update(id, { sale: { ...sale.sale, plan, precio }, ...(payment ? { payment } : {}) }, "supervision.plan_changed", {
+      from: sale.sale?.plan || null, to: plan, reason, notify_customer: payload.notify_customer !== false,
+    });
+  }
+
   // assignee: {username,name} o null para dejarlo sin asignar.
   assign(id, assignee) {
     const sale = this.mustGet(id);

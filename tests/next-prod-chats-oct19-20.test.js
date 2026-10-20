@@ -168,3 +168,18 @@ test("documentos enviados antes de aceptar se revisan al autorizar; el 'sí' a l
   assert.match(sent.join(" "), /Listo, ya tengo los datos y documentos requeridos/);
   assert.ok(events.some(e => e.type === "earlier_documents_analyzed"));
 });
+
+test("cambio de plan por Supervisión: aviso al cliente opcional y Mia usa el plan nuevo", async () => {
+  const { renderCustomerMessage } = await import("../src/operations/customer-messages.js");
+  const { ChatwootWorkflowBridge } = await import("../src/operations/chatwoot-workflow-bridge.js");
+  const sale = { sale_id: "S1", conversation_id: 55, queue: "payment", status: "payment_requested", sale: { plan: "plan_1", precio: 1100 }, payment: { requested: true }, documents: { complete: true, missing: [] } };
+  assert.equal(renderCustomerMessage("supervision.plan_changed", { sale, details: { notify_customer: true } }), "Listo, actualizamos tu trámite al Plan 1 de $1,100 MXN mensuales. Cualquier duda, con gusto te ayudo por aquí.");
+  assert.equal(renderCustomerMessage("supervision.plan_changed", { sale, details: { notify_customer: false } }), null);
+  let mem = { sales_cycle: { authorized: true, selected_plan: "plan_2", recommended_plan: "plan_2" } };
+  const sent = [];
+  const bridge = new ChatwootWorkflowBridge({ saleStore: { on() {} }, chatwoot: { async sendMessage(_i, t) { sent.push(t); } }, labels: {}, memories: { get: () => mem, async merge(_i, p) { mem = { ...mem, ...p }; } }, inspectorEvents: { async record() {} } });
+  await bridge.handle({ type: "supervision.plan_changed", sale, details: { notify_customer: true } });
+  assert.equal(mem.sales_cycle.selected_plan, "plan_1");
+  assert.equal(mem.sales_cycle.authorized, true);
+  assert.match(sent.join(" "), /actualizamos tu trámite al Plan 1/);
+});

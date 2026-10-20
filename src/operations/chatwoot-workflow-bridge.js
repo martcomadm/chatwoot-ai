@@ -168,6 +168,11 @@ export class ChatwootWorkflowBridge{
     if (!conversationId) return;
     const onboarding = onboardingStateFromSale(sale);
     await this.memories.merge(conversationId, { sale_id: sale.sale_id, operations: operationsMemoryFromSale(sale) });
+    // Supervisión cambió el plan: Mia habla desde ahora del plan nuevo (monto de pago, seguimientos).
+    if (event.type === "supervision.plan_changed" && sale.sale?.plan) {
+      const current = this.memories.get(conversationId) || {};
+      await this.memories.merge(conversationId, { sales_cycle: { ...(current.sales_cycle || {}), selected_plan: sale.sale.plan, recommended_plan: sale.sale.plan, last_plan: sale.sale.plan } });
+    }
     await this.record(conversationId, "operations_state_changed", { sale_id: sale.sale_id, event: event.type, status: sale.status, queue: sale.queue, ...onboarding });
 
     const content = this.customerMessage(event);

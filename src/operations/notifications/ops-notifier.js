@@ -65,6 +65,8 @@ export class OpsNotifier extends EventEmitter {
         return { ...base, kind: "issue", to: [...this.areaUsers("vigencia"), ...this.areaUsers("supervision")], title: "Incidencia en vigencia", body: `${who(sale)}${d.reason || d.notes ? ` · ${clip(d.reason || d.notes, 90)}` : ""}` };
       case "payment.issue":
         return { ...base, kind: "issue", to: [...this.areaUsers("cobranza"), ...this.areaUsers("supervision")], title: "Incidencia en el pago", body: `${who(sale)}${d.reason || d.notes ? ` · ${clip(d.reason || d.notes, 90)}` : ""}` };
+      case "supervision.plan_changed":
+        return area ? { ...base, kind: "update", to: sale.assignee?.username ? [sale.assignee.username] : this.areaUsers(area), title: `Cambio de plan: ${PLAN_LABEL[d.to] || "nuevo plan"}`, body: `${who(sale)}${d.reason ? ` · ${clip(d.reason, 90)}` : ""}` } : null;
       case "payment.received":
         return { ...base, kind: "payment", to: sale.assignee?.username ? [sale.assignee.username] : this.areaUsers("cobranza"), title: "Comprobante de pago recibido", body: `${who(sale)}${plan(sale)}` };
       default:

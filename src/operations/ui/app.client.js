@@ -35,6 +35,7 @@ const EVENT_LABELS = {
   "documents.synced": "Documentos sincronizados",
   "capture.nss.registered": "NSS registrado",
   "capture.curp.registered": "CURP registrada",
+  "supervision.plan_changed": "Plan cambiado",
   "capture.started": "Captura iniciada",
   "capture.completed": "Alta capturada",
   "validation.check.updated": "Revisión de validación actualizada",
@@ -723,6 +724,7 @@ function renderPanel() {
   const supervision = [];
   if (hasArea("supervision")) {
     if (workArea) supervision.push(`<button class="btn" data-sale-act="sup-assign">Asignar a…</button>`);
+    if (sale.status !== "cancelled") supervision.push(`<button class="btn" data-sale-act="sup-plan">Cambiar plan</button>`);
     if (sale.status !== "completed") supervision.push(`<button class="btn" data-sale-act="sup-return">${sale.queue === "cancelled" ? "Reactivar en…" : "Regresar a…"}</button>`);
     if (!["completed", "cancelled"].includes(sale.status)) supervision.push(`<button class="btn danger" data-sale-act="sup-cancel">Cancelar expediente</button>`);
   }
@@ -867,6 +869,14 @@ async function saleAction(action) {
       const targets = Object.entries(state.me.return_targets || {}).filter(([queue]) => queue !== sale.queue || sale.queue === "cancelled");
       const data = await ask({ title: sale.queue === "cancelled" ? "Reactivar expediente" : "Regresar expediente", text: "Todo lo posterior a esa etapa se reinicia y el expediente vuelve a pasar por sus revisiones.", fields: [{ name: "target", label: "Llevar a", type: "select", options: targets, value: targets[0]?.[0] }, { name: "reason", label: "Motivo", type: "textarea", required: true }], confirm: sale.queue === "cancelled" ? "Reactivar" : "Regresar", area: "supervision" });
       if (data) done = await post("supervision/return", data, "Expediente movido");
+      break;
+    }
+    case "sup-plan": {
+      const current = sale.sale?.plan;
+      const options = [["plan_1", "Plan 1 · $1,100 MXN mensuales"], ["plan_2", "Plan 2 · $1,500 MXN mensuales"]].filter(([value]) => value !== current);
+      const paymentNote = sale.payment?.requested ? " Ya se pidió el pago: el monto se actualiza al precio del nuevo plan." : "";
+      const data = await ask({ title: "Cambiar plan", text: `Plan actual: ${esc(planLabel(current))}.${paymentNote}`, fields: [{ name: "plan", label: "Nuevo plan", type: "select", options, value: options[0][0] }, { name: "reason", label: "Motivo", type: "textarea", required: true, placeholder: "Ej. el cliente pidió cambiar al Plan 1 por teléfono" }, { name: "notify", label: "Aviso al cliente", type: "checkboxes", options: [["yes", "Avisar al cliente por WhatsApp"]], value: ["yes"] }], confirm: "Cambiar plan", area: "supervision" });
+      if (data) done = await post("supervision/plan", { plan: data.plan, reason: data.reason, notify_customer: (data.notify || []).includes("yes") }, "Plan actualizado");
       break;
     }
     case "sup-cancel": {

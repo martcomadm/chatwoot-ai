@@ -48,6 +48,7 @@ export const ACTION_AREAS = Object.freeze({
   "supervision/return": "supervision",
   "supervision/cancel": "supervision",
   "supervision/assign": "supervision",
+  "supervision/plan": "supervision",
 });
 
 export function normalizeAreas(input) {

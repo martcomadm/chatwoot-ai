@@ -360,3 +360,23 @@ test("Captura registra la CURP y con eso puede completar el alta", async t => {
   assert.equal((await ana(`/operations/api/sales/${sale.sale_id}/capture/complete`, { method: "POST", body: {} })).status, 200);
   assert.equal(team.saleStore.get(sale.sale_id).queue, "validation");
 });
+
+test("Supervisión cambia el plan en cualquier etapa; el monto del pago se actualiza", async t => {
+  const team = await withTeam(t);
+  const sale = seedSale(team.workflow, team.saleStore, 302, { toQueue: "payment" });
+  team.workflow.requestPayment?.(sale.sale_id, { amount: 1500 });
+  const sup = team["sergio.super"];
+  assert.equal((await team["carla.cobra"](`/operations/api/sales/${sale.sale_id}/supervision/plan`, { method: "POST", body: { plan: "plan_2", reason: "x" } })).status, 403, "solo Supervisión");
+  assert.equal((await sup(`/operations/api/sales/${sale.sale_id}/supervision/plan`, { method: "POST", body: { plan: "plan_2" } })).status, 400, "pide motivo");
+  const ok = await sup(`/operations/api/sales/${sale.sale_id}/supervision/plan`, { method: "POST", body: { plan: "plan_2", reason: "El cliente pidió el Plan 2 por teléfono", notify_customer: true } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const after = team.saleStore.get(sale.sale_id);
+  assert.equal(after.sale.plan, "plan_2");
+  assert.equal(after.sale.precio, 1500);
+  assert.equal(after.queue, "payment", "no cambia de etapa");
+  const event = after.events.at(-1);
+  assert.equal(event.type, "supervision.plan_changed");
+  assert.deepEqual([event.details.from, event.details.to], ["plan_1", "plan_2"]);
+  assert.equal(event.actor.username, "sergio.super");
+  assert.equal((await sup(`/operations/api/sales/${sale.sale_id}/supervision/plan`, { method: "POST", body: { plan: "plan_2", reason: "otra vez" } })).status, 400, "mismo plan");
+});

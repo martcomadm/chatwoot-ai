@@ -33,6 +33,12 @@ export const CUSTOMER_MESSAGE_DEFINITIONS = Object.freeze([
     text: "Te comparto las cuentas disponibles para realizar tu pago por {monto}. Este pago debe quedar cubierto el día de hoy para continuar con tu proceso. Cuando lo realices, envíame por aquí tu comprobante de pago, por favor.",
   },
   {
+    key: "supervision.plan_changed",
+    label: "Cambio de plan",
+    help: "Se envía cuando Supervisión cambia el plan y marca 'Avisar al cliente'. {plan} y {monto} se reemplazan.",
+    text: "Listo, actualizamos tu trámite al {plan} de {monto} MXN mensuales. Cualquier duda, con gusto te ayudo por aquí.",
+  },
+  {
     key: "payment.received",
     label: "Comprobante recibido",
     help: "Se envía cuando se registra el comprobante.",
@@ -57,9 +63,11 @@ export function formatAmount(amount) {
 // Devuelve el texto para un evento, o null si ese evento no notifica al cliente.
 export function renderCustomerMessage(eventType, { sale, details } = {}, overrides = {}) {
   if (eventType === "validation.correction.requested" && details?.target !== "customer") return null;
+  if (eventType === "supervision.plan_changed" && details?.notify_customer === false) return null;
   const template = String(overrides?.[eventType] || "").trim() || DEFAULT_CUSTOMER_MESSAGES[eventType];
   if (!template) return null;
   return template
     .replaceAll("{monto}", formatAmount(sale?.payment?.amount ?? sale?.sale?.precio ?? ({ plan_1: 1100, plan_2: 1500 })[sale?.sale?.plan] ?? null))
+    .replaceAll("{plan}", ({ plan_1: "Plan 1", plan_2: "Plan 2" })[sale?.sale?.plan] || "plan elegido")
     .replaceAll("{motivo}", String(details?.reason || "").trim() || "revisar la información enviada");
 }
