@@ -3,7 +3,7 @@ import path from "node:path";
 import { stopLabels } from "../chatwoot/labels.js";
 import { onboardingLabel } from "../operations/onboarding-service.js";
 import { SelfSenders } from "./self-senders.js";
-import { effectivePlan } from "../sales/progressive-disclosure.js";
+import { effectivePlan, discussedPlan } from "../sales/progressive-disclosure.js";
 
 // Seguimiento automático cuando el cliente deja de contestar.
 //
@@ -31,6 +31,8 @@ export function parseFollowUpMinutes(text) {
   return values;
 }
 
+const TEMPLATE_GAP_MS = 12 * 60 * 60 * 1000;
+
 export class FollowUpStore {
   constructor(file) {
     this.file = file;
@@ -56,7 +58,7 @@ function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_
 
 function currentPlan(memory = {}) {
   // Mismo criterio que el resto de Mia: plan elegido > AFORE/INFONAVIT > recomendado > necesidad.
-  return effectivePlan(memory) || (memory.sales_cycle?.pitched_plans || []).at(-1) || null;
+  return discussedPlan(memory) || (memory.sales_cycle?.pitched_plans || []).at(-1) || null;
 }
 
 // Mensaje según dónde se quedó la conversación. null = no corresponde dar seguimiento.
@@ -184,6 +186,10 @@ export class FollowUpService {
         // La plantilla de 24 h se manda en horario de atención; mientras tanto se espera.
         const useTemplate = windowClosed && this.templates?.enabled?.("followUp24h");
         if (useTemplate && !this.isOpen(now)) continue;
+        // La plantilla no sale pegada al último seguimiento (casos 19 y 20-oct: seguimiento a las
+        // 7:00 y plantilla a las 7:50): espera al menos 12 h desde el último mensaje de Mia.
+        const lastTouch = Math.max(Date.parse(entry.last_sent_at || "") || 0, Date.parse(entry.mia_at || "") || 0);
+        if (useTemplate && lastTouch && now.getTime() - lastTouch < TEMPLATE_GAP_MS) continue;
 
         let conversation;
         try { conversation = await this.chatwoot.getConversation(id); }
@@ -196,9 +202,13 @@ export class FollowUpService {
           this.store.remove(id);
           let template = null;
           // Solo si aún tiene sentido insistir (p. ej. no a quien ya entregó todo).
-          if (useTemplate && followUpMessage(this.memories.get(id), 0) !== null) {
+          // Una sola plantilla de 24 h por día, la mande el seguimiento o Mia al contestar fuera de la ventana.
+          const memoryNow = this.memories.get(id) || {};
+          const templateRecently = now.getTime() - (Date.parse(memoryNow.reengage_template_at || "") || 0) < 24 * 60 * 60 * 1000;
+          if (useTemplate && !templateRecently && followUpMessage(memoryNow, 0) !== null) {
             template = await this.templates.send(id, "followUp24h");
             await this.record(id, template.sent ? "followup_template_sent" : "followup_template_failed", template);
+            if (template.sent) await this.memories.set(id, { ...memoryNow, reengage_template_at: now.toISOString() });
           }
           if (Number(entry.sent || 0) > 0 || template?.sent) {
             await this.labels.mergeSafe(id, [NO_RESPONSE_LABEL], [], conversation);

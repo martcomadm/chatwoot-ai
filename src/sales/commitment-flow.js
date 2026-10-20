@@ -10,7 +10,8 @@ function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_
 function planPrice(plan) { return plan === "plan_2" ? "$1,500 MXN mensuales" : plan === "plan_1" ? "$1,100 MXN mensuales" : null; }
 
 const START_RE = /\b(?:si[, ]*)?(?:quiero|deseo|podemos|quiero que)\s+(?:iniciar|empezar|proceder|continuar|hacer)\s+(?:con\s+)?(?:el\s+)?(?:tramite|proceso|alta)|\b(?:iniciemos|empecemos|empezemos|procedamos)\b|\badelante con (?:el )?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?me interesa[, ]+(?:iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/;
-const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
+// También "Para el plan 1", "con el plan 2", "mejor el 1" (caso real 20-oct).
+const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)\s+(?:el\s+)?plan\s*(1|uno|2|dos)(?:\s+(?:por favor|porfa|mejor|entonces))?[ .!]*$|\bmejor el (?:plan\s*)?(?:1|uno|2|dos)\b/;
 const INTEREST_ONLY_RE = /\bme interesa(?:\s+(?:adquirir|contratar|tomar|elegir|escoger))?(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|\b(?:quiero|deseo)\s+(?:adquirir|contratar|tomar)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
 
 export function commitmentDecision(memory = {}, combinedText = "") {
@@ -30,7 +31,7 @@ export function commitmentDecision(memory = {}, combinedText = "") {
 
   if (SELECTION_RE.test(text) && plan) {
     return {
-      reply: `Perfecto, dejamos seleccionado ${planLabel(plan)}${planPrice(plan) ? ` de ${planPrice(plan)}` : ""}. Si tienes alguna duda antes de iniciar, con gusto la resolvemos. Cuando estés listo para comenzar el trámite, solo indícame que deseas iniciarlo.`,
+      reply: `Perfecto, dejamos seleccionado el ${planLabel(plan)}${planPrice(plan) ? ` de ${planPrice(plan)}` : ""}. ¿Quieres que iniciemos tu trámite con el ${planLabel(plan)}?`,
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
       commitment: "selected",

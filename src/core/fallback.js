@@ -1,4 +1,4 @@
-import { effectivePlan } from "../sales/progressive-disclosure.js";
+import { effectivePlan, discussedPlan } from "../sales/progressive-disclosure.js";
 const REPHRASED = {
   nombre: "Para continuar, ¿me compartes tu nombre completo?",
   edad: "¿Me confirmas tu edad, por favor? Solo el número de años.",
@@ -22,7 +22,9 @@ export function fallbackDecision(memory, planner, combinedText) {
 
   const hasAfore = Boolean(memory?.intereses?.afore) || /afor[eé]|aportaciones?/i.test(combinedText);
   const continuity = Boolean(memory?.contexto_laboral?.busca_continuidad) || /constantes?|continuidad|sin cambios cada semana/i.test(combinedText);
-  const prefix = hasAfore ? (continuity ? "Buscas continuidad en el alta y las aportaciones a tu AFORE." : "Podemos orientarte sobre una opción con aportaciones a tu AFORE.") : "";
+  // Ya no se antepone "Podemos orientarte sobre una opción con aportaciones a tu AFORE.": salía
+  // como relleno sin relación con lo que el cliente dijo (casos reales 17 a 20-oct).
+  const prefix = hasAfore && continuity ? "Buscas continuidad en el alta y las aportaciones a tu AFORE." : "";
   const questions = {
     necesidad_principal: "¿Qué te interesa principalmente: servicio médico, semanas, INFONAVIT o AFORE?",
     tiene_imss: "¿Actualmente tienes un alta activa ante el IMSS?",
@@ -65,7 +67,7 @@ export function fallbackDecision(memory, planner, combinedText) {
 // Ahora propone el siguiente paso según dónde va la conversación, sin repetirse.
 export function contextualNextStep(memory = {}) {
   const need = memory?.commercial_need || {};
-  const plan = effectivePlan(memory);
+  const plan = discussedPlan(memory);
   const options = [];
   const label = plan === "plan_2" ? "Plan 2" : "Plan 1";
   const explained = (memory?.sales_cycle?.explained_plans || []).includes(plan);

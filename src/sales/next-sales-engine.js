@@ -34,8 +34,9 @@ const ALTA_INTEREST_PATTERNS = [
 ];
 
 const PLAN_SELECTION_PATTERNS = [
-  { plan: "plan_2", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(2|dos)\b|^(?:el\s+)?plan\s*(2|dos)(?:\s+(?:por favor|porfa|mejor|esta bien))?$/ },
-  { plan: "plan_1", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(1|uno)\b|^(?:el\s+)?plan\s*(1|uno)(?:\s+(?:por favor|porfa|mejor|esta bien))?$/ },
+  // "Para el plan 1", "con el plan 1", "mejor el 1" (caso real 20-oct: Enedino cambió del 2 al 1).
+  { plan: "plan_2", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)?\s*(?:el\s+)?plan\s*(2|dos)(?:\s+(?:por favor|porfa|mejor|esta bien|entonces))?[ .!]*$|\bmejor el (?:2|dos)\b/ },
+  { plan: "plan_1", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(1|uno)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)?\s*(?:el\s+)?plan\s*(1|uno)(?:\s+(?:por favor|porfa|mejor|esta bien|entonces))?[ .!]*$|\bmejor el (?:1|uno)\b/ },
 ];
 
 const PAUSE_PATTERNS = [
@@ -103,7 +104,9 @@ export function detectPlanPreference(text) {
   const mentionsPlan2 = /\bplan\s*(2|dos)\b/.test(value);
   if (mentionsPlan1 && mentionsPlan2) return null;
 
-  const rejectsPlan2Need = /\b(no|sin)\b.{0,30}\b(afore|infonavit|credito|puntos)\b/.test(value)
+  // "Todo menos Infonavit"; "Ya tengo mi afore y mi seguro" dice lo que tiene, no lo que busca (19 y 20-oct).
+  if (/\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/.test(value) && !/\b(?:aportar|aportaciones|sumar|puntos|quiero|me interesa)\b/.test(value)) return null;
+  const rejectsPlan2Need = /\b(no|sin|menos|excepto|salvo)\b.{0,30}\b(afore|infonavit|credito|puntos)\b/.test(value)
     || /\b(afore|infonavit)\b.{0,30}\b(no me interesa|no quiero|no necesito)\b/.test(value);
 
   if (rejectsPlan2Need) return "plan_1";
@@ -160,7 +163,13 @@ export function analyzeNextSale(text, memory = {}) {
   if (interest && !authorized) stage = "interested";
   if (authorized) stage = "authorized";
 
+  // "Sí" a "¿Deseas que inicie tu trámite con el Plan 1?": el plan es el de esa pregunta,
+  // aunque antes se hubiera recomendado otro (caso real 20-oct, Enedino).
+  const lastQuestion = norm(String(memory?.ultima_respuesta_agente || "").split(/(?<=[.!])\s+/).filter(p => /\?/.test(p)).at(-1) || "");
+  const askedPlans = [...new Set([...lastQuestion.matchAll(/\bplan\s*(1|uno|2|dos)\b/g)].map(m => /1|uno/.test(m[1]) ? "plan_1" : "plan_2"))];
+  const askedPlan = authorized && askedPlans.length === 1 ? askedPlans[0] : null;
   const selectedPlan = explicitSelection
+    || askedPlan
     || previous.selected_plan
     || (authorized ? previous.recommended_plan || detectedPlan || (previous.explained_plans || []).at(-1) || (previous.pitched_plans || []).at(-1) || null : null);
 

@@ -72,6 +72,12 @@ function pendingQuestion(memory = {}) {
   return null;
 }
 
+// El plan del que se habló al último: para seguimientos y el "siguiente paso" (casos reales 19 y
+// 20-oct: "¿Te quedó alguna duda sobre el Plan 2?" a quien se le acababa de explicar el Plan 1).
+export function discussedPlan(memory = {}) {
+  return memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.last_plan || effectivePlan(memory);
+}
+
 export function effectivePlan(memory = {}) {
   if (memory?.sales_cycle?.selected_plan) return memory.sales_cycle.selected_plan;
   const need = memory?.commercial_need || {};
@@ -86,7 +92,8 @@ export function effectivePlan(memory = {}) {
 
 function affirmativeFollowUp(text = "") {
   // "Si.", "Porfavor.", "Porfavor explíqueme…!!" también son un sí (casos reales del 15-oct).
-  const value = norm(text).replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
+  // "Aver expliqueme", "a ver, explíqueme", "Espliqueme" (casos reales 19 y 20-oct).
+  const value = norm(text).replace(/^(?:a ver|aver|haber|aber)\b[ ,.]*/, "").replace(/\besplique/g, "explique").replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
   return /^(?:(?:si|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno|me parece bien|me parece|muy bien|y gracias|gracias)\s*)+(?:(?:explicame|cuentame|dime|por favor|y gracias|gracias)\s*)*$/.test(value) && !/^(?:y gracias|gracias)/.test(value)
     || /^(?:explicame|cuentame)(?: por favor)?$/.test(value)
     || /\b(?:si|por favor)\s+(?:explicame|cuentame|dime)\b/.test(value);

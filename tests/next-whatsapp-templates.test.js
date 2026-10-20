@@ -97,11 +97,14 @@ test("al cerrarse la ventana de 24 h sin respuesta, Mia manda la plantilla 'salu
   const { service, state } = followUpSetup();
   for (const m of [20, 180, 1200]) await service.tick(at(m));
   assert.equal(state.sent.length, 3);
+  // El 3er seguimiento salió a las 20 h: la plantilla espera 12 h desde ahí (casos 19-20 oct).
   await service.tick(at(24 * 60));
+  assert.equal(state.templates.length, 0, "no sale pegada al último seguimiento");
+  await service.tick(at(32 * 60 + 1));
   assert.equal(state.templates.length, 1);
   assert.equal(state.templates[0].name, "saludodia3");
   assert.deepEqual(state.labels, ["no_contesta"]);
-  await service.tick(at(26 * 60));
+  await service.tick(at(34 * 60));
   assert.equal(state.templates.length, 1, "no se repite");
 });
 
@@ -110,10 +113,10 @@ test("si la ventana se cierra de noche, la plantilla espera a la apertura", asyn
   const { service, state } = followUpSetup({ isOpen: () => open });
   for (const m of [20, 180, 1200]) await service.tick(at(m));
   open = false;
-  await service.tick(at(24 * 60));
+  await service.tick(at(32 * 60 + 1));
   assert.equal(state.templates.length, 0);
   open = true;
-  await service.tick(at(24 * 60 + 300));
+  await service.tick(at(33 * 60));
   assert.equal(state.templates.length, 1);
 });
 

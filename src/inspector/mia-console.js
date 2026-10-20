@@ -73,7 +73,16 @@ export const EVENT_LABELS = {
   operations_state_changed: "Operations actualizó el expediente",
   operations_customer_notification: "Aviso de Operations al cliente",
   reply_superseded: "Respuesta reemplazada (el cliente siguió escribiendo)",
+  human_replied_skip: "No respondió: una persona del equipo ya había contestado",
+  reassigned_skip: "No respondió: el chat está asignado a otra persona",
+  stop_label_skip: "No respondió: el chat tiene una etiqueta de cierre",
+  reply_outside_window: "Fuera de la ventana de 24 h (se usa plantilla)",
+  auto_reply_ignored: "Respuesta automática del cliente ignorada",
+  chatwoot_messages_fetch_failed: "No se pudieron leer los mensajes de Chatwoot",
 };
+
+// Eventos que explican por qué Mia no contestó; van en el .txt junto a los mensajes.
+const SILENCE_EVENTS = new Set(["empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule"]);
 
 const REASON_LABELS = {
   human_replied: "Parecía que una persona ya había contestado",
@@ -122,6 +131,8 @@ const DEFERRAL_LABELS = { no_money: "Sin dinero por ahora", later: "Avisará des
 // Por qué se cambió lo que escribió la IA (reasons del processor y del quality-checker).
 const REPLACED_LABELS = {
   fallo_ia: "La IA no respondió (error o tiempo agotado)",
+  pide_frase_terminos: "Pedía escribir una frase exacta de términos y condiciones",
+  pago_antes_de_vigencia: "Ofrecía datos de pago antes del alta",
   pidio_curp_nss_antes_de_autorizar: "Pedía CURP/NSS antes de que el cliente aceptara",
   recomendo_plan_sin_necesidad: "Recomendaba un plan sin saber qué busca el cliente",
   reparacion_fallida: "La corrección automática tampoco pasó",
@@ -443,7 +454,7 @@ export class MiaConsole {
       .map(m => Number(m.id));
     ids = filter === "tests" ? ids.filter(id => tests.has(id)) : ids.filter(id => !tests.has(id));
     const details = [];
-    for (let i = 0; i < ids.length; i += 4) details.push(...await Promise.all(ids.slice(i, i + 4).map(id => this.conversation(id).catch(error => ({ id, error: String(error?.message || error) })))));
+    for (let i = 0; i < ids.length; i += 4) details.push(...await Promise.all(ids.slice(i, i + 4).map(id => this.conversation(id).then(c => ({ ...c, all_events: this.inspectorEvents.get(id) || [] })).catch(error => ({ id, error: String(error?.message || error) })))));
     if (filter === "authorized") details.splice(0, details.length, ...details.filter(c => c.summary?.authorized));
     if (filter === "handoff") details.splice(0, details.length, ...details.filter(c => c.summary?.handoff));
     details.sort((a, b) => ms(a.transcript?.[0]?.at) - ms(b.transcript?.[0]?.at));
@@ -464,7 +475,14 @@ export class MiaConsole {
       if (facts.length) out.push(facts.join(" · "));
       if (c.transcript_error) out.push(`(No se pudo leer Chatwoot: ${c.transcript_error}; se muestran solo los mensajes registrados por Mia)`);
       out.push("-".repeat(72));
-      for (const m of c.transcript || []) {
+      const notes = (c.all_events || []).filter(e => SILENCE_EVENTS.has(e.type)).map(e => {
+        const d = e.details || {};
+        const extra = [d.assignee_name ? `asignado a ${d.assignee_name}` : null, d.reason ? (REASON_LABELS[d.reason] || d.reason) : null, d.labels?.length ? `etiquetas: ${d.labels.join(", ")}` : null, d.error ? `error: ${String(d.error).slice(0, 160)}` : null, d.decision_source ? `origen: ${d.decision_source}` : null].filter(Boolean).join(" · ");
+        return { who: "nota", at: e.timestamp, text: `⚙ ${EVENT_LABELS[e.type] || e.type}${extra ? ` (${extra})` : ""}` };
+      });
+      const lines = [...(c.transcript || []), ...notes].sort((a, b) => ms(a.at) - ms(b.at) || (a.who === "nota") - (b.who === "nota"));
+      for (const m of lines) {
+        if (m.who === "nota") { out.push(`   [${stamp(m.at)}] ${m.text}`, ""); continue; }
         const who = m.who === "cliente" ? "CLIENTE" : m.who === "mia" ? `MIA (${m.label || "Mia"})` : (m.label || "PERSONA").toUpperCase();
         const extras = [m.attachments ? `${m.attachments} adjunto(s)` : null, ...(m.flags || []).map(f => FLAG_LABELS[f] || f)].filter(Boolean);
         out.push(`[${stamp(m.at)}] ${who}${extras.length ? ` [${extras.join(" · ")}]` : ""}:`);

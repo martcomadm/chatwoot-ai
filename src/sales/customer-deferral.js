@@ -13,6 +13,8 @@ const NO_MONEY_RE = [
   /\bno tengo (?:ahorita |ahora |por el momento )?(?:la |una )?(?:forma|manera|modo) de pagar\b/,
   /\b(?:ahorita|por el momento|por ahora|de momento|en este momento)\b.{0,40}\bno (?:puedo pagar|tengo (?:dinero|para)|cuento con|cuanto con|me alcanza)\b/,
   /\bestoy (?:corta|corto|sin dinero|sin lana)\b/,
+  // "No conseguí el dinero para depositarlo" (caso real 19-oct, con faltas).
+  /\bno\s*(?:consegui|consigi|consigui|junte|pude juntar|pude conseguir|alcance)\b.{0,25}\b(?:dinero|lana|pago|deposit\w*|pagar)\b/,
 ];
 
 const LATER_RE = [
@@ -33,6 +35,14 @@ const LATER_RE = [
   /\b(?:dej[ae]me|deje|dejeme) (?:lo )?(?:reviso|revisar|checo|checar|pienso|pensar|veo|ver|analizo)\b|\bvoy a (?:revisar|checar|pensarlo|analizarlo)\b/,
   /\b(?:te|le|les) (?:mando|escribo|envio) (?:un )?(?:mensaje|msj)? ?mas tarde\b|\bmas tarde (?:te|le|les) (?:escribo|mando|aviso)\b|\bte puedo mandar mensaje mas tarde\b/,
   /\b(?:me|nos) (?:comunico|comunicamos|reporto|pongo en contacto)\b.{0,25}\b(?:mas adelante|maz adelante|despues|luego|en otro momento|otro dia)\b/,
+  // Casos reales 19 y 20-oct: "voy a comentar y me comunico nuevamente", "primero platico con
+  // mi familia" (con faltas: "boy", "coni"), "más delante", "por el momento no", "deja juntar y
+  // te vuelvo a mandar mensaje", "salgo a ver dónde lo consigo".
+  /\b(?:voy|boy|vamos) a (?:comentar|comentarlo|platicar|platicarlo|consultar|consultarlo|hablarlo|pensar|pensarlo|ver)(?:lo)?\b|\b(?:me|nos) (?:comunico|comunicamos|reporto) (?:nuevamente|de nuevo|otra vez)\b/,
+  /\b(?:platic|consult|coment|habl)\w*\s+con(?:\s*i|\s+mi|\s+mis|\s+la|\s+el)?\s*(?:familia|esposo|esposa|pareja|hijos?|hijas?|marido|senora|mama|papa)\b/,
+  /\bmas d?e?lante\b|^(?:por el momento|de momento|por ahora|ahorita|en este momento|por lo pronto)\s+no\b/,
+  /\b(?:dej[ae]me|deja|deje)\s+(?:junt\w*|ahorr\w*|reun\w*)\b|\b(?:te|le|les) vuelvo a (?:mandar|enviar) (?:un )?(?:mensaje|msj)\b/,
+  /\b(?:salgo|voy) (?:a ver|aber|haber|a buscar)\b.{0,30}\b(?:consigo|conseguir|junto|juntar|dinero|lana)\b/,
   /\bestoy en espera de\b|\btodavia no (?:lo )?(?:decido|se|tengo)\b|\bno gracias,? (?:despues|luego|mas adelante)\b/,
 ];
 
@@ -79,7 +89,8 @@ function planLabel(memory = {}) {
 }
 
 // "No gracias" a una oferta (p. ej. al seguimiento "¿Te gustaría que iniciemos…?").
-const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^no[ ,.!]*(?:me interesa|por ahora|por el momento|de momento)\b/;
+// "No me interesa Infonavit" no es esto: descarta solo una parte (feature-rejection.js).
+const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^no[ ,.!]*(?:me interesa(?! (?:el |la |lo de )?(?:infonavit|afore|credito|plan))|por ahora|por el momento|de momento)\b/;
 
 // Mensajes de cortesía que no piden nada ("Ok", "Gracias", "👍", "No gracias, yo les aviso").
 export function isCourtesy(text) {

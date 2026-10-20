@@ -65,6 +65,10 @@ export function checkReply(reply,{memory,questionKey,maxChars=850,customerText="
   // "Parece que ese mensaje no era para nosotros" solo cabe ante cadenas o avisos largos;
   // a "No lo conozco" (respuesta a una pregunta de Mia) se le contestó eso (caso real 15-oct).
   if(/no era para nosotros/i.test(text)&&String(customerText||"").trim().length<120) reasons.push("fuera_de_tema_indebido");
+  // La IA inventaba un paso de "escribe exactamente: He leído y acepto…" y ofrecía las cuentas
+  // antes del alta (caso real 19-oct, el cliente acabó molesto).
+  if(/he le[ií]do y acepto|responde exactamente|escribe exactamente/i.test(text)) reasons.push("pide_frase_terminos");
+  if(!memory?.sales_cycle?.authorized && /(?:comparta|comparto|env[ií]e|env[ií]o|mande|mando|indique|indico|pase|paso)\s+(?:los\s+)?datos\s+(?:para|de)(?:l)?\s+(?:el\s+)?(?:pago|dep[oó]sito)|datos (?:bancarios|para (?:el )?pago|de pago)|cuentas? para (?:pagar|depositar)/i.test(text)) reasons.push("pago_antes_de_vigencia");
   if(/\bsoy\s+axel\b|\baxel\s+(?:de|ia)\b/i.test(text)) reasons.push("identidad_incorrecta");
   return {ok:reasons.length===0,reasons};
 }

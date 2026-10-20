@@ -9,7 +9,7 @@ import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDe
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, deriveCommercialNeed } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
-import { deferralDecision } from "../sales/customer-deferral.js";
+import { deferralDecision, detectDeferral, detectClosing } from "../sales/customer-deferral.js";
 import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
@@ -27,6 +27,7 @@ import { analyzeJudgment } from "../orchestrator/conversational-judgment.js";
 import { analyzePatience, sensitiveSlotSuppressed } from "../semantic/conversational-patience.js";
 import { resolveAnswer } from "../semantic/answer-resolver.js";
 import { ensureAuthorizedSale } from "../operations/sale-factory.js";
+import { featureRejectionDecision } from "../sales/feature-rejection.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { explicitHumanRequest, acceptsAdvisorOffer } from "./human-request.js";
@@ -56,6 +57,14 @@ function humanRepliedSince(conversation, sinceIso, miaAgentId, ignoreTexts = [],
 
 // Mensajes del cliente que este turno debe procesar: los ids del buffer, con los
 // adjuntos del webhook cuando la API de Chatwoot aún no los trae, y sin los ya procesados.
+export function scrubOpeners(reply = "") {
+  return String(reply || "")
+    .replace(/(^|[.!?]\s+|[¡¿])veo que\s+/gi, (_m, pre) => `${pre}\u0000`)
+    .replace(/,\s*veo que\s+/gi, ", ")
+    .replace(/\u0000([a-záéíóúñ])/g, (_m, ch) => ch.toUpperCase())
+    .replace(/\u0000/g, "");
+}
+
 function dropTrailingQuestion(reply = "") {
   const parts = String(reply).trim().split(/(?<=[.!?])\s+/);
   if (parts.length > 1 && /\?$/.test(parts.at(-1))) parts.pop();
@@ -280,10 +289,17 @@ export class ConversationProcessor {
     const pendingSale = this.workflow?.store?.findByConversationId?.(conversationId);
     // También se procesa (sin que Mia responda) la respuesta a la plantilla de vigencia.
     const awaitingValidity = Boolean(pendingSale?.validity?.awaiting_customer_reply);
-    if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity) return;
+    // Se registra para que el Inspector y el .txt digan por qué Mia no contestó (antes era silencio sin rastro).
+    if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity) {
+      await this.record(conversationId, "reassigned_skip", { assignee_id: assigneeId, assignee_name: conversation?.meta?.assignee?.name || null, message_ids: (snapshot?.ids || []).map(String) });
+      return;
+    }
     let currentLabels = conversation?.labels || [];
     const stopped = currentLabels.some(label => stopLabels.has(typeof label === "string" ? label : label?.title));
-    if (stopped && !awaitingValidity) return;
+    if (stopped && !awaitingValidity) {
+      await this.record(conversationId, "stop_label_skip", { labels: currentLabels.map(l => typeof l === "string" ? l : l?.title).filter(Boolean), message_ids: (snapshot?.ids || []).map(String) });
+      return;
+    }
     // Pausa: global desde Operations o por conversación con la etiqueta "pausar_mia".
     // Mia no responde ni registra nada; los mensajes quedan para que los atienda una persona.
     const pausedByLabel = currentLabels.some(label => (typeof label === "string" ? label : label?.title) === PAUSE_LABEL);
@@ -411,8 +427,10 @@ export class ConversationProcessor {
     if (!llmPatch.commercial_need) llmPatch.commercial_need = deriveCommercialNeed(combinedText, base.commercial_need);
     // "Todo" a "¿qué es lo más importante para ti…?" = servicio médico, semanas y AFORE/INFONAVIT (caso real 15-oct).
     const askedNeed = base.ultima_pregunta === "necesidad_principal" || /lo mas importante para ti|que te interesa principalmente|que buscas principalmente/.test(String(base.ultima_respuesta_agente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-    if (askedNeed && /^(?:(?:en si|pues|si|bueno)\s+)?(?:en\s+)?(?:todo|todos|todas|las tres|los tres|todo eso|todo lo anterior|de todo|me interesa todo|quiero todo|todo completo)\b|\b(?:requiero|necesito|quiero) todo\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, " ").trim())) {
-      llmPatch.commercial_need = { ...(llmPatch.commercial_need || {}), service_medical: true, weeks: true, afore_infonavit: true, unknown: false };
+    if (askedNeed && /^(?:(?:en si|pues|si|bueno)\s+)?(?:en\s+)?(?:todo|todos|todas|las tres|los tres|todo eso|todo lo anterior|de todo|me interesa todo|quiero todo|todo completo)\b|\b(?:requiero|necesito|quiero) todo\b|\btodos los (?:servicios|beneficios)\b|\bel (?:servicio|plan) completo\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, " ").trim())) {
+      // "Todo menos Infonavit" (caso real 19-oct): todo salvo lo excluido.
+      const excludes = /\b(?:menos|excepto|salvo|sin|pero no)\s+(?:el |la |lo de )?(?:infonavit|afore)\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+      llmPatch.commercial_need = { ...(llmPatch.commercial_need || {}), service_medical: true, weeks: true, afore_infonavit: !excludes, unknown: false };
     }
     // La IA a veces toma frases como nombre ("Deje", "Claro que sí"): se descartan.
     if (llmPatch.nombre && !plausibleName(llmPatch.nombre)) { delete llmPatch.nombre; delete llmPatch.primer_nombre; }
@@ -520,7 +538,9 @@ export class ConversationProcessor {
     const directDecision = memory.sales_cycle?.authorized && /^direct:case_review/.test(directDecisionRaw?.__source || "") ? null : directDecisionRaw;
     const commitment = commitmentDecision(memory, combinedText);
     // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
-    const deferral = deferralDecision(memory, combinedText, { resumedAfterHours });
+    // "No me interesa Infonavit" descarta una parte, no es despedida (caso real 19-oct).
+    const featureRejection = featureRejectionDecision(memory, combinedText);
+    const deferral = featureRejection ? null : deferralDecision(memory, combinedText, { resumedAfterHours });
     // Notas de voz o archivos sin texto antes de iniciar el trámite: Mia no puede escucharlos
     // ni revisarlos, así que lo dice en vez de contestar algo sin relación.
     const mediaOnly = !combinedText && !memory.sales_cycle?.authorized && batch.some(hasAttachments)
@@ -542,9 +562,11 @@ export class ConversationProcessor {
     const adOpening = adOpeningDecision(base, combinedText);
     if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
     else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
+    else if (featureRejection) decision = protectDeterministicDecision(featureRejection, "feature_rejection");
     else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
     else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
     else if (medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
+    else if (memory.sales_cycle?.authorized && onboardingDecision?.priority) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
     else if (directDecision) decision = directDecision;
     else if (contextualExplanation) decision = protectDeterministicDecision(contextualExplanation, "contextual_plan_explanation");
     else if (coverageFollowUp) decision = protectDeterministicDecision(coverageFollowUp, "coverage_and_requirements");
@@ -560,6 +582,9 @@ export class ConversationProcessor {
     }
     // Para el Inspector: qué escribió la IA y por qué se cambió (antes solo se veía el respaldo).
     const aiDraft = decision?.__source === "llm" ? String(decision.reply || "") : null;
+    // "Veo que…" está prohibido, pero tirar toda la respuesta por eso dejaba al cliente con
+    // "¿Me compartes tu nombre completo?" (12 chats del 19-20 oct). Se quita la frase y se conserva lo demás.
+    if (["llm"].includes(decision?.__source)) decision = { ...decision, reply: scrubOpeners(decision.reply) };
 
     // ── 11. Guardas sobre respuestas de IA (las deterministas no se tocan) ──
     // Firmas reales: answered(memory, key), checkReply(reply, {memory, questionKey, maxChars}),
@@ -601,7 +626,7 @@ export class ConversationProcessor {
     let qualityCheck = quality(decision?.reply);
     if (!qualityCheck.ok && !isDeterministicDecision(decision)) {
       replacedReasons.push(...qualityCheck.reasons);
-      try { decision = { ...(await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, qualityCheck.reasons) || {}), __source: "llm_repair" }; }
+      try { decision = { ...(await this.ai.repairDecision(conversation, memory, planner, combinedText, decision, qualityCheck.reasons) || {}), __source: "llm_repair" }; decision.reply = scrubOpeners(decision.reply); }
       catch { decision = fallback(); }
       qualityCheck = quality(decision?.reply);
     }
@@ -631,9 +656,12 @@ export class ConversationProcessor {
 
     // La IA a veces contesta sin siguiente paso ("Anotado que eres transportista/chofer."): el cliente
     // no sabe qué sigue y la plática se muere (casos 17-oct). Se agrega el siguiente paso.
-    const closingLike = /escr[ií]beme por aqu[ií]|quedo al pendiente|aqu[ií] te espero|aqu[ií] estar[eé]|cuando (?:lo tengas|puedas|regreses|est[eé]s list)|te aviso por aqu[ií]/i;
+    // Nunca después de una despedida: "…cuando decidas, escríbeme y retomamos el trámite. ¿Tienes
+    // alguna duda sobre el Plan 1…?" (casos reales 19 y 20-oct).
+    const closingLike = /escr[ií]beme|quedo al pendiente|aqu[ií] te espero|aqu[ií] estar[eé]|aqu[ií] quedo|cuando (?:lo tengas|puedas|regreses|est[eé]s list|quieras|decidas|gustes|tengas)|te aviso por aqu[ií]|que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que est[eé]s bien|retom(?:amos|arlo|emos)|t[oó]mate (?:el|tu) tiempo|gracias por (?:tu tiempo|avisar|contarme)/i;
+    const customerClosing = Boolean(detectDeferral(combinedText)) || detectClosing(combinedText, { lastReply: memory.ultima_respuesta_agente || "" });
     const openEnded = ["llm", "llm_repair"].includes(decisionSource) || /^direct:(services|price|location|registered_salary|requirements|process_time|payment_frequency|not_free|identity|website|are_you_imss)$/.test(decisionSource);
-    if (openEnded && !memory.sales_cycle?.authorized && !/[?¿]/.test(decision.reply) && !closingLike.test(decision.reply)) {
+    if (openEnded && !customerClosing && !memory.sales_cycle?.authorized && !/[?¿]/.test(decision.reply) && !closingLike.test(decision.reply)) {
       const next = String(contextualNextStep(memory) || "").replace(/^Gracias\.\s*/, "");
       if (next && !decision.reply.includes(next) && (decision.reply.length + next.length + 1) <= (this.config.ai.maxReplyChars || 850)) {
         decision.reply = `${decision.reply} ${next}`;
@@ -671,6 +699,7 @@ export class ConversationProcessor {
     // identical recent outgoing reply. This is intentionally at the last possible
     // point so every decision path is protected, not only the opening greeting.
     let duplicateReply = false;
+    let humanAnswered = false;
     let supersededBy = [];
     try {
       const fresh = await this.chatwoot.getMessages(conversationId);
@@ -681,6 +710,11 @@ export class ConversationProcessor {
       const newestBatchId = Math.max(0, ...messageIds.map(Number).filter(Number.isFinite));
       supersededBy = this.requeue ? recent.filter(message => isIncoming(message) && message?.private !== true && isContact(message)
         && !batchIds.has(String(message.id)) && Number(message.id) > newestBatchId && !this.memories.hasProcessed(conversationId, message.id)).map(m => String(m.id)) : [];
+      // Una persona del equipo contestó después del mensaje del cliente: Mia no se mete
+      // (caso real 19-oct: José Lara escribió y en el mismo minuto salió "¡Hola! Soy Mia…").
+      const batchAt = Math.max(0, ...recent.filter(m => batchIds.has(String(m.id))).map(m => Number(m.created_at || 0)));
+      const sinceIso = batchAt ? new Date(batchAt * 1000).toISOString() : null;
+      humanAnswered = Boolean(sinceIso) && humanRepliedSince({ messages: recent }, sinceIso, this.config.chatwoot.agentId, [], this.selfSenders);
       const normalizedReply = String(decision.reply || "").replace(/\s+/g, " ").trim();
       duplicateReply = recent.slice(-12).some(message => {
         const outgoing = message?.message_type === "outgoing" || message?.message_type === 1;
@@ -698,6 +732,11 @@ export class ConversationProcessor {
       await this.record(conversationId, "reply_superseded", { reply: decision.reply, message_ids: messageIds.map(String), newer_ids: supersededBy });
       this.turnLock?.release?.(conversationId, messageIds.map(String));
       this.requeue(conversationId, messageIds.map(String));
+      return;
+    }
+    if (humanAnswered) {
+      await this.record(conversationId, "human_replied_skip", { reply: decision.reply, message_ids: messageIds.map(String) });
+      await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
     if (duplicateReply) {
@@ -732,6 +771,11 @@ export class ConversationProcessor {
     };
     // El cliente pospuso o cerró la plática: se guarda el motivo para el embudo del inspector.
     if (deferral) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: new Date().toISOString() } };
+    // Descartó AFORE/INFONAVIT o el Plan 2: desde ahora se habla del Plan 1 (también en los seguimientos).
+    if (decisionSource === "feature_rejection") {
+      const cycle = memory.sales_cycle || {};
+      memory = { ...memory, commercial_need: { ...(memory.commercial_need || {}), afore_infonavit: false }, sales_cycle: { ...cycle, recommended_plan: "plan_1", selected_plan: cycle.selected_plan === "plan_2" ? null : cycle.selected_plan || null, pitched_plans: arrays(cycle.pitched_plans, ["plan_1"]) } };
+    }
     // Recordar qué plan ya se recomendó o explicó para no repetir el mismo mensaje después.
     const pitchKey = { compact_plan_recommendation: "pitched_plans", contextual_plan_explanation: "explained_plans" }[decisionSource];
     const pitchedPlan = pitchKey ? effectivePlan(memory) : null;
@@ -740,6 +784,9 @@ export class ConversationProcessor {
     // como explicado: antes el respaldo volvía a ofrecer "¿Quieres que te explique cómo funciona?".
     // Ya se le respondió una duda de legitimidad: si vuelve a dudar, se le ofrece un asesor.
     if (/^direct:(legitimacy|trust)$/.test(decisionSource) || /^direct:multi$/.test(decisionSource) && /Tu alta queda registrada ante el IMSS con una empresa/.test(decision.reply)) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), trust_answered: true } };
+    // Plan del que se habló al último (si la respuesta menciona solo uno).
+    const plansInReply = [...new Set([...String(decision.reply || "").matchAll(/\bPlan\s*(1|2)\b/gi)].map(m => `plan_${m[1]}`))];
+    if (plansInReply.length === 1) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), last_plan: plansInReply[0] } };
     const explainedByText = explainedPlanInReply(decision.reply);
     if (explainedByText) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), pitched_plans: arrays(memory.sales_cycle?.pitched_plans, [explainedByText]), explained_plans: arrays(memory.sales_cycle?.explained_plans, [explainedByText]) } };
     if (decisionState.nss_resolution) {

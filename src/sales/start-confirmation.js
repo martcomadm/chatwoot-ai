@@ -13,10 +13,13 @@ const GENERIC_INTEREST_RE = /^(?:(?:si|claro|ok|okay|va|sale|perfecto|bueno|exce
 
 // Respuesta afirmativa corta: "sí", "sí, por favor", "claro", "va", "adelante", "ok, sí"…
 // Incluye "muy bien", "bien", "bueno", "listo", "excelente": tras "¿iniciamos?" significan que sí.
-const SHORT_AFFIRMATIVE_RE = /^(?:(?:si|sip|claro|ok|okay|okey|va|vale|sale|adelante|perfecto|de acuerdo|estoy de acuerdo|esta bien|por supuesto|dale|andale|orale|correcto|muy bien|bien|bueno|listo|excelente|genial|me parece bien|me parece perfecto)[ ,.!]*){1,3}(?:por favor|porfa|gracias|hagamoslo|iniciemos|comencemos|empecemos)?[ .!]*$/;
+// "Confirmo", "Sii", "si por favor" también (caso real 19-oct: "Confirmo" no abría el trámite).
+const SHORT_AFFIRMATIVE_RE = /^(?:(?:si+|sip|claro|ok|okay|okey|oki|va|vale|sale|adelante|perfecto|de acuerdo|estoy de acuerdo|esta bien|por supuesto|dale|andale|orale|correcto|muy bien|bien|bueno|listo|excelente|genial|me parece bien|me parece perfecto|confirmo|lo confirmo|si confirmo|acepto)[ ,.!]*){1,3}(?:por favor|porfavor|porfa|x favor|gracias|hagamoslo|iniciemos|comencemos|empecemos|con mucho gusto|con muchisimo gusto)?[ .!🙏👍]*$/;
 
 // Mia preguntó explícitamente si iniciamos/comenzamos el trámite o la contratación.
-const AGENT_ASKED_TO_START_RE = /(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) tramite|si estas de acuerdo, podemos iniciar/;
+// Incluye las formas que usa la IA: "¿Deseas que inicie tu trámite con el Plan 1?",
+// "¿Quieres que proceda con Plan 1…?", "¿Confirmas que deseas iniciar…?" (casos reales 19 y 20-oct).
+const AGENT_ASKED_TO_START_RE = /(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos|inicie|comience|empiece|proceda|demos de alta|te demos de alta|te de de alta|tramitemos)|(?:quieres|deseas|te gustaria) (?:iniciar|comenzar|empezar|proceder|contratar|continuar con el tramite)|confirmas que (?:deseas|quieres) (?:iniciar|comenzar|proceder)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) (?:tramite|alta)|si estas de acuerdo, podemos iniciar/;
 
 export function genericInterest(text) {
   const value = norm(text);

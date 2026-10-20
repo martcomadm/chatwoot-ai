@@ -12,8 +12,9 @@ const NEVER_FIRST = new Set(["que", "qué", "como", "cómo", "cual", "cuál", "c
   "si", "sí", "no", "claro", "ok", "okey", "gracias", "y", "o", "pero", "deje", "dejé", "es", "ya", "hola", "buenas", "buenos", "bien", "muy",
   "mi", "yo", "el", "la", "los", "las", "un", "una", "este", "esta", "eso", "esto", "perfecto", "listo", "quiero", "tengo", "soy", "estoy",
   "por", "para", "con", "sin", "a", "al", "en", "de", "del", "me", "le", "te", "se", "lo", "su", "nada", "nomas", "nomás", "tambien", "también",
-  "vale", "va", "sale", "bueno", "ahorita", "ahora", "entonces", "pues", "oiga", "oye", "disculpe", "perdon", "perdón", "porque", "aun", "aún"]);
-const NEVER_ANY = /\b(?:gracias|modalidad|atienden|trabajar|legal|empresa|patron(?:es)?|planes?|diferencia|hay|cuesta|costo|ubicaci[oó]n|informes?|favor|semanas|años|anos|hogar|casa|esposo|esposa|hijos?)\b/i;
+  "vale", "va", "sale", "bueno", "porfa", "nesecito", "necesito", "ocupo", "busco", "ahorita", "ahora", "entonces", "pues", "oiga", "oye", "disculpe", "perdon", "perdón", "porque", "aun", "aún"]);
+// "Porfa Expliqueme", "Nesecito Afiliarme" (casos reales 19 y 20-oct) también se guardaban como nombre.
+const NEVER_ANY = /\b(?:porfa|porfavor|expl[ií]que\w*|espl[ií]que\w*|explica\w*|nesecito|necesito|nesesito|afiliar\w*|afiliacion\w*|afiliaciones|inscrib\w*|ayuda|ayudar\w*|interesa\w*|informacion|info|dudas?|pregunta\w*|consulta|asesor\w*|ocupo|busco|gracias|modalidad|atienden|trabajar|legal|empresa|patron(?:es)?|planes?|diferencia|hay|cuesta|costo|ubicaci[oó]n|informes?|favor|semanas|años|anos|hogar|casa|esposo|esposa|hijos?)\b/i;
 
 export function validateNameCandidate(value) {
   const text = String(value ?? "").trim().replace(/[.,;:!?]+$/g, "").replace(/\b([A-Za-z]{1,3})\.(?=[A-ZÁÉÍÓÚÑ])/g, "$1. ");

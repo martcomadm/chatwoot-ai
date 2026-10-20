@@ -101,6 +101,20 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     // Con el expediente completo, Mia solo contesta si el cliente pregunta algo o habla de su pago;
     // a "Ok", "Gracias", "RECIBO77" o similares no responde (los avisos de cada etapa los manda
     // Operaciones). Caso real Jesús Miguel, 17-19 oct.
+    // En Cobranza: "¿Cuánto tengo que pagar?" → su monto, no los dos planes; "ayer no pude, lo hago
+    // en un ratito" → sin problema (caso real 19 y 20-oct, Jesús Miguel).
+    const paying = ops.payment_requested || ops.status === "payment_requested" || ops.status === "payment_issue";
+    if (paying && !ops.payment_received) {
+      const t = norm(combinedText);
+      const plan = memory.sales_cycle?.selected_plan || memory.sales_cycle?.recommended_plan || null;
+      const amount = plan === "plan_2" ? "$1,500 MXN, del Plan 2" : plan === "plan_1" ? "$1,100 MXN, del Plan 1" : null;
+      if (amount && /\b(?:cuanto|monto|cantidad|importe|cuanto es|cuanto seria|cuanto pago|cuanto le deposito)\b/.test(t)) {
+        return { reply: `Tu pago es de ${amount}. Cuando lo realices, envíame por aquí tu comprobante, por favor.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+      }
+      if (/\b(?:no pude|no he podido|no alcance|lo hago|lo realizo|deposito|pago|hago el deposito|hago el pago)\b.{0,40}\b(?:ratito|rato|al rato|mas tarde|manana|hoy|en la tarde|en un momento|ahorita|despues|luego)\b|\b(?:ahorita|al rato|mas tarde|manana|en un ratito)\b.{0,25}\b(?:deposito|pago|lo hago|lo realizo)\b/.test(t)) {
+        return { reply: "Claro, sin problema. Cuando lo realices, envíame por aquí tu comprobante, por favor.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+      }
+    }
     const status = operationsStatusText(memory.operations);
     const asks = /[?¿]/.test(combinedText) || /\b(cuando|como va|como vamos|que sigue|ya quedo|ya esta|estatus|status|avance|pago|pague|pagar|deposit\w*|transferi\w*|comprobante|vigencia|alta)\b/.test(norm(combinedText));
     const question = /[?¿]/.test(combinedText);

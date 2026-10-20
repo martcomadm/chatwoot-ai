@@ -81,3 +81,21 @@ test("Chatwoot: se juntan todas las páginas de mensajes, no solo las 20 más re
   assert.equal(payload[0].content, "m1");
   assert.deepEqual(calls, [null, 26, 6]);
 });
+
+test("el .txt dice por qué Mia no contestó (asignado a otra persona, una persona ya contestó…)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "next-export-"));
+  const memories = new MemoryStore(path.join(dir, "m.json"));
+  const events = new InspectorEventStore(path.join(dir, "e.json"), 200);
+  await memories.set(20, { nombre: "Cliente" });
+  events.data[20] = [
+    { id: "a", timestamp: "2026-10-20T15:50:05Z", type: "reassigned_skip", details: { assignee_name: "Pamela Montiel" } },
+    { id: "b", timestamp: "2026-10-20T15:51:05Z", type: "human_replied_skip", details: {} },
+  ];
+  const miaConsole = new MiaConsole({
+    config: { ai: { timezone: "America/Mexico_City" }, openai: {}, inspector: {} }, memories, inspectorEvents: events,
+    chatwoot: { async getAllMessages() { return { payload: [{ id: 1, message_type: 0, content: "Para una consulta", created_at: at("2026-10-20T15:50:00Z") }] }; } },
+  });
+  const { text } = await miaConsole.exportText({ from: "2026-10-20" });
+  assert.match(text, /CLIENTE:\nPara una consulta\n\n   \[[^\]]+\] ⚙ No respondió: el chat está asignado a otra persona \(asignado a Pamela Montiel\)/);
+  assert.match(text, /⚙ No respondió: una persona del equipo ya había contestado/);
+});

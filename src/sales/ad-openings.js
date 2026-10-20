@@ -30,7 +30,17 @@ export function adOpeningKind(text = "") {
 // Solo en la primera respuesta de la conversación (o al retomarla al abrir).
 export function adOpeningDecision(memory = {}, text = "") {
   if (memory?.ultima_respuesta_agente || memory?.sales_cycle?.authorized) return null;
-  const kind = adOpeningKind(text);
+  // El mensaje del anuncio puede venir junto con otra pregunta ("…medaria informes cuanto cuesta",
+  // caso real 20-oct): la apertura del anuncio no debe ignorarla.
+  const lines = String(text || "").split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const adLine = lines.find(l => adOpeningKind(l));
+  const kind = adLine ? adOpeningKind(adLine) : adOpeningKind(text);
   if (!kind) return null;
-  return { reply: AD_OPENINGS[kind], question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", ad_opening: kind };
+  const rest = norm(lines.filter(l => l !== adLine).join(" "));
+  const asksPrice = /\b(?:cuanto|costo|precio|cuesta|cobran|honorarios|mensualidad)\b/.test(rest);
+  // Otra pregunta distinta del precio: que la atienda el resto del flujo.
+  if (rest && !asksPrice && /[?¿]/.test(lines.filter(l => l !== adLine).join(" "))) return null;
+  const price = asksPrice ? "Tenemos dos planes: el Plan 1 de $1,100 MXN mensuales (servicio médico del IMSS y semanas cotizadas) y el Plan 2 de $1,500 MXN mensuales (además AFORE e INFONAVIT). " : "";
+  const reply = price ? AD_OPENINGS[kind].replace(/^(Con gusto revisamos tu caso\.|Claro que sí\.|Qué bien que ya cuentas con IMSS\.|Sí, aunque hayas dejado de trabajar[^:]*:[^.]*\.)\s*/, (m) => `${m.trim()} ${price}`) : AD_OPENINGS[kind];
+  return { reply: reply.includes(price) ? reply : `${price}${reply}`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", ad_opening: kind };
 }

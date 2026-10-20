@@ -19,6 +19,9 @@ const PATTERNS = [
   /\b(?:asesor|asesora|ejecutivo|ejecutiva)\s+human[oa]\b/,
   /\b(?:pueden|puede|podrian|podria)\s+(?:llamarme|marcarme)\b|\bquiero una llamada\b|\bhablenme\b|\bmarquenme\b/,
   /\bno quiero (?:hablar con )?(?:un |una )?(?:bot|robot|maquina|ia|inteligencia artificial)\b/,
+  // "llamada con un agente que no sea IA", "alguien que no sea AI" (casos reales 19-oct, con faltas).
+  /\b(?:alguien|persona|agente|asesor|asesora|humano)\s+(?:que|sue|q|k|ke)\s+no\s+sea[^a-z]{0,6}(?:una?\s+)?(?:ia|ai|bot|robot|maquina|inteligencia artificial)\b/,
+  /\bllamada con (?:un |una |el |la |mi )?(?:agente|asesor|asesora|ejecutivo|persona)\b/,
 ];
 
 export function explicitHumanRequest(text) {

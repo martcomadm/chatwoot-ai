@@ -21,7 +21,7 @@ test("me quedo con Plan 1 is selection, not services catalog request", () => {
   assert.equal(analyzed.patch.sales_cycle.authorized, false);
   const decision = commitmentDecision(analyzed.patch, "Me quedo con el Plan 1");
   assert.equal(decision.commitment, "selected");
-  assert.match(decision.reply, /seleccionado Plan 1/i);
+  assert.match(decision.reply, /seleccionado el Plan 1/i);
 });
 
 test("quiero Plan 1 solamente is selection, not services catalog request", () => {

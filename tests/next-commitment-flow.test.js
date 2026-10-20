@@ -20,7 +20,7 @@ test("selecting a plan is not authorization", () => {
   assert.equal(result.patch.sales_cycle.authorized, false);
   const decision = commitmentDecision(result.patch, "Me quedo con el Plan 1");
   assert.equal(decision.commitment, "selected");
-  assert.match(decision.reply, /seleccionado Plan 1/i);
+  assert.match(decision.reply, /seleccionado el Plan 1/i);
   assert.doesNotMatch(decision.reply, /abrir tu expediente/i);
 });
 

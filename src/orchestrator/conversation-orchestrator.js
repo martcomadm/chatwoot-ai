@@ -44,6 +44,12 @@ export function detectDirectRequest(text){
   const mentionsPayment=/\b(deposit\w*|pag\w*|transferencia|transfiero)\b/.test(v);
   const mentionsAlta=/\b(alta|vigencia|verificar|verifica\w*|afiliacion|afiliarme|registr\w*)\b/.test(v);
   if(mentionsPayment && (/\b(primero|despues|antes|luego)\b/.test(v) && mentionsAlta || /\b(cuando|en que momento)\s+(?:se\s+|hago\s+(?:el\s+)?|realizo\s+(?:el\s+)?)?(?:pag\w*|deposit\w*)\b/.test(v) || /\b(se paga|pago) (?:antes|despues)\b/.test(v))) return {type:'payment_order',priority:'high',answerKey:'payment_order'};
+  // Semanas que no aparecen en su historial: se aclaran en la clínica del IMSS ya activo con nosotros (20-oct).
+  if(/\b(?:no (?:me )?(?:aparecen|salen|estan|reconocen|registraron|toman en cuenta)|perdi|se perdieron|me quitaron|desaparecieron)\b.{0,40}\bsemanas\b|\bsemanas\b.{0,60}\b(?:no (?:me )?(?:aparecen|salen|estan|reconocen|registraron|cuentan)|se perdieron|desaparecieron)\b/.test(v)) return {type:'missing_weeks',priority:'high',answerKey:'missing_weeks'};
+  // Guardería y carta patronal: MARTCOM la proporciona (confirmado 20-oct).
+  if(/\bguarderia\b|\bcarta (?:del )?patr?on\w*\b|\bcarta patronal\b|\bconstancia (?:del )?patron\w*\b/.test(v)) return {type:'daycare',priority:'high',answerKey:'daycare'};
+  // Ya cotiza con su trabajo (texto confirmado 20-oct). No si ya renunció o lo van a dar de baja.
+  if(/\b(?:actualmente|ahorita|ahora|ya|si)?\s*(?:estoy|sigo|ando)\s+(?:laborando|trabajando|cotizando)\b.{0,40}\b(?:cuento con|tengo|me da|me dan)\s+(?:el\s+)?(?:seguro|imss)\b|\b(?:actualmente\s+|ya\s+)?(?:cotizo|estoy cotizando)\s+(?:actualmente\s+)?(?:en|con)\s+(?:el\s+)?(?:imss|seguro)\b|\bya estoy cotizando en el seguro\b/.test(v) && !/\b(?:renunci\w*|baja|ya no|dejare|voy a dejar|me corrieron|liquid\w*)\b/.test(v)) return {type:'employed',priority:'high',answerKey:'employed'};
   // "¿Cómo saber si estoy cotizando?" / "¿cómo veo mis semanas?" (casos reales 17-oct).
   if(/\bcomo (?:saber|se|sabria|puedo saber|veo|puedo ver|consulto|checo|reviso)\b.{0,20}\b(?:si estoy cotizando|si sigo cotizando|mis semanas|mis cotizaciones|cuantas semanas|semanas cotizadas)\b|\bcuantas semanas tengo\b/.test(v)) return {type:'check_weeks',priority:'high',answerKey:'check_weeks'};
   // Ya tiene una pensión (invalidez, cesantía…): caso para un asesor.
@@ -97,7 +103,7 @@ export function detectDirectRequest(text){
   if(/\b(?:es mensual|son mensuales|pago mensual|mensualmente|cada mes|al mes|por mes|cada cuanto (?:se paga|pago|se cobra|hay que pagar)|un solo pago|pago unico|es anual|se paga una vez)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
   if(/\b(es gratis|es gratuito|seria gratuito|seria gratis|sin costo|no tiene costo)\b/.test(v)) return {type:'not_free',priority:'high',answerKey:'not_free'};
   if(/\b(tengo que pagar|hay que pagar|se paga|tiene costo|tiene algun costo)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
-  if(/\b(precio|cuanto cuesta|que cuesta|cuanto cobra|cuanto cobran|mensualidad|costo|cuanto sale|cuanto es|cuanto vale|cuanto seria|cuanto pagaria|cuanto pago|cuanto (?:tengo|tendria|hay) que (?:aportar|pagar|dar|depositar))\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
+  if(/\b(precio|honorarios|cuanto cuesta|que cuesta|cuanto cobra|cuanto cobran|mensualidad|costo|cuota|tarifa|cuanto sale|cuanto es|cuanto vale|cuanto seria|cuanto pagaria|cuanto pago|cuanto (?:tengo|tendria|hay) que (?:aportar|pagar|dar|depositar))\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
   if(/\b(quiero vender|quiero revender|quiero comercializar|quiero distribuir|quiero ofrecer (el|su) servicio|vender las afiliaciones|vender afiliaciones|ser distribuidor|ser proveedor|quiero ser asesor|ser asesor comercial|trabajar como asesor|integrarme como asesor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones|ofrecer afiliaciones a (mis )?clientes|generar afiliaciones para terceros)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
   return null;
 }
@@ -112,6 +118,9 @@ export function directAnswerText(request){
   if(request.answerKey==='plan_2_contributions') return 'En el Plan 2, la aportación a AFORE se maneja de forma alternada: un mes es de 5.5% y el siguiente de 10%, repitiendo ese esquema. En INFONAVIT, la acumulación estimada es de entre 200 y 250 puntos. Si quieres, también puedo explicarte cómo se integra este beneficio con el resto del Plan 2.';
   if(request.answerKey==='are_you_imss') return 'No, no somos el IMSS. Soy Mia de MARTCOM, una consultoría que realiza tu afiliación ante el IMSS: tu alta queda registrada en el IMSS y, cuando esté vigente, puedes verificarla tú mismo en la app IMSS Digital o en tu clínica.';
   if(request.answerKey==='website') return 'Claro, nuestra página es https://martcom-econtact.mx/ y ahí encuentras nuestros datos de contacto. Además, cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, en la app IMSS Digital o en tu clínica.';
+  if(request.answerKey==='missing_weeks') return `Las semanas que no te aparecen se aclaran directamente en tu clínica del IMSS, y para hacerlo necesitas estar dado de alta: ya activo con nosotros, acudes a tu clínica a solicitar la aclaración de tus semanas. Mientras tanto, con tu alta sigues sumando semanas nuevas y tienes servicio médico del IMSS.${request.pre1997 ? ' Como empezaste a cotizar antes del 1 de julio de 1997, tu caso se revisa con la Ley 73: necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos.' : ''} ¿Quieres que te explique cómo funciona el Plan 1, de $1,100 MXN mensuales?`;
+  if(request.answerKey==='daycare') return 'Sí. Con tu alta vigente puedes usar la guardería del IMSS cuando corresponda, y nosotros te proporcionamos la carta patronal que el IMSS pide para el trámite de la guardería. El Plan 1, de $1,100 MXN mensuales, incluye servicio médico del IMSS y guardería. ¿Quieres que te explique cómo funciona?';
+  if(request.answerKey==='employed') return 'Mientras trabajes, tu patrón te da el IMSS. Cuando dejes de trabajar, con nosotros puedes seguir cotizando sin perder tu servicio médico. ¿Te gustaría que te explique cómo funciona para cuando lo necesites?';
   if(request.answerKey==='check_weeks') return 'Puedes consultarlo tú mismo en la app IMSS Digital o en la página del IMSS, en la opción "Constancia de Semanas Cotizadas"; solo necesitas tu CURP, tu NSS y un correo electrónico. Ahí ves cuántas semanas tienes reconocidas y si estás dado de alta actualmente. ¿Quieres que te explique cómo podemos ayudarte a seguir sumando semanas?';
   if(request.answerKey==='already_pensioned') return 'Gracias por contarme. Como ya cuentas con una pensión, tu caso necesita una revisión especial para saber qué te conviene y qué permite el IMSS en tu situación. ¿Quieres que te comunique con un asesor para revisarlo?';
   if(request.answerKey==='which_plan'){
@@ -176,7 +185,7 @@ export function startedBefore1997(text=''){
   // "tengo 57 años" no cuenta: es la edad.
   const full=/\b19(?:[5-8]\d|9[0-6])\b/.test(v);
   const short=/\b(?:del|en el|desde el|desde|en)\s+(?:[5-8]\d|9[0-6])\b(?!\s*a(?:n|ñ)os)/.test(v);
-  return (full||short)&&/\b(trabaje|cotice|cotize|empece|empeze|inicie|estuve|labore|cotizaba|trabajaba|cotizar|trabajar)\b/.test(v);
+  return (full||short)&&/\b(trabaje|cotice|cotize|empece|empeze|inicie|estuve|labore|cotizaba|trabajaba|cotizar|trabajar|alta|afilie|afiliaron|registre|registraron|di de alta|dieron de alta)\b/.test(v);
 }
 
 // Enriquecer una pregunta con el contexto del cliente (plan, Ley 73, si ya se le explicó, confianza).
@@ -195,6 +204,7 @@ function enrich(direct,text,memory){
     const plan=effectivePlan(memory)||'plan_1';
     direct={...direct,plan,explained:(memory?.sales_cycle?.explained_plans||[]).includes(plan),pre1997:Boolean(memory?.pension_data?.cotizo_antes_1997)||startedBefore1997(String(text||''))};
   }
+  if(direct.answerKey==='missing_weeks') direct={...direct,pre1997:Boolean(memory?.pension_data?.cotizo_antes_1997)||startedBefore1997(String(text||''))};
   // Segunda vez que duda de la legitimidad: además de la respuesta, ofrecer un asesor (caso 17-oct).
   if(['legitimacy','trust'].includes(direct.answerKey)&&memory?.sales_cycle?.trust_answered) direct={...direct,offerAdvisor:true};
   return direct;
