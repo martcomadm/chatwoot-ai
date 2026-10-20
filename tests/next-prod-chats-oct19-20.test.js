@@ -135,3 +135,36 @@ test("respuestas confirmadas: ya cotiza con su trabajo, guardería con carta pat
   assert.match(MARTCOM_KNOWLEDGE, /proporciona el servicio de guardería del IMSS/);
   assert.match(MARTCOM_KNOWLEDGE, /directamente en su clínica del IMSS estando ya activo con nosotros/);
 });
+
+// Caso real 20-oct (Enedino): mandó fotos de sus documentos antes de aceptar; una persona del equipo
+// preguntó "¿Te gustaría comenzar con tu trámite?"; dijo "Si por favor" y luego le pidieron la CURP.
+test("documentos enviados antes de aceptar se revisan al autorizar; el 'sí' a la pregunta de una persona cuenta", async () => {
+  const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+  const { MemoryStore } = await import("../src/memory/memory-store.js");
+  const { SaleStore } = await import("../src/operations/sale-store.js");
+  const { SaleWorkflowEngine } = await import("../src/operations/workflow-engine.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "next-enedino-"));
+  const memories = new MemoryStore(path.join(dir, "m.json"));
+  const workflow = new SaleWorkflowEngine(new SaleStore(path.join(dir, "s.json")));
+  await memories.set(80, { presentacion_realizada: true, nombre: "Enedino Calderón De Los Ríos", sales_cycle: { recommended_plan: "plan_2", selected_plan: "plan_1", pitched_plans: ["plan_1"], explained_plans: ["plan_1"] }, ultima_respuesta_agente: "Gracias, recibí tus documentos. Los usaremos para tu expediente en cuanto iniciemos tu trámite. ¿Quieres que iniciemos tu trámite con el Plan 1?" });
+  const messages = [
+    { id: 1, message_type: 0, content: "", attachments: [{ id: 501, file_type: "image", data_url: "https://chat/x/501.jpg" }], created_at: 100, sender_type: "Contact" },
+    { id: 2, message_type: 1, content: "¿Te gustaría comenzar con tu trámite?", created_at: 200, sender_type: "User", sender: { id: 77, type: "user" } },
+    { id: 3, message_type: 0, content: "Si por favor", created_at: 300, sender_type: "Contact", sender: { type: "contact" } },
+  ];
+  const sent = []; const events = []; let analyzed = null;
+  const p = new ConversationProcessor({
+    config: { chatwoot: { inboxId: 7, agentId: 53 }, ai: { validationLabel: "validacion", publicName: "Mia de MARTCOM", maxReplyChars: 850 }, operations: {} },
+    chatwoot: { async getConversation() { return { id: 80, inbox_id: 7, meta: { assignee: { id: 53 } }, labels: [], messages: structuredClone(messages) }; }, async sendMessage(_i, t) { sent.push(t); }, async getMessages() { return { payload: messages.slice(-1) }; } },
+    labels: { async mergeSafe() { return []; } }, memories, agentRotation: {}, handoffRouter: {}, workflow,
+    ai: { extractAmbiguous: async () => ({}), generateDecision: async () => ({ reply: "«LLM»" }), repairDecision: async () => ({ reply: "" }), handoffSummary: async () => "", extractDocumentData: async atts => { analyzed = atts.map(a => a.id); return { curp_valor: "CADE650101HDFLLN09", nss_valor: "12345678901", ine_recibida: true }; } },
+    inspectorEvents: { async record(_i, type, data) { events.push({ type, data }); } },
+  });
+  await p.process(80, { ids: ["3"], webhookMessages: new Map([["3", messages[2]]]) });
+  assert.deepEqual(analyzed, [501]);
+  const sale = workflow.store.findByConversationId(80);
+  assert.equal(sale.sale.plan, "plan_1");
+  assert.equal(sale.documents.complete, true);
+  assert.match(sent.join(" "), /Listo, ya tengo los datos y documentos requeridos/);
+  assert.ok(events.some(e => e.type === "earlier_documents_analyzed"));
+});

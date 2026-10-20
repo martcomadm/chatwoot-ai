@@ -27,6 +27,7 @@ import { analyzeJudgment } from "../orchestrator/conversational-judgment.js";
 import { analyzePatience, sensitiveSlotSuppressed } from "../semantic/conversational-patience.js";
 import { resolveAnswer } from "../semantic/answer-resolver.js";
 import { ensureAuthorizedSale } from "../operations/sale-factory.js";
+import { discussedPlan } from "../sales/progressive-disclosure.js";
 import { featureRejectionDecision } from "../sales/feature-rejection.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
@@ -396,6 +397,21 @@ export class ConversationProcessor {
     let base = recoverCommercialContext(conversation, this.memories.get(conversationId));
     // Nombres mal capturados en versiones anteriores ("Deje Trabajar", "Claro Que Si") se descartan.
     if (base.nombre && !plausibleName(base.nombre)) base = { ...base, nombre: null, primer_nombre: null };
+    // Si lo último que vio el cliente fue una pregunta de una persona del equipo ("¿Te gustaría
+    // comenzar con tu trámite?"), su "Si por favor" responde a eso (caso real 20-oct, Enedino).
+    {
+      const batchIdSet = new Set(messageIds.map(String));
+      const firstBatchAt = Math.min(...messagesOf(conversation).filter(m => batchIdSet.has(String(m.id))).map(m => Number(m.created_at || 0)).filter(n => n > 0), Infinity);
+      const lastOutgoing = messagesOf(conversation)
+        .filter(m => (m?.message_type === 1 || m?.message_type === "outgoing") && m?.private !== true && String(m?.content || "").trim() && Number(m.created_at || 0) <= firstBatchAt)
+        .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0)).at(-1);
+      const byHuman = lastOutgoing && !this.selfSenders?.isOwn?.(lastOutgoing)
+        && String(lastOutgoing?.sender_type || lastOutgoing?.sender?.type || "").toLowerCase() === "user"
+        && Number(lastOutgoing?.sender_id || lastOutgoing?.sender?.id || 0) !== Number(this.config.chatwoot.agentId);
+      if (byHuman && String(lastOutgoing.content).trim() !== String(base.ultima_respuesta_agente || "").trim()) {
+        base = { ...base, ultima_respuesta_agente: String(lastOutgoing.content).trim() };
+      }
+    }
     const intent = classifyIntent(combinedText, base);
     const salesCyclePatch = analyzeNextSale(combinedText, base).patch;
     const fastPatch = extractFast(combinedText, base);
@@ -498,6 +514,34 @@ export class ConversationProcessor {
 
     // ── 8. Venta autorizada: abrir/actualizar el expediente con los documentos recibidos ──
     if (memory.sales_cycle?.authorized && this.workflow) {
+      // Documentos que mandó ANTES de aceptar (o "ya se la mandé"): se revisan ahora con la IA para
+      // no volver a pedirlos (caso real 20-oct: Enedino mandó fotos y luego le pidieron la CURP).
+      const justAuthorized = !base.sales_cycle?.authorized;
+      const claimsSent = /\b(?:ya\s+)?(?:se\s+|te\s+|le\s+)?(?:l[oa]s?\s+)?(?:mande|mandé|envie|envié|pase|pasé|comparti|compartí|adjunte|adjunté)\b|\bya (?:esta|están?|estan) (?:arriba|enviad[oa]s?|mandad[oa]s?)\b/i.test(combinedText);
+      if ((justAuthorized || claimsSent) && !memory.operations?.documents_complete) {
+        const done = new Set((memory.analyzed_attachments || []).map(String));
+        const batchIdsSet = new Set(messageIds.map(String));
+        const earlier = messagesOf(conversation)
+          .filter(m => isIncoming(m) && m?.private !== true && !batchIdsSet.has(String(m.id)) && (m.attachments || []).length)
+          .flatMap(m => (m.attachments || []).map(a => ({ ...a, __message_id: m.id })))
+          .filter(a => !done.has(String(a.id || a.data_url || "")))
+          .slice(-3);
+        if (earlier.length && this.ai?.extractDocumentData) {
+          let found = {};
+          try { found = await this.ai.extractDocumentData(earlier) || {}; } catch (error) { console.error("NEXT no pudo analizar documentos previos:", error?.message || error); }
+          const patch = { analyzed_attachments: arrays(memory.analyzed_attachments, earlier.map(a => String(a.id || a.data_url || ""))) };
+          if (found.curp_valor && /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/i.test(String(found.curp_valor).replace(/\s+/g, ""))) Object.assign(patch, { curp_valor: String(found.curp_valor).replace(/\s+/g, "").toUpperCase(), curp_recibida: true });
+          if (found.nss_valor && String(found.nss_valor).replace(/\D/g, "").length === 11) Object.assign(patch, { nss_valor: String(found.nss_valor).replace(/\D/g, ""), nss_recibido: true });
+          if (found.ine_recibida === true) {
+            patch.ine_recibida = true;
+            const ine = earlier.map(({ __message_id, ...a }) => ({ ...a, file_name: `ine_${a.file_name || a.filename || a.name || "documento"}`, file_type: a.file_type || a.content_type || "image" }));
+            conversation.messages = [...(conversation.messages || []), { id: `earlier-${Date.now()}`, created_at: Date.now() / 1000, attachments: ine }];
+          }
+          memory = { ...memory, ...patch };
+          await this.memories.set(conversationId, memory);
+          await this.record(conversationId, "earlier_documents_analyzed", { count: earlier.length, curp: Boolean(patch.curp_valor), nss: Boolean(patch.nss_valor), ine: Boolean(patch.ine_recibida), reason: justAuthorized ? "authorized" : "customer_says_sent" });
+        }
+      }
       const expectedDocument = memory.operations?.onboarding_next || memory.operations?.onboarding_last_requested || null;
       const incoming = batch.flatMap(m => (m.attachments || []).map(a => ({ ...a })));
       if (incoming.length && documentPatch?.ine_recibida === true) {
@@ -557,7 +601,11 @@ export class ConversationProcessor {
     const mediaDecision = mediaOnly ? {
       reply: mediaOnly === "audio"
         ? "Por ahora no puedo escuchar notas de voz 🙏 ¿Me lo puedes escribir por mensaje?"
-        : "Gracias, recibí tu archivo. Por ahora no puedo revisar archivos por aquí antes de iniciar tu trámite. ¿Me cuentas por mensaje en qué te puedo ayudar?",
+        // Con un plan ya platicado, mandar documentos es señal de compra: se guardan y se ofrece
+        // iniciar; al aceptar se revisan (caso real 20-oct, Enedino).
+        : (discussedPlan(memory)
+          ? `Gracias, recibí tus documentos. Los usaremos para tu expediente en cuanto iniciemos tu trámite. ¿Quieres que iniciemos tu trámite con el ${discussedPlan(memory) === "plan_2" ? "Plan 2" : "Plan 1"}?`
+          : "Gracias, recibí tu archivo. Por ahora no puedo revisar archivos por aquí antes de iniciar tu trámite. ¿Me cuentas por mensaje en qué te puedo ayudar?"),
       question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     } : null;
     const medicalNotNeeded = medicalNotNeededDecision(memory, combinedText);
