@@ -97,6 +97,20 @@ export class SaleWorkflowEngine {
     });
   }
 
+  // Captura escribe la CURP (p. ej. la leyó de la foto que mandó el cliente) para completar el alta.
+  registerCurp(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Registrar CURP");
+    const curp = String(payload.curp || "").replace(/\s+/g, "").toUpperCase();
+    if (!/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/.test(curp)) throw new Error("La CURP debe tener 18 caracteres con el formato oficial (ej. GOMA800101HDFRRN09)");
+    const updated = this.store.syncDocuments(id, { customer: { curp } });
+    return this.store.update(id, { customer: { ...updated.customer, curp } }, "capture.curp.registered", {
+      by: payload.by || "Capturista",
+      source: payload.source || "capture",
+      curp_last4: curp.slice(-4),
+    });
+  }
+
   startCapture(id, operator = {}) {
     const sale = this.mustGet(id);
     requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE], "Iniciar captura");

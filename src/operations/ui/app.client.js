@@ -34,6 +34,7 @@ const EVENT_LABELS = {
   "sale.created": "Expediente abierto",
   "documents.synced": "Documentos sincronizados",
   "capture.nss.registered": "NSS registrado",
+  "capture.curp.registered": "CURP registrada",
   "capture.started": "Captura iniciada",
   "capture.completed": "Alta capturada",
   "validation.check.updated": "Revisión de validación actualizada",
@@ -633,6 +634,7 @@ function areaActions(sale) {
     if (sale.status === "waiting_capture") add("capture-start", "Iniciar captura", "primary");
     if (["waiting_capture", "capture_in_progress"].includes(sale.status)) {
       add("capture-complete", "Completar alta", sale.status === "capture_in_progress" ? "primary" : "", sale.documents?.complete ? "" : `Faltan: ${(sale.documents?.missing || []).join(", ").toUpperCase()}`);
+      add("capture-curp", "Registrar CURP");
       add("capture-nss", "Registrar NSS");
       add("documents-sync", "Actualizar documentos");
     }
@@ -784,6 +786,11 @@ async function saleAction(action) {
     case "capture-start": done = await post("capture/start", {}, "Captura iniciada"); break;
     case "capture-complete": done = await post("capture/complete", {}, "Alta capturada: pasa a Validación"); break;
     case "documents-sync": done = await post("documents/sync", {}, "Documentos actualizados"); break;
+    case "capture-curp": {
+      const data = await ask({ title: "Registrar CURP", text: "Escribe la CURP del titular (por ejemplo, la que viene en la foto que mandó el cliente).", fields: [{ name: "curp", label: "CURP (18 caracteres)", required: true, pattern: "[A-Za-z]{4}[0-9]{6}[HMhm][A-Za-z]{5}[A-Za-z0-9][0-9]", mono: true, value: sale.customer?.curp || "" }], confirm: "Registrar CURP", area });
+      if (data) done = await post("capture/curp", { curp: data.curp, source: "registrada_por_captura" }, "CURP registrada");
+      break;
+    }
     case "capture-nss": {
       const data = await ask({ title: "Registrar NSS", text: "Escribe el NSS localizado para este cliente.", fields: [{ name: "nss", label: "NSS (11 dígitos)", required: true, pattern: "[0-9 -]{11,15}", mono: true, value: sale.customer?.nss || "" }], confirm: "Registrar NSS", area });
       if (data) done = await post("capture/nss", { nss: data.nss, source: "localizado_por_captura" }, "NSS registrado");

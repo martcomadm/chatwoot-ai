@@ -30,6 +30,7 @@ export const QUEUE_LABELS = Object.freeze({
 export const ACTION_AREAS = Object.freeze({
   "documents/sync": "captura",
   "capture/nss": "captura",
+  "capture/curp": "captura",
   "capture/start": "captura",
   "capture/complete": "captura",
   "validation/check": "validacion",

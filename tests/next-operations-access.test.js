@@ -343,3 +343,20 @@ test("la página de Operations se sirve y su script es JavaScript válido", asyn
   const detail = await fetch(`${team.base}/operations/sales/MART-1`);
   assert.equal(detail.status, 200);
 });
+
+test("Captura registra la CURP y con eso puede completar el alta", async t => {
+  const team = await withTeam(t);
+  const sale = team.workflow.openAuthorizedSale({ conversation_id: 301, customer: { nombre: "Enedino", nss: "12345678901" }, sale: { plan: "plan_1", precio: 1100, authorized: true } });
+  assert.deepEqual(team.saleStore.get(sale.sale_id).documents.missing, ["curp"]);
+  const ana = team["ana.captura"];
+  const bad = await ana(`/operations/api/sales/${sale.sale_id}/capture/curp`, { method: "POST", body: { curp: "ABC" } });
+  assert.equal(bad.status, 400);
+  assert.equal((await team["vale.valida"](`/operations/api/sales/${sale.sale_id}/capture/curp`, { method: "POST", body: { curp: "CADE650101HDFLLN09" } })).status, 403);
+  const ok = await ana(`/operations/api/sales/${sale.sale_id}/capture/curp`, { method: "POST", body: { curp: "cade650101hdflln09" } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const after = team.saleStore.get(sale.sale_id);
+  assert.equal(after.customer.curp, "CADE650101HDFLLN09");
+  assert.equal(after.documents.complete, true);
+  assert.equal((await ana(`/operations/api/sales/${sale.sale_id}/capture/complete`, { method: "POST", body: {} })).status, 200);
+  assert.equal(team.saleStore.get(sale.sale_id).queue, "validation");
+});
