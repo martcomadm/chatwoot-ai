@@ -1,4 +1,5 @@
 import { jsonFrom } from "./json.js";
+import { transcribeAudioAttachment } from "./audio.js";
 import { historyOf, arrays } from "../utils/conversation.js";
 import { knowledgeWithSchedule } from "../knowledge/martcom.js";
 import { describeSchedule, parseSchedule } from "../core/business-hours.js";
@@ -30,6 +31,11 @@ export class AiServices {
       this._knowledge = knowledgeWithSchedule(text);
     }
     return this._knowledge;
+  }
+
+  // Nota de voz → texto (OpenAI). Ver src/ai/audio.js.
+  async transcribeAudio(attachment) {
+    return transcribeAudioAttachment(this.openai, attachment, { model: this.config.transcribeModel || "gpt-4o-mini-transcribe" });
   }
 
   async extractDocumentData(attachments = []) {

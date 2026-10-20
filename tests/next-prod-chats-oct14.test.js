@@ -148,7 +148,7 @@ test("si el cliente escribe mientras Mia prepara la respuesta, no manda dos: ati
 test("una nota de voz sin texto recibe '¿me lo puedes escribir?'", async () => {
   const { state, run } = processorWith({ messages: [msg(600, "", { attachments: [{ file_type: "audio" }] })], memory: { presentacion_realizada: true, ultima_respuesta_agente: "¿Cuál es tu necesidad?" } });
   await run();
-  assert.match(state.sent[0], /no puedo escuchar notas de voz/);
+  assert.match(state.sent[0], /nota de voz 🙏 ¿Me lo puedes escribir por mensaje/);
 });
 
 test("la IA que repite una pregunta ya contestada conserva su respuesta sin la pregunta", async () => {

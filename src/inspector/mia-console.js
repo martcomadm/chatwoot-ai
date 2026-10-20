@@ -79,10 +79,12 @@ export const EVENT_LABELS = {
   reply_outside_window: "Fuera de la ventana de 24 h (se usa plantilla)",
   auto_reply_ignored: "Respuesta automática del cliente ignorada",
   chatwoot_messages_fetch_failed: "No se pudieron leer los mensajes de Chatwoot",
+  audio_transcribed: "Nota de voz transcrita",
+  audio_transcription_failed: "No se pudo transcribir la nota de voz",
 };
 
 // Eventos que explican por qué Mia no contestó; van en el .txt junto a los mensajes.
-const SILENCE_EVENTS = new Set(["empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule"]);
+const SILENCE_EVENTS = new Set(["audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule"]);
 
 const REASON_LABELS = {
   human_replied: "Parecía que una persona ya había contestado",
@@ -378,6 +380,7 @@ export class MiaConsole {
         const raw = this.chatwoot.getAllMessages ? await this.chatwoot.getAllMessages(id) : await this.chatwoot.getMessages(id);
         const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
         const usedReplies = new Set();
+        const transcribed = new Map(events.filter(e => e.type === "audio_transcribed" && e.details?.message_id).map(e => [String(e.details.message_id), e.details.text || ""]));
         transcript = list
           .filter(m => m && m.private !== true && [0, 1, "incoming", "outgoing"].includes(m.message_type))
           .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))
@@ -385,7 +388,10 @@ export class MiaConsole {
             const incoming = m.message_type === 0 || m.message_type === "incoming";
             const text = norm(m.content);
             const at = new Date(Number(m.created_at || 0) * 1000).toISOString();
-            if (incoming) return { who: "cliente", text: m.content || "", at, attachments: (m.attachments || []).length };
+            if (incoming) {
+              const voice = transcribed.get(String(m.id));
+              return { who: "cliente", text: voice ? `🎤 (nota de voz) ${voice}` : m.content || "", at, attachments: (m.attachments || []).length };
+            }
             // Cada mensaje de Mia se empareja con su propio evento (en orden), aunque el texto se repita.
             const match = replyEvents.find(e => !usedReplies.has(e) && norm(e.details?.reply) === text);
             if (match) usedReplies.add(match);

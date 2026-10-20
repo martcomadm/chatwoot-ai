@@ -29,6 +29,7 @@ import { resolveAnswer } from "../semantic/answer-resolver.js";
 import { ensureAuthorizedSale } from "../operations/sale-factory.js";
 import { discussedPlan } from "../sales/progressive-disclosure.js";
 import { featureRejectionDecision } from "../sales/feature-rejection.js";
+import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { explicitHumanRequest, acceptsAdvisorOffer } from "./human-request.js";
@@ -373,6 +374,26 @@ export class ConversationProcessor {
       await this.record(conversationId, "duplicate_turn_skipped", { message_ids: messageIds.map(String) });
       return;
     }
+    // ── 3b. Notas de voz → texto (máx. 10 min). Mia contesta como si lo hubiera escrito y el equipo
+    // ve la transcripción en una nota privada de Chatwoot. ──
+    let audioTooLong = false;
+    for (const m of batch) {
+      const audios = (m.attachments || []).filter(isAudioAttachment);
+      if (!audios.length || String(m.content || "").trim() || !this.ai?.transcribeAudio) continue;
+      const texts = [];
+      for (const audio of audios.slice(0, 3)) {
+        let result;
+        try { result = await this.ai.transcribeAudio(audio); } catch (error) { result = { ok: false, reason: "error", error: String(error?.message || error) }; }
+        await this.record(conversationId, result.ok ? "audio_transcribed" : "audio_transcription_failed", { message_id: String(m.id), seconds: result.seconds ? Math.round(result.seconds) : null, reason: result.reason || null, text: result.ok ? result.text.slice(0, 2000) : null, error: result.error || null });
+        if (result.ok) texts.push(result.text);
+        else if (result.reason === "too_long") audioTooLong = true;
+      }
+      if (texts.length) {
+        m.content = texts.join(" ");
+        m.__transcribed = true;
+        try { await this.chatwoot.sendMessage(conversationId, `🎤 Transcripción de la nota de voz del cliente:\n«${texts.join(" ")}»`, true); } catch {}
+      }
+    }
     // "Si.laberdad.tengo.apenas.55.años." (caso real 19-oct): puntos en lugar de espacios.
     const combinedText = undotted(batch.map(m => m.content || "").filter(Boolean).join("\n").trim());
     if (!combinedText && !batch.some(hasAttachments)) {
@@ -600,7 +621,9 @@ export class ConversationProcessor {
       : null;
     const mediaDecision = mediaOnly ? {
       reply: mediaOnly === "audio"
-        ? "Por ahora no puedo escuchar notas de voz 🙏 ¿Me lo puedes escribir por mensaje?"
+        ? (audioTooLong
+          ? "Recibí tu nota de voz, pero es muy larga (más de 10 minutos) y no la pude escuchar completa. ¿Me puedes escribir o mandar un audio más corto con lo principal?"
+          : "No pude escuchar bien tu nota de voz 🙏 ¿Me lo puedes escribir por mensaje o mandar otro audio?")
         // Con un plan ya platicado, mandar documentos es señal de compra: se guardan y se ofrece
         // iniciar; al aceptar se revisan (caso real 20-oct, Enedino).
         : (discussedPlan(memory)
