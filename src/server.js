@@ -15,6 +15,8 @@ import { HandoffRotationStore, HandoffRouter, OperationsConfigStore } from "./ha
 import { SaleStore } from "./operations/sale-store.js";
 import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
 import { createOperationsRouter } from "./operations/operations-router.js";
+import { PushStore } from "./operations/notifications/push-store.js";
+import { OpsNotifier } from "./operations/notifications/ops-notifier.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
 import { webhookEventAllowedForAgent } from "./utils/webhook-isolation.js";
 import { UserStore } from "./operations/access/user-store.js";
@@ -64,6 +66,11 @@ try {
   const templates = new WhatsAppTemplates({ chatwoot, inboxId: config.chatwoot.inboxId, names: config.whatsappTemplates });
   const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId, settings: opsSettings, templates });
   workflowBridge.start();
+  // Avisos para la gente de Operations (página + Web Push al celular o la computadora).
+  const opsPush = new PushStore(path.join(config.storage.dataDir, "ops-push.json"), { publicKey: process.env.OPS_VAPID_PUBLIC_KEY || "", privateKey: process.env.OPS_VAPID_PRIVATE_KEY || "" });
+  const opsNotifier = new OpsNotifier({ users: opsUsers, store: opsPush, settings: opsSettings, subject: process.env.OPS_VAPID_SUBJECT || "https://martcom-econtact.mx" });
+  saleStore.on("sale", event => void opsNotifier.handleSaleEvent(event));
+  opsNotifier.start(() => saleStore.list());
   workflowBridge.reconcileCompletedSales().catch(error=>console.error("NEXT reconciliación de completados:",error));
   workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error));
   setInterval(()=>workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error)),15*60*1000).unref();
@@ -87,6 +94,7 @@ try {
   });
   processor.requeue = (id, ids) => buffer.requeue(id, ids);
   processor.onValidityReply = id => workflowBridge.deliverAwaitingValidity(id);
+  processor.onOperationsCustomerMessage = (sale, text) => opsNotifier.customerMessage(sale, text);
   // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
   if (followUps) {
     followUps.isOpen = now => processor.inSchedule(now);
@@ -159,7 +167,7 @@ try {
     return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
   });
 
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush }));
   const miaConsole = new MiaConsole({ config, memories, inspectorEvents, afterHours, followUps, operationsConfig, chatwoot, selfSenders,
     testFile: path.join(config.storage.dataDir, "inspector-test-conversations.json"),
     isOpen: now => processor.inSchedule(now), isMiaPaused: () => opsSettings.miaPaused() });

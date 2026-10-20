@@ -394,3 +394,7 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 }
 
 .readonly-note { margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, var(--area-observador) 12%, transparent); color: var(--ink); font-size: 14px; }
+
+.notify-box { display: grid; gap: 6px; margin: 10px 0; font-size: 13px; line-height: 1.35; color: var(--muted, inherit); }
+.notify-box.on { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); }
+.notify-box small { font-size: 12px; }

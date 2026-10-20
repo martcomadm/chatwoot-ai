@@ -289,6 +289,14 @@ export class ConversationProcessor {
     const pendingSale = this.workflow?.store?.findByConversationId?.(conversationId);
     // También se procesa (sin que Mia responda) la respuesta a la plantilla de vigencia.
     const awaitingValidity = Boolean(pendingSale?.validity?.awaiting_customer_reply);
+    // Aviso a Operations: el cliente de un expediente en proceso escribió (aunque lo atienda una persona).
+    if (pendingSale && this.onOperationsCustomerMessage) {
+      const incoming = [...(snapshot?.webhookMessages?.values?.() || [])].filter(m => isIncoming(m) && m?.private !== true);
+      if (incoming.length) {
+        const text = incoming.map(m => m.content || ((m.attachments || []).length ? "📎 Envió un archivo" : "")).filter(Boolean).join(" · ");
+        try { await this.onOperationsCustomerMessage(pendingSale, text); } catch {}
+      }
+    }
     // Se registra para que el Inspector y el .txt digan por qué Mia no contestó (antes era silencio sin rastro).
     if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity) {
       await this.record(conversationId, "reassigned_skip", { assignee_id: assigneeId, assignee_name: conversation?.meta?.assignee?.name || null, message_ids: (snapshot?.ids || []).map(String) });

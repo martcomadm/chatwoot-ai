@@ -347,6 +347,7 @@ async function start() {
   state.view = available.includes(requested) ? requested : (available.find(area => WORK_AREAS.includes(area)) || available[0]);
   state.saleId = pathSale ? decodeURIComponent(pathSale[1]) : params.get("sale");
   await loadSales();
+  await initNotifications();
   renderShell();
   await renderView();
   if (state.saleId) await openSale(state.saleId, { push: false });
@@ -398,6 +399,7 @@ function renderShell() {
       <div class="nav">${nav}</div>
       <div class="rail-foot">
         ${miaStatusHtml()}
+        <div id="notify-box">${notifyBoxHtml()}</div>
         <div class="who">${esc(me.user.name)}<small>${esc(me.user.username)}</small></div>
         <div class="row">
           ${me.user.via === "token" ? "" : `<button class="btn quiet small" data-act="password">Contraseña</button>`}
@@ -1213,11 +1215,121 @@ function startEvents() {
     let data = {};
     try { data = JSON.parse(message.data); } catch {}
     if (data.type === "connected") return;
+    if (data.type === "notify") { handleNotify(data.notification || {}); return; }
     refreshSoon({ sale_id: data.sale?.sale_id || data.sale_id || null });
   };
   state.events = source;
 }
 function stopEvents() { state.events?.close(); state.events = null; }
+
+// ── Avisos (sonido, aviso del sistema y Web Push) ──────────────────────
+// Llegan por el canal en vivo (SSE) mientras la página está abierta y por Web Push al celular o la
+// computadora aunque esté cerrada. Cada persona recibe solo lo de sus áreas o lo que le asignaron.
+const notifyState = { supported: false, permission: "default", subscribed: false, publicKey: null, devices: 0, unread: 0, ios: false, standalone: false };
+const BASE_TITLE = document.title;
+
+function urlKey(base64) {
+  const pad = "=".repeat((4 - base64.length % 4) % 4);
+  const raw = atob((base64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, ch => ch.charCodeAt(0));
+}
+
+async function initNotifications() {
+  notifyState.ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  notifyState.standalone = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+  notifyState.supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  notifyState.permission = "Notification" in window ? Notification.permission : "unsupported";
+  try {
+    const info = await api("/operations/api/push/key");
+    notifyState.publicKey = info.public_key; notifyState.devices = info.devices || 0;
+    if (notifyState.supported && info.enabled) {
+      const reg = await navigator.serviceWorker.register("/operations/sw.js", { scope: "/operations" });
+      const sub = await reg.pushManager.getSubscription();
+      notifyState.subscribed = Boolean(sub) && notifyState.permission === "granted";
+      // Si el servidor perdió la suscripción (p. ej. se cambiaron las llaves), se vuelve a registrar.
+      if (sub && notifyState.permission === "granted") await api("/operations/api/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } }).catch(() => {});
+    }
+  } catch {}
+  navigator.serviceWorker?.addEventListener?.("message", event => {
+    const url = event.data?.url ? new URL(event.data.url, location.origin) : null;
+    const id = url?.pathname.match(/^\/operations\/sales\/([^/]+)/)?.[1];
+    if (id) openSale(decodeURIComponent(id));
+  });
+}
+
+function notifyBoxHtml() {
+  const n = notifyState;
+  if (n.subscribed) return `<div class="notify-box on"><span>🔔 Avisos activados</span><button class="btn quiet small" data-act="push-test">Probar</button></div>`;
+  if (n.ios && !n.standalone) return `<div class="notify-box"><span>🔔 Para recibir avisos en iPhone: botón Compartir → “Agregar a inicio” y abre Operations desde ese ícono.</span></div>`;
+  if (!n.supported) return `<div class="notify-box"><span>🔔 Este navegador no permite avisos; sí sonarán mientras la página esté abierta.</span></div>`;
+  if (n.permission === "denied") return `<div class="notify-box"><span>🔕 Avisos bloqueados. Actívalos en el candado junto a la dirección de la página.</span></div>`;
+  return `<div class="notify-box"><button class="btn small primary" data-act="push-enable">🔔 Activar avisos</button><small>Te avisamos de expedientes nuevos de tu área, asignaciones, atrasos y comprobantes, aunque la página esté cerrada.</small></div>`;
+}
+
+function refreshNotifyBox() {
+  const box = document.getElementById("notify-box");
+  if (box) box.innerHTML = notifyBoxHtml();
+}
+
+async function enablePush() {
+  unlockSound();
+  try {
+    const permission = await Notification.requestPermission();
+    notifyState.permission = permission;
+    if (permission !== "granted") { refreshNotifyBox(); return toast("No se activaron los avisos.", "bad"); }
+    const reg = await navigator.serviceWorker.register("/operations/sw.js", { scope: "/operations" });
+    await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlKey(notifyState.publicKey) });
+    const result = await api("/operations/api/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } });
+    notifyState.subscribed = true; notifyState.devices = result.devices || 1;
+    refreshNotifyBox();
+    toast("Avisos activados en este dispositivo.");
+  } catch (error) {
+    toast(`No se pudieron activar los avisos: ${error.message}`, "bad");
+  }
+}
+
+async function testPush() {
+  unlockSound();
+  try { await api("/operations/api/push/test", { method: "POST", body: {} }); } catch (error) { toast(error.message, "bad"); }
+}
+
+let audioCtx = null;
+function unlockSound() {
+  try { audioCtx ||= new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === "suspended") audioCtx.resume(); } catch {}
+}
+document.addEventListener("pointerdown", unlockSound, { once: true });
+
+function playChime(kind) {
+  try {
+    unlockSound();
+    if (!audioCtx) return;
+    const notes = kind === "issue" || kind === "overdue" ? [660, 520] : [740, 988];
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+      osc.type = "sine"; osc.frequency.value = freq;
+      const t = audioCtx.currentTime + i * 0.16;
+      gain.gain.setValueAtTime(0.0001, t); gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02); gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      osc.connect(gain).connect(audioCtx.destination); osc.start(t); osc.stop(t + 0.16);
+    });
+  } catch {}
+}
+
+function updateTitle() { document.title = notifyState.unread ? `(${notifyState.unread}) ${BASE_TITLE}` : BASE_TITLE; }
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { notifyState.unread = 0; updateTitle(); } });
+
+function handleNotify(n) {
+  playChime(n.kind);
+  toast(`${n.title}${n.body ? `: ${n.body}` : ""}`, n.kind === "issue" || n.kind === "overdue" ? "bad" : "");
+  if (document.hidden) { notifyState.unread += 1; updateTitle(); }
+  // Sin Web Push en este dispositivo: aviso del sistema mientras la página siga abierta.
+  if (document.hidden && !notifyState.subscribed && "Notification" in window && Notification.permission === "granted") {
+    try {
+      const note = new Notification(n.title || "MARTCOM Operations", { body: n.body || "", tag: n.sale_id ? `${n.sale_id}:${n.kind}` : undefined, icon: "/operations/pwa/icon-192.png" });
+      note.onclick = () => { window.focus(); if (n.sale_id) openSale(n.sale_id); note.close(); };
+    } catch {}
+  }
+}
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
@@ -1225,6 +1337,8 @@ document.addEventListener("click", async event => {
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.act === "logout") return logout();
+  if (target.dataset.act === "push-enable") return enablePush();
+  if (target.dataset.act === "push-test") return testPush();
   if (target.dataset.act === "password") return changePassword();
   if (target.dataset.act === "mia-toggle") return toggleMia();
   if (target.dataset.act === "close-panel") return closePanel();

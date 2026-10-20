@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import express from "express";
 import { operationsAppPage } from "./ui/operations-app.js";
 import { publicSale } from "./sale-store.js";
@@ -27,7 +28,10 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
   };
 }
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit }) {
+const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
+const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
+
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -62,6 +66,16 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
 
   // ── Páginas ──────────────────────────────────────────────────────────────
   router.get("/operations", (_req, res) => res.type("html").send(operationsAppPage()));
+  // Service worker y archivos para instalar la página en el celular (avisos con la página cerrada).
+  router.get("/operations/sw.js", (_req, res) => {
+    res.set("Service-Worker-Allowed", "/operations").set("Cache-Control", "no-cache").type("application/javascript");
+    res.send(fs.readFileSync(new URL("sw.js", PWA_DIR), "utf8"));
+  });
+  router.get("/operations/pwa/:file", (req, res) => {
+    const type = PWA_FILES[req.params.file];
+    if (!type) return res.status(404).end();
+    res.set("Cache-Control", "public, max-age=86400").type(type).send(fs.readFileSync(new URL(req.params.file, PWA_DIR)));
+  });
   router.get("/operations/sales/:id", (_req, res) => res.type("html").send(operationsAppPage()));
 
   // ── Sesión ───────────────────────────────────────────────────────────────
@@ -141,6 +155,27 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       audit.record("user.password_changed", actorOf(user), { username: user.username, self: true });
       res.json({ ok: true });
     } catch (error) { fail(res, error); }
+  });
+
+  // ── Avisos (Web Push) ────────────────────────────────────────────────────
+  router.get("/operations/api/push/key", (req, res) => {
+    const subs = push ? push.forUser(req.opsUser.username) : [];
+    res.json({ enabled: Boolean(push), public_key: push?.vapid()?.publicKey || null, devices: subs.length });
+  });
+  router.post("/operations/api/push/subscribe", (req, res) => {
+    if (!push) return res.status(503).json({ error: "Avisos no disponibles" });
+    if (req.opsUser.via === "token") return fail(res, new Error("El token de Operations no recibe avisos"));
+    try { push.add(req.opsUser.username, req.body?.subscription, req.get("user-agent")); res.json({ ok: true, devices: push.forUser(req.opsUser.username).length }); }
+    catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/push/unsubscribe", (req, res) => {
+    if (push && req.body?.endpoint) push.remove(req.opsUser.username, String(req.body.endpoint));
+    res.json({ ok: true });
+  });
+  router.post("/operations/api/push/test", async (req, res) => {
+    if (!notifier) return res.status(503).json({ error: "Avisos no disponibles" });
+    const result = await notifier.notify({ kind: "test", to: [req.opsUser.username], title: "Avisos activados", body: "Así te llegarán los avisos de Operations.", url: "/operations" });
+    res.json({ ok: true, pushed: result.pushed });
   });
 
   // ── Expedientes ──────────────────────────────────────────────────────────
@@ -383,8 +418,11 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
     saleStore.on("sale", listener);
+    // Avisos dirigidos a esta persona (sonido y aviso dentro de la página).
+    const notifyListener = n => { if ((n.to || []).includes(user.username)) res.write(`data: ${JSON.stringify({ type: "notify", notification: { ...n, to: undefined } })}\n\n`); };
+    notifier?.on("notify", notifyListener);
     const keepAlive = setInterval(() => res.write(": keepalive\n\n"), 25000);
-    req.on("close", () => { clearInterval(keepAlive); saleStore.off("sale", listener); });
+    req.on("close", () => { clearInterval(keepAlive); saleStore.off("sale", listener); notifier?.off("notify", notifyListener); });
   });
 
   return router;
