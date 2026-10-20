@@ -17,7 +17,22 @@ export class ChatwootApi {
     const query = new URLSearchParams({ assignee_type: "all", status, page: String(page), ...(inboxId ? { inbox_id: String(inboxId) } : {}) });
     return this.request(`/api/v1/accounts/${this.config.accountId}/conversations?${query}`);
   }
-  getMessages(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/messages`); }
+  getMessages(id, { before = null } = {}) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/messages${before ? `?before=${Number(before)}` : ""}`); }
+  // Chatwoot entrega los mensajes en páginas de ~20 (los más recientes primero); aquí se
+  // juntan todas las páginas para tener la conversación completa.
+  async getAllMessages(id, { maxPages = 25 } = {}) {
+    const all = new Map();
+    let before = null;
+    for (let page = 0; page < maxPages; page++) {
+      const raw = await this.getMessages(id, { before });
+      const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
+      const fresh = list.filter(m => m?.id != null && !all.has(m.id));
+      for (const m of fresh) all.set(m.id, m);
+      if (!fresh.length || list.length < 20) break;
+      before = Math.min(...fresh.map(m => Number(m.id)));
+    }
+    return { payload: [...all.values()].sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0)) };
+  }
   getLabels(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/labels`); }
   setLabels(id, labels) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}/labels`, { method: "POST", body: JSON.stringify({ labels }) }); }
   sendMessage(id, content, isPrivate = false) {

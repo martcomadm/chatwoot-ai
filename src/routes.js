@@ -45,6 +45,15 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
   router.get("/inspector/api/v2/conversations/:id", v2(req => miaConsole.conversation(req.params.id)));
   // Marcar / quitar un chat de prueba (no cuenta en Hoy, Calidad ni Embudo).
   router.post("/inspector/api/v2/conversations/:id/test", express.json(), v2(req => miaConsole.setTest(req.params.id, Boolean(req.body?.test))));
+  // Descarga en un solo .txt de las conversaciones con actividad en el rango de fechas.
+  router.get("/inspector/api/v2/export.txt", async (req, res) => {
+    if (!inspectorAuthorized(req)) return res.status(401).json({ error: "Token del Inspector inválido" });
+    if (!miaConsole) return res.status(503).json({ error: "Inspector no disponible" });
+    try {
+      const result = await miaConsole.exportText({ from: req.query.from, to: req.query.to, filter: req.query.filter || "all" });
+      res.set("Content-Disposition", `attachment; filename="${result.name}"`).set("X-Export-Count", String(result.count)).type("text/plain; charset=utf-8").send(result.text);
+    } catch (error) { console.error("Inspector export:", error); res.status(500).json({ error: error.message }); }
+  });
   router.get("/inspector/api/v2/quality", v2(req => miaConsole.quality({ days: days(req.query.days, 7) })));
   router.get("/inspector/api/v2/funnel", v2(req => ({ funnel: miaConsole.funnel({ days: days(req.query.days, 30) }), config: miaConsole.configuration(), diagnostics: (d => ({ ...d, components: d.components.filter(c => !/Advisor Affinity/.test(c.name)) }))(buildDiagnostics({ config, memories, inspectorEvents })) })));
   router.get("/inspector/api/health", (req, res) => {

@@ -30,6 +30,30 @@ async function api(path, options = {}) {
 }
 
 // ── Fechas ─────────────────────────────────────────────────────────────
+const todayLocal = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+
+// Descarga las conversaciones del rango en un solo .txt (con el filtro actual).
+async function exportTxt(button) {
+  const from = document.getElementById("export-from")?.value || todayLocal();
+  const to = document.getElementById("export-to")?.value || from;
+  state.exportFrom = from; state.exportTo = to;
+  const filter = ["authorized", "handoff", "tests"].includes(state.convFilter) ? state.convFilter : "all";
+  const label = button.textContent;
+  button.disabled = true; button.textContent = "Preparando…";
+  try {
+    const response = await fetch(`/inspector/api/v2/export.txt?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&filter=${filter}`, { headers: { "x-inspector-token": state.token } });
+    if (response.status === 401) { logout("El token ya no es válido."); return; }
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `Error ${response.status}`);
+    const count = Number(response.headers.get("X-Export-Count") || 0);
+    const name = (response.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || `mia-conversaciones-${from}.txt`;
+    const url = URL.createObjectURL(await response.blob());
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(count ? `Listo: ${count} conversación(es) en ${name}` : "No hubo conversaciones en esas fechas.");
+  } catch (error) { toast(`No se pudo descargar: ${error.message}`); }
+  finally { button.disabled = false; button.textContent = label; }
+}
 const fmtTime = iso => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" }); };
 const fmtDate = iso => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleString("es-MX", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }); };
 function ago(iso) {
@@ -157,6 +181,11 @@ function renderConversations() {
       <form class="list-tools" id="conv-search" autocomplete="off">
         <input class="input" type="search" name="mia-busqueda" autocomplete="off" placeholder="Buscar nombre, # o texto" value="${esc(state.convSearch)}">
         <div class="chips">${CONV_FILTERS.map(([key, label]) => `<button type="button" class="tag button" data-conv-filter="${key}" aria-pressed="${state.convFilter === key}">${label}</button>`).join("")}</div>
+        <div class="export-tools" title="Descarga en un solo archivo .txt todas las conversaciones con actividad en esas fechas (con el filtro elegido)">
+          <label>Desde <input class="input" type="date" id="export-from" value="${esc(state.exportFrom || todayLocal())}"></label>
+          <label>Hasta <input class="input" type="date" id="export-to" value="${esc(state.exportTo || todayLocal())}"></label>
+          <button type="button" class="btn small" data-act="export-txt">Descargar .txt</button>
+        </div>
       </form>
       <div class="conv-list">${list.length ? `<ul class="rows">${list.map(i => `<li><button class="row" data-open="${i.id}" aria-current="${c?.id === i.id}">
           <span class="who">${person(i.name, i.id)}</span><span class="when">${esc(ago(i.last_at))}</span>
@@ -303,6 +332,7 @@ app.addEventListener("click", async event => {
   if (act === "logout") return logout("");
   if (act === "refresh") { await loadLive(); return render(); }
   if (act === "back") { state.conv = null; return render(); }
+  if (act === "export-txt") return exportTxt(el);
   if (act === "reload-conv") { await loadConv(state.conv.id); return render(); }
   if (act === "toggle-test") {
     await api(`/inspector/api/v2/conversations/${state.conv.id}/test`, { method: "POST", body: JSON.stringify({ test: !state.conv.test }) });

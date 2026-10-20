@@ -362,9 +362,9 @@ export class MiaConsole {
     // Conversación real desde Chatwoot; si no se puede leer, se arma con los eventos.
     let transcript = null;
     let transcriptError = null;
-    if (this.chatwoot?.getMessages) {
+    if (this.chatwoot?.getMessages || this.chatwoot?.getAllMessages) {
       try {
-        const raw = await this.chatwoot.getMessages(id);
+        const raw = this.chatwoot.getAllMessages ? await this.chatwoot.getAllMessages(id) : await this.chatwoot.getMessages(id);
         const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
         const usedReplies = new Set();
         transcript = list
@@ -384,7 +384,7 @@ export class MiaConsole {
             else if (NOTICE_RE.test(text)) { who = "mia"; label = "Aviso de horario"; }
             else if (followTexts.has(text)) { who = "mia"; label = "Seguimiento"; }
             else if (this.selfSenders?.isOwn?.(m)) { who = "mia"; label = "Mia"; }
-            return { who, label, text: m.content || "", at, attachments: (m.attachments || []).length, flags: match ? replyFlags(match, new Set(replyEvents.filter(r => ms(r.timestamp) < ms(match.timestamp)).map(r => norm(r.details?.reply)))) : [] };
+            return { who, label, text: m.content || "", at, attachments: (m.attachments || []).length, flags: match ? replyFlags(match, new Set(replyEvents.filter(r => ms(r.timestamp) < ms(match.timestamp)).map(r => norm(r.details?.reply)))) : [], why: match ? (match.details?.replaced_reasons || []).map(replacedReasonLabel) : [] };
           });
       } catch (error) { transcriptError = String(error?.message || error).slice(0, 200); }
     }
@@ -393,7 +393,7 @@ export class MiaConsole {
       const seen = new Set();
       for (const e of replyEvents) {
         if (e.details?.customer_text) transcript.push({ who: "cliente", text: e.details.customer_text, at: e.timestamp });
-        transcript.push({ who: "mia", label: sourceLabel(e.details?.decision_source), text: e.details?.reply || "", at: e.timestamp, flags: replyFlags(e, seen) });
+        transcript.push({ who: "mia", label: sourceLabel(e.details?.decision_source), text: e.details?.reply || "", at: e.timestamp, flags: replyFlags(e, seen), why: (e.details?.replaced_reasons || []).map(replacedReasonLabel) });
         seen.add(norm(e.details?.reply));
       }
     }
@@ -423,6 +423,59 @@ export class MiaConsole {
       transcript_error: transcriptError,
       events: events.slice().reverse().slice(0, 120).map(e => ({ at: e.timestamp, type: e.type, label: EVENT_LABELS[e.type] || e.type, source: e.type === "ai_reply_sent" ? sourceLabel(e.details?.decision_source) : null, details: e.details || {} })),
     };
+  }
+
+  // ── Exportar conversaciones a texto ─────────────────────────────
+  // Todas las conversaciones con actividad entre `from` y `to` (fechas locales AAAA-MM-DD),
+  // en un solo .txt: quién dijo qué, a qué hora, de dónde salió cada respuesta de Mia
+  // y sus alertas. Sin teléfono, CURP ni NSS.
+  async exportText({ from, to, filter = "all", now = new Date() } = {}) {
+    const today = this.dayKey(now);
+    const valid = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+    from = valid(from) ? from : today;
+    to = valid(to) ? to : from;
+    if (from > to) [from, to] = [to, from];
+    const inRange = iso => { if (!iso) return false; const d = this.dayKey(iso); return d >= from && d <= to; };
+    const byConv = this.eventsByConversation({ includeTests: true });
+    const tests = this.testIds();
+    let ids = this.allMemories({ includeTests: true })
+      .filter(m => (byConv.get(Number(m.id)) || []).some(e => inRange(e.timestamp)))
+      .map(m => Number(m.id));
+    ids = filter === "tests" ? ids.filter(id => tests.has(id)) : ids.filter(id => !tests.has(id));
+    const details = [];
+    for (let i = 0; i < ids.length; i += 4) details.push(...await Promise.all(ids.slice(i, i + 4).map(id => this.conversation(id).catch(error => ({ id, error: String(error?.message || error) })))));
+    if (filter === "authorized") details.splice(0, details.length, ...details.filter(c => c.summary?.authorized));
+    if (filter === "handoff") details.splice(0, details.length, ...details.filter(c => c.summary?.handoff));
+    details.sort((a, b) => ms(a.transcript?.[0]?.at) - ms(b.transcript?.[0]?.at));
+
+    const tz = this.timezone();
+    const stamp = iso => iso ? new Date(iso).toLocaleString("es-MX", { timeZone: tz, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }) : "—";
+    const line = "=".repeat(72);
+    const out = [
+      "MARTCOM · Conversaciones de Mia (NEXT)",
+      `Rango: ${from === to ? from : `${from} a ${to}`} · ${details.length} conversación(es)${filter === "tests" ? " · solo chats de prueba" : " · sin chats de prueba"}`,
+      `Generado: ${stamp(now.toISOString())} (hora del centro de México)`,
+      "", line,
+    ];
+    details.forEach((c, index) => {
+      if (c.error) { out.push(`#${index + 1} · Conversación ${c.id}`, `No se pudo leer: ${c.error}`, line); return; }
+      const facts = (c.facts || []).filter(f => f.value).map(f => `${f.label}: ${f.value}`);
+      out.push(`#${index + 1} · Conversación ${c.id} · ${c.summary?.name || "Sin nombre"}`);
+      if (facts.length) out.push(facts.join(" · "));
+      if (c.transcript_error) out.push(`(No se pudo leer Chatwoot: ${c.transcript_error}; se muestran solo los mensajes registrados por Mia)`);
+      out.push("-".repeat(72));
+      for (const m of c.transcript || []) {
+        const who = m.who === "cliente" ? "CLIENTE" : m.who === "mia" ? `MIA (${m.label || "Mia"})` : (m.label || "PERSONA").toUpperCase();
+        const extras = [m.attachments ? `${m.attachments} adjunto(s)` : null, ...(m.flags || []).map(f => FLAG_LABELS[f] || f)].filter(Boolean);
+        out.push(`[${stamp(m.at)}] ${who}${extras.length ? ` [${extras.join(" · ")}]` : ""}:`);
+        out.push(String(m.text || (m.attachments ? "(solo adjunto)" : "(vacío)")).trim());
+        if (m.why?.length) out.push(`   ↳ La IA había escrito otra cosa; se cambió porque: ${m.why.join("; ")}`);
+        out.push("");
+      }
+      out.push(line);
+    });
+    const name = `mia-conversaciones-${from === to ? from : `${from}_a_${to}`}.txt`;
+    return { name, text: out.join("\n") + "\n", count: details.length };
   }
 
   // ── Calidad ──────────────────────────────────────────────────────
