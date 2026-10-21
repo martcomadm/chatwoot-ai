@@ -421,6 +421,16 @@ export class SaleWorkflowEngine {
     }, "supervision.cancelled", { reason, from_status: sale.status, from_queue: sale.queue });
   }
 
+  // Corregir el nombre del cliente (Captura mientras captura; Supervisión en cualquier etapa).
+  correctCustomerName(id, payload = {}, { anyStage = false } = {}) {
+    const sale = this.mustGet(id);
+    if (!anyStage) requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Corregir nombre");
+    const nombre = String(payload.nombre || "").replace(/\s+/g, " ").trim();
+    if (nombre.length < 4 || nombre.length > 90 || /\d/.test(nombre)) throw new Error("Escribe el nombre completo del cliente");
+    if (nombre === sale.customer?.nombre) throw new Error("El expediente ya tiene ese nombre");
+    return this.store.update(id, { customer: { ...sale.customer, nombre } }, "customer.name_corrected", { from: sale.customer?.nombre || null, to: nombre });
+  }
+
   // Supervisión cambia el plan en cualquier etapa (el cliente pidió otro). Si ya se pidió el pago,
   // el monto se actualiza al nuevo precio.
   changePlan(id, payload = {}) {

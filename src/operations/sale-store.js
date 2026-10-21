@@ -97,7 +97,11 @@ export class SaleStore extends EventEmitter {
   syncDocuments(id, input = {}) {
     const sale = this.data.sales[id];
     if (!sale) throw new Error("Expediente no encontrado");
-    sale.customer = { ...sale.customer, ...definedPatch(input.customer || {}) };
+    // Desde la conversación (fillOnly) solo se llenan datos vacíos: lo que ya está en el expediente
+    // no se reemplaza (caso real 21-oct: el nombre se cambió por el del comprobante de pago).
+    const customerPatch = definedPatch(input.customer || {});
+    if (input.fillOnly) for (const key of Object.keys(customerPatch)) if (sale.customer?.[key] != null && sale.customer[key] !== "") delete customerPatch[key];
+    sale.customer = { ...sale.customer, ...customerPatch };
     const files = mergeAttachmentFiles(sale.documents?.files || [], input.files || []);
     const next = { ...sale, documents: { ...(sale.documents || {}), files } };
     const checklist = documentPackageStatus(next);

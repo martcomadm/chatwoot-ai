@@ -168,6 +168,10 @@ export class ChatwootWorkflowBridge{
     if (!conversationId) return;
     const onboarding = onboardingStateFromSale(sale);
     await this.memories.merge(conversationId, { sale_id: sale.sale_id, operations: operationsMemoryFromSale(sale) });
+    // Se corrigió el nombre: Mia usa el correcto.
+    if (event.type === "customer.name_corrected" && sale.customer?.nombre) {
+      await this.memories.merge(conversationId, { nombre: sale.customer.nombre, primer_nombre: sale.customer.nombre.split(/\s+/)[0] });
+    }
     // Supervisión cambió el plan: Mia habla desde ahora del plan nuevo (monto de pago, seguimientos).
     if (event.type === "supervision.plan_changed" && sale.sale?.plan) {
       const current = this.memories.get(conversationId) || {};

@@ -36,6 +36,7 @@ const EVENT_LABELS = {
   "capture.nss.registered": "NSS registrado",
   "capture.curp.registered": "CURP registrada",
   "supervision.plan_changed": "Plan cambiado",
+  "customer.name_corrected": "Nombre corregido",
   "capture.started": "Captura iniciada",
   "capture.completed": "Alta capturada",
   "validation.check.updated": "Revisión de validación actualizada",
@@ -636,6 +637,7 @@ function areaActions(sale) {
     if (["waiting_capture", "capture_in_progress"].includes(sale.status)) {
       add("capture-complete", "Completar alta", sale.status === "capture_in_progress" ? "primary" : "", sale.documents?.complete ? "" : `Faltan: ${(sale.documents?.missing || []).join(", ").toUpperCase()}`);
       add("capture-curp", "Registrar CURP");
+      add("capture-name", "Corregir nombre");
       add("capture-nss", "Registrar NSS");
       add("documents-sync", "Actualizar documentos");
     }
@@ -725,6 +727,7 @@ function renderPanel() {
   if (hasArea("supervision")) {
     if (workArea) supervision.push(`<button class="btn" data-sale-act="sup-assign">Asignar a…</button>`);
     if (sale.status !== "cancelled") supervision.push(`<button class="btn" data-sale-act="sup-plan">Cambiar plan</button>`);
+    if (sale.status !== "cancelled") supervision.push(`<button class="btn" data-sale-act="sup-name">Corregir nombre</button>`);
     if (sale.status !== "completed") supervision.push(`<button class="btn" data-sale-act="sup-return">${sale.queue === "cancelled" ? "Reactivar en…" : "Regresar a…"}</button>`);
     if (!["completed", "cancelled"].includes(sale.status)) supervision.push(`<button class="btn danger" data-sale-act="sup-cancel">Cancelar expediente</button>`);
   }
@@ -788,6 +791,12 @@ async function saleAction(action) {
     case "capture-start": done = await post("capture/start", {}, "Captura iniciada"); break;
     case "capture-complete": done = await post("capture/complete", {}, "Alta capturada: pasa a Validación"); break;
     case "documents-sync": done = await post("documents/sync", {}, "Documentos actualizados"); break;
+    case "capture-name":
+    case "sup-name": {
+      const data = await ask({ title: "Corregir nombre del cliente", text: "Escribe el nombre completo del titular como aparece en su INE o CURP.", fields: [{ name: "nombre", label: "Nombre completo", required: true, value: sale.customer?.nombre || "" }], confirm: "Guardar nombre", area: action === "sup-name" ? "supervision" : area });
+      if (data) done = await post(action === "sup-name" ? "supervision/name" : "capture/name", { nombre: data.nombre }, "Nombre corregido");
+      break;
+    }
     case "capture-curp": {
       const data = await ask({ title: "Registrar CURP", text: "Escribe la CURP del titular (por ejemplo, la que viene en la foto que mandó el cliente).", fields: [{ name: "curp", label: "CURP (18 caracteres)", required: true, pattern: "[A-Za-z]{4}[0-9]{6}[HMhm][A-Za-z]{5}[A-Za-z0-9][0-9]", mono: true, value: sale.customer?.curp || "" }], confirm: "Registrar CURP", area });
       if (data) done = await post("capture/curp", { curp: data.curp, source: "registrada_por_captura" }, "CURP registrada");

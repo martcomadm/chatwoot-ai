@@ -228,6 +228,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   const salePath = action => `/operations/api/sales/:id/${action}`;
   router.post(salePath("documents/sync"), areaAction("documents/sync", (req, body) => workflow.syncDocuments(req.params.id, body)));
   router.post(salePath("capture/nss"), areaAction("capture/nss", (req, body) => workflow.registerNss(req.params.id, body)));
+  router.post(salePath("capture/name"), areaAction("capture/name", (req, body) => workflow.correctCustomerName(req.params.id, body)));
+  router.post(salePath("supervision/name"), areaAction("supervision/name", (req, body) => workflow.correctCustomerName(req.params.id, body, { anyStage: true })));
   router.post(salePath("capture/curp"), areaAction("capture/curp", (req, body) => workflow.registerCurp(req.params.id, body)));
   router.post(salePath("capture/start"), areaAction("capture/start", req => workflow.startCapture(req.params.id, { id: req.opsUser.username, name: req.opsUser.name })));
   router.post(salePath("capture/complete"), areaAction("capture/complete", (req, body) => workflow.completeCapture(req.params.id, body)));

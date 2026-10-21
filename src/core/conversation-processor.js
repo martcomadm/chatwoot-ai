@@ -67,6 +67,18 @@ export function scrubOpeners(reply = "") {
     .replace(/\u0000/g, "");
 }
 
+// Lo que la IA lee de una imagen solo cuenta si es una identificación (INE, CURP, NSS). El nombre
+// nunca reemplaza uno que ya teníamos (caso real 21-oct: el beneficiario del comprobante de pago).
+export function identityOnly(found = {}, memory = {}) {
+  const doc = String(found?.document_type || "").toLowerCase();
+  const isId = ["ine", "curp", "nss"].includes(doc) || found?.ine_recibida === true;
+  if (!isId) return {};
+  const out = { ...found };
+  if (memory?.nombre || !["ine", "curp"].includes(doc) || !plausibleName(out.nombre || "")) delete out.nombre;
+  delete out.primer_nombre;
+  return out;
+}
+
 function dropTrailingQuestion(reply = "") {
   const parts = String(reply).trim().split(/(?<=[.!?])\s+/);
   if (parts.length > 1 && /\?$/.test(parts.at(-1))) parts.pop();
@@ -482,10 +494,13 @@ export class ConversationProcessor {
     let documentPatch = {};
     const documentAttachments = batch.flatMap(m => m.attachments || []);
     trace("vision_gate", ({ conversation: conversationId, authorized: Boolean(base?.sales_cycle?.authorized), attachments: documentAttachments.length, expected: base?.operations?.onboarding_next || base?.operations?.onboarding_last_requested || null }));
-    if (base?.sales_cycle?.authorized && batch.some(hasAttachments)) {
+    // Solo mientras falten datos del expediente y nunca en Cobranza: una foto ahí es el comprobante de
+    // pago y su "Nombre del beneficiario" (la cuenta de MARTCOM) terminaba como nombre del cliente (21-oct).
+    const paymentStage = ["payment_requested", "payment_issue", "payment_received", "payment_validated", "completed"].includes(String(base?.operations?.status || "")) || ["payment", "completed"].includes(String(base?.operations?.queue || ""));
+    if (base?.sales_cycle?.authorized && batch.some(hasAttachments) && !paymentStage && !base?.operations?.documents_complete) {
       try {
         trace("vision_start", ({ conversation: conversationId, attachments: documentAttachments.length }));
-        documentPatch = await this.ai.extractDocumentData(documentAttachments);
+        documentPatch = identityOnly(await this.ai.extractDocumentData(documentAttachments), base);
         trace("vision_result", ({ conversation: conversationId, keys: Object.keys(documentPatch || {}), ine_recibida: Boolean(documentPatch?.ine_recibida), curp_recibida: Boolean(documentPatch?.curp_recibida), nss_recibido: Boolean(documentPatch?.nss_recibido) }));
       } catch (error) { console.error("NEXT no pudo analizar documento:", error); }
     }
@@ -549,7 +564,7 @@ export class ConversationProcessor {
           .slice(-3);
         if (earlier.length && this.ai?.extractDocumentData) {
           let found = {};
-          try { found = await this.ai.extractDocumentData(earlier) || {}; } catch (error) { console.error("NEXT no pudo analizar documentos previos:", error?.message || error); }
+          try { found = identityOnly(await this.ai.extractDocumentData(earlier) || {}, memory); } catch (error) { console.error("NEXT no pudo analizar documentos previos:", error?.message || error); }
           const patch = { analyzed_attachments: arrays(memory.analyzed_attachments, earlier.map(a => String(a.id || a.data_url || ""))) };
           if (found.curp_valor && /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/i.test(String(found.curp_valor).replace(/\s+/g, ""))) Object.assign(patch, { curp_valor: String(found.curp_valor).replace(/\s+/g, "").toUpperCase(), curp_recibida: true });
           if (found.nss_valor && String(found.nss_valor).replace(/\D/g, "").length === 11) Object.assign(patch, { nss_valor: String(found.nss_valor).replace(/\D/g, ""), nss_recibido: true });

@@ -74,7 +74,7 @@ export async function ensureAuthorizedSale({ workflow, memories, inspectorEvents
   if (!memory.sales_cycle?.authorized) return { created: false, sale: null };
   const input = saleInputFromMemory({ conversationId, conversation, memory });
   let sale = workflow.openAuthorizedSale(input);
-  sale = workflow.syncDocuments(sale.sale_id, { customer: input.customer, files: input.documents.files });
+  sale = workflow.syncDocuments(sale.sale_id, { customer: input.customer, files: input.documents.files, fillOnly: true });
   const onboarding = onboardingStateFromSale(sale);
   await memories.merge(conversationId, {
     sale_id: sale.sale_id,
