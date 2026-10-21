@@ -92,7 +92,8 @@ export class MessageBuffer {
     finally {
       for (const messageId of snapshot.ids) this.processingIds.delete(`${id}:${messageId}`);
       state.processing = false;
-      for (const messageId of snapshot.ids) state.webhookMessages.delete(String(messageId));
+      // Los mensajes devueltos a la cola (respuesta reemplazada) conservan sus datos del webhook.
+      for (const messageId of snapshot.ids) if (!state.ids.has(String(messageId))) state.webhookMessages.delete(String(messageId));
       if (state.dirty || state.ids.size) {
         state.dirty = false;
         state.timer = setTimeout(() => void this.flush(id), this.bufferMs);

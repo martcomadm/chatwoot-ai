@@ -46,6 +46,9 @@ export function fallbackDecision(memory, planner, combinedText) {
   const need = memory?.commercial_need || {};
   const needKnown = Boolean(need.service_medical || need.weeks || need.afore_infonavit || need.retirement);
   const askedKey = planner?.question_key === "necesidad_principal" && needKnown ? null : planner?.question_key;
+  // Ya se preguntó 2 veces: no se vuelve a preguntar (caso real 20-oct).
+  const overAsked = askedKey && Number(memory?.asked_counts?.[askedKey] || 0) >= 2;
+  if (overAsked) return { reply: [direct, direct ? "" : contextualNextStep(memory)].filter(Boolean).join(" ").trim() || contextualNextStep(memory), question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
   const nextQuestion = questions[askedKey] || (direct ? "" : contextualNextStep(memory));
   const lastQuestion = memory?.ultima_pregunta || null;
   const questionKey = askedKey || null;

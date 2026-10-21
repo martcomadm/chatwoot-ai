@@ -57,6 +57,10 @@ export function checkReply(reply,{memory,questionKey,maxChars=850,customerText="
   }
 
   if(questionKey && (memory?.resolved_questions||[]).includes(questionKey)) reasons.push(`pregunta_resuelta:${questionKey}`);
+  // La misma pregunta ya se hizo 2 veces (caso real 20-oct: "¿estás dado de alta en el IMSS?" 5 veces
+  // a un cliente que no entendía): se deja de preguntar y se avanza.
+  const repeatedKey=questionKey||(asksImssStatus(text)?"tiene_imss":null);
+  if(repeatedKey && Number(memory?.asked_counts?.[repeatedKey]||0)>=2) reasons.push(`pregunta_repetida_muchas_veces:${repeatedKey}`);
   // Antes de autorizar no se mencionan plazos de pago ni bajas, ni se inventan "cotizaciones",
   // direcciones u otro nombre de asesor (casos reales del 13 y 14 de octubre).
   if(!memory?.sales_cycle?.authorized && /(antes de las 6|d[eé] de baja|darse de baja|dar de baja el proceso)/i.test(text)) reasons.push("politica_pago_prematura");
@@ -68,7 +72,18 @@ export function checkReply(reply,{memory,questionKey,maxChars=850,customerText="
   // La IA inventaba un paso de "escribe exactamente: He leído y acepto…" y ofrecía las cuentas
   // antes del alta (caso real 19-oct, el cliente acabó molesto).
   if(/he le[ií]do y acepto|responde exactamente|escribe exactamente/i.test(text)) reasons.push("pide_frase_terminos");
+  // Caso real 21-oct: "inicio tu trámite… el área de validación (validacion@martcom.com.mx) te pedirá CURP, NSS e INE"
+  // sin que el sistema abriera el expediente. En la venta no se dan correos ni se da por iniciado el trámite.
+  if(/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) reasons.push("menciona_correo");
+  if(!memory?.sales_cycle?.authorized && /\b(?:inicio|inici[eé]|registro|registr[eé]|abr[ií]|abro|di de alta|doy de alta)\s+(?:tu|el|su)\s+(?:tr[aá]mite|caso|expediente|alta)\b|\bya (?:qued[oó]|est[aá]) (?:iniciado|registrado) tu (?:tr[aá]mite|caso)\b/i.test(text)) reasons.push("da_por_iniciado_sin_autorizacion");
+  // Este número no recibe llamadas, pero un asesor sí la regresa (casos reales 20-oct).
+  if(/\bno (?:realizamos|ofrecemos|damos|manejamos|hacemos|tenemos)\s+(?:atenci[oó]n\s+(?:por|telef[oó]nica)|llamadas|atenci[oó]n por tel[eé]fono)/i.test(text)) reasons.push("niega_llamadas");
   if(!memory?.sales_cycle?.authorized && /(?:comparta|comparto|env[ií]e|env[ií]o|mande|mando|indique|indico|pase|paso)\s+(?:los\s+)?datos\s+(?:para|de)(?:l)?\s+(?:el\s+)?(?:pago|dep[oó]sito)|datos (?:bancarios|para (?:el )?pago|de pago)|cuentas? para (?:pagar|depositar)/i.test(text)) reasons.push("pago_antes_de_vigencia");
   if(/\bsoy\s+axel\b|\baxel\s+(?:de|ia)\b/i.test(text)) reasons.push("identidad_incorrecta");
   return {ok:reasons.length===0,reasons};
+}
+
+export function asksImssStatus(text=""){
+  const t=String(text||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  return /\?/.test(t)&&/\b(?:dado de alta|alta activa|imss (?:activo|vigente)|sigues cotizando|ya no (?:estas )?cotiza\w*|tienes imss|cuentas con imss|estas cotizando)\b/.test(t);
 }

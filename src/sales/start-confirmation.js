@@ -39,5 +39,16 @@ export function agentAskedToStart(memory = {}) {
 
 // "Sí" en respuesta directa a "¿Quieres que iniciemos el trámite?" equivale a autorizar.
 export function confirmsStart(text, memory = {}) {
-  return shortAffirmative(text) && agentAskedToStart(memory);
+  return (shortAffirmative(text) || affirmsWithDocuments(text)) && agentAskedToStart(memory);
+}
+
+// "Si cuando Curp y nss ine ok" a "¿Quieres que inicie el trámite?" (caso real 20-oct): un sí que
+// habla de mandar sus documentos también es aceptar.
+export function affirmsWithDocuments(text) {
+  const raw = String(text || "");
+  const value = norm(raw);
+  if (!value || /[?¿]/.test(raw) || negatesCommitment(value) || value.length > 90) return false;
+  return /^(?:si+|claro|ok|okay|va|sale|de acuerdo|esta bien|bueno|listo|perfecto)\b/.test(value)
+    && /\b(?:curp|nss|ine|documentos?|papeles|credencial|fotos?)\b/.test(value)
+    && !/\b(?:no tengo|no cuento|despues|luego|manana|mas tarde|lo pienso)\b/.test(value);
 }

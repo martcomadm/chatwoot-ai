@@ -60,7 +60,9 @@ test("Griselda (14-oct): necesidad sin IA, 'más información' tras otra duda y 
   const memory = { commercial_need: { weeks: true, retirement: true }, sales_cycle: { pitched_plans: ["plan_1"] }, ultima_respuesta_agente: "Tu alta se realiza con una empresa…" };
   assert.match(contextualPlanExplanation(memory, "Podría darme más información")?.reply || "", /El Plan 1 incluye/);
   assert.equal(contextualPlanExplanation({ ...memory, sales_cycle: { pitched_plans: ["plan_1"], explained_plans: ["plan_1"] } }, "Podría darme más información"), null);
-  assert.match(followUpMessage({ commercial_need: { retirement: true } }, 0), /Plan 1/);
+  assert.match(followUpMessage({ commercial_need: { retirement: true }, sales_cycle: { pitched_plans: ["plan_1"] } }, 0), /Plan 1/);
+  // Sin haberle mencionado un plan (apertura del anuncio de pensión), el seguimiento habla de su pensión (21-oct).
+  assert.match(followUpMessage({ commercial_need: { retirement: true } }, 0), /dejaste de cotizar/);
   const fb = fallbackDecision(memory, { question_key: "necesidad_principal" }, "44");
   assert.doesNotMatch(fb.reply, /Qué te interesa principalmente/);
 });

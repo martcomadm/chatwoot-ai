@@ -7,9 +7,19 @@ function norm(value) {
 }
 
 const FEATURE = "(?:el |la |lo de |lo del |los )?(?:infonavit|afore|credito|credito infonavit|puntos|vivienda|casa|plan (?:2|dos))";
-const REJECTS_FEATURE_RE = new RegExp(`^(?:(?:no|pues|pero|y|ok|bueno|gracias)\\s+)*(?:no\\s+)?(?:me interesa|quiero|necesito|ocupo|busco|me sirve)\\s+${FEATURE}\\b|^(?:(?:pero|y)\\s+)?(?:sin|menos|excepto|nada de)\\s+${FEATURE}\\b|^(?:(?:el|la)\\s+)?(?:infonavit|afore|plan (?:2|dos))\\s+no\\b`);
+const REJECTS_FEATURE_RE = new RegExp(`^(?:(?:no|pues|pero|y|ok|bueno|gracias)\\s+)*(?:no\\s+)?(?:me interesa|quiero|necesito|ocupo|busco|me sirve)\\s+${FEATURE}\\b|^(?:(?:pero|y)\\s+)?(?:sin|menos|excepto|nada de)\\s+${FEATURE}\\b|^(?:(?:el|la)\\s+)?(?:infonavit|afore|plan (?:2|dos))\\s+no\\b|\\b(?:lo unico|la unica cosa|solo)\\s+(?:que|q|k)\\s+no\\s+(?:quiero|me interesa|necesito|ocupo)\\s+(?:es\\s+)?${FEATURE}\\b`);
 
 export function rejectsFeature(text = "") {
+  // "Si xfa / Lo único q no quiero es lo del Infonavit" (caso real 20-oct): se revisa cada renglón.
+  const lines = String(text || "").split(/\n+/).map(l => l.trim()).filter(Boolean);
+  if (lines.length > 1) {
+    for (const line of lines) { const kind = rejectsFeatureLine(line); if (kind) return kind; }
+    return null;
+  }
+  return rejectsFeatureLine(text);
+}
+
+function rejectsFeatureLine(text = "") {
   const raw = String(text || "");
   if (/[?¿]/.test(raw)) return null;
   const value = norm(raw);

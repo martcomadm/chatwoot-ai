@@ -19,6 +19,8 @@ const AUTHORIZATION_PATTERNS = [
   // ("quiero iniciar el trámite"). "Quiero empezar a entender bien" NO es autorización.
   /\b(?:quiero|deseo|podemos|quiero que)\s+(?:contratar|contratarlo|iniciar|hacerlo|proceder|continuar|empezar)(?=\s*(?:$|[.,;!?])|\s+(?:ya|ahora|hoy|por favor)\b|\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta|plan|contratacion|afiliacion)\b)/,
   /\badelante con (el )?(tramite|proceso|alta)\b/,
+  // "Pues iniciar trámite" (caso real 21-oct).
+  /^(?:(?:pues|si|ok|bueno|entonces|claro|va|vamos a|ya)[ ,]*)*(?:iniciar|empezar|comenzar|arrancar)(?:le)?\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b/,
   /\b(iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
   /\bme interesa (contratarlo|hacerlo|iniciar|proceder)\b/,
   /\bsi[, ]+(quiero (?:iniciar|proceder|continuar|empezar)|adelante con (?:el )?(?:tramite|proceso|alta)|procedamos|iniciemos|empecemos|empezemos)\b/,

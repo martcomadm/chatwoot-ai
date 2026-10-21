@@ -57,8 +57,19 @@ export class FollowUpStore {
 function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_1" ? "Plan 1" : null; }
 
 function currentPlan(memory = {}) {
+  // Solo si ya se le habló de un plan: tras la apertura del anuncio de pensión ("¿hace cuánto dejaste
+  // de cotizar?") salía "¿Te quedó alguna duda sobre el Plan 1?" sin haberle mencionado ningún plan
+  // (casos reales 20 y 21-oct).
+  const cycle = memory.sales_cycle || {};
+  const mentioned = cycle.selected_plan || cycle.recommended_plan || cycle.last_plan || (cycle.pitched_plans || []).length || (cycle.explained_plans || []).length
+    || /\bplan\s*[12]\b/i.test(String(memory.ultima_respuesta_agente || ""));
+  if (!mentioned) return null;
   // Mismo criterio que el resto de Mia: plan elegido > AFORE/INFONAVIT > recomendado > necesidad.
-  return discussedPlan(memory) || (memory.sales_cycle?.pitched_plans || []).at(-1) || null;
+  return discussedPlan(memory) || (cycle.pitched_plans || []).at(-1) || null;
+}
+
+function pensionContext(memory = {}) {
+  return Boolean(memory.commercial_need?.retirement) || /dejaste de cotizar|empezaste a cotizar|tu pensi[oó]n/i.test(String(memory.ultima_respuesta_agente || ""));
 }
 
 // Mensaje según dónde se quedó la conversación. null = no corresponde dar seguimiento.
@@ -81,6 +92,13 @@ export function followUpMessage(memory = {}, step = 0) {
       `¿Te quedó alguna duda sobre el ${plan}? Con gusto te la resuelvo.`,
       `Hola de nuevo. ¿Te gustaría que iniciemos tu trámite con el ${plan}? Si tienes alguna duda, con gusto te la resuelvo.`,
       `Te escribo para saber si aún te interesa el ${plan}. Si quieres iniciar o tienes alguna pregunta, aquí estoy para ayudarte.`,
+    ][Math.min(step, 2)];
+  }
+  if (pensionContext(memory)) {
+    return [
+      "¿Sigues por aquí? Si me dices hace cuánto dejaste de cotizar y en qué año empezaste, te explico cómo puedes seguir sumando semanas para tu pensión.",
+      "Hola de nuevo. Con nosotros puedes seguir sumando semanas para tu pensión y además tener servicio médico del IMSS. ¿Te gustaría que te explique cómo funciona?",
+      "Te escribo para saber si aún te interesa seguir sumando semanas para tu pensión. Si más adelante quieres retomarlo, aquí estaré para ayudarte.",
     ][Math.min(step, 2)];
   }
   return [

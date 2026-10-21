@@ -13,7 +13,9 @@ export function specializedAdviceHandoff(text="", memory={}){
   const personalCalculation=/\b(?:cuanto me (?:queda|quedaria|darian|dara|tocaria)|calcula(?:r|me)?|calculo|proyeccion|proyecta(?:r|me)?|monto exacto|cuanto voy a recibir|cuanto recibiria)\b/.test(v);
   const recordAnalysis=/\b(?:mis semanas|semanas cotizadas|historial|conservacion de derechos|regimen|salario promedio|promedio salarial|semanas reconocidas)\b/.test(v)
     && /\b(?:revis|analiz|calcul|verific|checa|evalua|cuanto|conviene|afecta)\w*\b/.test(v);
-  const imssDiscrepancy=/\b(?:no coincide|no aparecen|faltan semanas|desconozco|duplicad|homonim|correccion de datos|regularizar|inconsisten|error en (?:mi )?(?:nss|curp|semanas|vigencia))\w*\b/.test(v);
+  // "Me faltan semanas" (para pensionarse) es una venta, y las semanas que no aparecen se aclaran en la
+  // clínica del IMSS ya activo con nosotros (respuesta confirmada 20-oct): ninguna de las dos se canaliza.
+  const imssDiscrepancy=/\b(?:no coincide|desconozco|duplicad|homonim|correccion de datos|regularizar|inconsisten|error en (?:mi )?(?:nss|curp|semanas|vigencia))\w*\b/.test(v);
   const verificationNeeded=/\b(?:puedes (?:consultar|revisar|verificar)|revisa (?:mi|mis)|consulta (?:mi|mis)|verifica (?:mi|mis))\b/.test(v)
     && /\b(?:nss|curp|vigencia|semanas|historial|pension|imss)\b/.test(v);
 

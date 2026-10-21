@@ -70,6 +70,10 @@ const PAST_CAPTURE = new Set(["alta_processed", "waiting_validation", "validatio
 
 export const CALL_ACK_TEXT = "Gracias, ya le pasé tu respuesta al asesor y te llamará a este número. Cualquier cosa, aquí sigo.";
 
+export const PAYMENT_HOW_TEXT = "El pago se hace hasta que tu alta esté vigente: primero te enviamos tu documento de vigencia y después nuestra área de Cobranza te comparte por aquí los datos para tu primer pago, que puedes hacer por transferencia, depósito u OXXO.";
+
+export const DOCS_LATER_TEXT = "Claro, sin problema. Cuando lo tengas, envíamelo por aquí y seguimos con tu trámite.";
+
 export const ONBOARDING_COMPLETE_TEXT = "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.";
 
 // Qué decirle a un cliente con expediente completo según dónde va su trámite en Operations.
@@ -125,6 +129,16 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
         return { reply: "Claro, sin problema. Cuando lo realices, envíame por aquí tu comprobante, por favor.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
       }
     }
+    // "¿Y para realizar los pagos?" antes de Cobranza (caso real 20-oct): se explica cuándo y cómo se paga.
+    const tq = norm(combinedText);
+    if (!paying && !ops.payment_received && !ops.payment_validated && /\b(?:como|donde|en que|de que forma|por donde|para)\b.{0,25}\b(?:pag\w*|deposit\w*|transfer\w*)\b|\b(?:pagos?|deposito)\b.{0,10}\?/.test(tq + (/[?¿]/.test(combinedText) ? " ?" : ""))) {
+      return { reply: PAYMENT_HOW_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+    }
+    // Operaciones acaba de avisarle que recibimos su pago ("Recibimos el registro de tu pago…"): un
+    // "Ya quedó" justo después no necesita otro aviso igual (caso real 20-oct, Jesús Miguel).
+    if (ops.payment_received && Date.now() - Date.parse(ops.payment_received_at || 0) < 15 * 60 * 1000 && !/[?¿]/.test(combinedText)) {
+      return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true };
+    }
     const status = operationsStatusText(memory.operations);
     const asks = /[?¿]/.test(combinedText) || /\b(cuando|como va|como vamos|que sigue|ya quedo|ya esta|estatus|status|avance|pago|pague|pagar|deposit\w*|transferi\w*|comprobante|vigencia|alta)\b/.test(norm(combinedText));
     const question = /[?¿]/.test(combinedText);
@@ -167,6 +181,14 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
         : "Perfecto, ya recibimos tu documentación. Podemos continuar con tu trámite. No te preocupes por el NSS; con tu CURP podemos localizarlo y agregarlo a tu expediente para que el proceso continúe sin retrasos.",
       question_key:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:null
     };
+  }
+  // "En dos horas te lo envío, ando fuera" (caso real 20-oct): antes se repetía la solicitud y se
+  // suprimía como duplicada, y el cliente se quedaba sin respuesta.
+  if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
+    && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso))\b/.test(text)
+    && /\b(?:envio|mando|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?)\b/.test(text)
+    && String(memory.ultima_respuesta_agente || "").trim() !== DOCS_LATER_TEXT) {
+    return { reply: DOCS_LATER_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
   }
   const looksLikeQuestion = /\?|\b(cuanto|cuánto|como|cómo|cuando|cuándo|donde|dónde|por que|por qué|puedo|puede|incluye|cuesta|tarda|pago|proceso)\b/.test(text);
   const containsRequestedData = hasCurpValue(combinedText) || hasNssValue(combinedText);

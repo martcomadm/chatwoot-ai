@@ -1,7 +1,7 @@
 import { extractFast, containsCurp, containsNss } from "../memory/fast-extractor.js";
 import { parseSchedule, isOpen, nextOpeningDate, outOfScheduleMessage } from "./business-hours.js";
 import { analyzeSales, planNext, answered } from "../sales/sales-engine.js";
-import { checkReply } from "../ai/quality-checker.js";
+import { checkReply, asksImssStatus } from "../ai/quality-checker.js";
 import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision, contextualNextStep } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
@@ -32,7 +32,7 @@ import { featureRejectionDecision } from "../sales/feature-rejection.js";
 import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
-import { explicitHumanRequest, acceptsAdvisorOffer } from "./human-request.js";
+import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
 
@@ -170,11 +170,11 @@ export class ConversationProcessor {
   }
 
   // Handoff a un asesor humano: nota privada con resumen, aviso al cliente y asignación por rotación.
-  async transfer(conversationId, conversation, reason, memory) {
+  async transfer(conversationId, conversation, reason, memory, { customerText = null } = {}) {
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
     const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, summary, true);
-    await this.chatwoot.sendMessage(conversationId, "Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");
+    await this.chatwoot.sendMessage(conversationId, customerText || "Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");
     let routed = null;
     if (typeof this.handoffRouter?.handoff === "function") routed = await this.handoffRouter.handoff(conversationId, { reason, memory });
     else if (typeof this.handoffRouter?.route === "function") routed = await this.handoffRouter.route({ conversationId, reason, reservedAdvisor: memory?.advisor_affinity || null });
@@ -344,7 +344,11 @@ export class ConversationProcessor {
       authorized: Boolean(this.memories.get(conversationId)?.sales_cycle?.authorized),
       expected: this.memories.get(conversationId)?.operations?.onboarding_next || this.memories.get(conversationId)?.operations?.onboarding_last_requested || null,
     }));
-    if (!batch.length) return;
+    if (!batch.length) {
+      // Antes era silencio sin rastro (caso 20-oct: "No es lo que busco / Gracias" quedó sin respuesta).
+      if ((snapshot?.ids || []).length) await this.record(conversationId, "empty_batch_skipped", { message_ids: (snapshot.ids || []).map(String), sources: snapshot.sources || [] });
+      return;
+    }
     if (traceEnabled()) await this.record(conversationId, "attachment_pipeline_debug", {
       snapshot_ids: (snapshot.ids || []).map(String),
       webhook: [...(snapshot.webhookMessages?.values?.() || [])].map(m => ({
@@ -534,10 +538,12 @@ export class ConversationProcessor {
     const b2b = orchestration.shouldHandoffB2B || memory.intent?.id === "PROVEEDOR";
     const frustrated = Number(memory.experiencia?.frustration_score || 0) >= 2 || judgment.shouldHandoff;
     const specialized = specializedAdviceHandoff(combinedText, memory);
-    const wantsHuman = explicitHumanRequest(combinedText) || acceptsAdvisorOffer(combinedText, base.ultima_respuesta_agente);
+    const wantsCall = callRequest(combinedText);
+    const wantsHuman = wantsCall || explicitHumanRequest(combinedText) || acceptsAdvisorOffer(combinedText, base.ultima_respuesta_agente);
     if (wantsHuman || b2b || frustrated || specialized) {
       if (b2b) await this.labels.mergeSafe(conversationId, ["proveedor", this.config.ai.validationLabel], [], conversation);
-      const reason = wantsHuman ? "El cliente solicitó atención humana."
+      const reason = wantsCall ? "El cliente pide que lo llamen por teléfono (este número no recibe llamadas): regresarle la llamada."
+        : wantsHuman ? "El cliente solicitó atención humana."
         : b2b ? "Solicitud comercial de proveedor/asesor."
         : specialized?.reason || judgment.handoffReason || "El caso requiere intervención humana.";
       if (specialized && Number(this.config.operations?.customerServiceTeamId) > 0) {
@@ -545,7 +551,7 @@ export class ConversationProcessor {
         await this.memories.markProcessedMany(conversationId, messageIds);
         return;
       }
-      await this.transfer(conversationId, conversation, reason, memory);
+      await this.transfer(conversationId, conversation, reason, memory, { customerText: wantsCall ? CALL_HANDOFF_TEXT : null });
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
@@ -861,6 +867,7 @@ export class ConversationProcessor {
       ...(decision.reply === CALL_ACK_TEXT ? { call_ack_at: new Date().toISOString() } : {}),
       ultima_respuesta_agente: decision.reply,
       ultima_pregunta: decision.question_key || null,
+      asked_counts: (() => { const k = decision.question_key || (asksImssStatus(decision.reply) ? "tiene_imss" : null); return k ? { ...(memory.asked_counts || {}), [k]: Number(memory.asked_counts?.[k] || 0) + 1 } : memory.asked_counts; })(),
       preguntas_realizadas: decision.question_key ? arrays(memory.preguntas_realizadas, [decision.question_key]) : memory.preguntas_realizadas,
       presentacion_realizada: true,
       asesor_presentacion: memory.asesor_presentacion || publicName,

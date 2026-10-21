@@ -36,3 +36,22 @@ export function acceptsAdvisorOffer(text, lastReply = "") {
   const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
   return /^(?:si|claro|por favor|porfavor|ok|okay|va|sale|de acuerdo|me parece|esta bien|bueno)\b/.test(value) && !/\bno\b/.test(value);
 }
+
+// Pide platicarlo por teléfono ("Le puedo marcar xfa", "me gustaría platicarlo bien x teléfono",
+// casos reales 20-oct). Este número no recibe llamadas, pero un asesor sí puede regresarle la llamada.
+const CALL_PATTERNS = [
+  /\b(?:le|te|les)?\s*(?:puedo|podria|puedes|pueden|podrian)\s+(?:marcar|llamar)(?:le|te|les)?\b/,
+  /\b(?:me|nos)\s+(?:puede|pueden|podria|podrian|puedes|podrias)\s+(?:marcar|llamar|hablar por telefono)\b/,
+  /\b(?:platicar\w*|hablar\w*|explicar\w*|ver\w*|tratar\w*)\b.{0,25}\b(?:por|x|via)\s+(?:telefono|llamada|cel|celular)\b/,
+  /\b(?:prefiero|quiero|quisiera|me gustaria)\s+(?:una\s+)?(?:llamada|por telefono|que me (?:llamen|marquen|hablen))\b/,
+  /\b(?:a que|que|cual)\s+(?:numero|telefono)\s+(?:les?|te)?\s*(?:puedo\s+)?(?:marco|llamo|marcar|llamar)\b/,
+  /\bllamenme\b|\bmarqueme\b|\bmarcame\b|\bllamame\b/,
+];
+
+export function callRequest(text) {
+  const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!value || /\bno (?:me )?(?:llamen|marquen|quiero llamada)\b/.test(value)) return false;
+  return CALL_PATTERNS.some(pattern => pattern.test(value));
+}
+
+export const CALL_HANDOFF_TEXT = "Este número de WhatsApp no recibe llamadas, pero con gusto un asesor te llama. Ya le dejo el contexto de lo que platicamos para que no tengas que repetirlo. ¿A qué número y en qué horario te queda mejor que te marquemos?";

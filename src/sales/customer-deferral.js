@@ -43,6 +43,8 @@ const LATER_RE = [
   /\bmas d?e?lante\b|^(?:por el momento|de momento|por ahora|ahorita|en este momento|por lo pronto)\s+no\b/,
   /\b(?:dej[ae]me|deja|deje)\s+(?:junt\w*|ahorr\w*|reun\w*)\b|\b(?:te|le|les) vuelvo a (?:mandar|enviar) (?:un )?(?:mensaje|msj)\b/,
   /\b(?:salgo|voy) (?:a ver|aber|haber|a buscar)\b.{0,30}\b(?:consigo|conseguir|junto|juntar|dinero|lana)\b/,
+  // "Mañana ok necesito checar mi número de IMSS", "Voy a buscar los papeles" (casos reales 20 y 21-oct).
+  /^(?:ok\s+|bueno\s+|si\s+)?manana\b|\b(?:necesito|tengo que|voy a|deja|dejame|dejeme)\s+(?:checar|buscar|revisar|ver|conseguir|sacar|localizar)\s+(?:mi|mis|el|la|los|las)\s+(?:numero|nss|curp|ine|papeles|documentos|datos|credencial)\b/,
   /\bestoy en espera de\b|\btodavia no (?:lo )?(?:decido|se|tengo)\b|\bno gracias,? (?:despues|luego|mas adelante)\b/,
 ];
 
@@ -67,8 +69,13 @@ export function detectDeferral(text) {
 // aceptar la oferta, no despedirse (caso real: Elisa, 14-oct).
 const OFFER_RE = /\b(quieres|quiere|te gustaria|le gustaria|deseas|desea|podemos ayudarte|puedo ayudarte|puedo explicarte|te explico|prefieres)\b/;
 
+// "Gracias x su valioso tiempo", "gracias por la atención" (caso real 20-oct) siguen siendo despedidas.
+function stripThanksTail(value) {
+  return value.replace(/\b(?:por|x)\s+(?:su|tu|la|el|toda la|todo el)?\s*(?:valioso\s+)?(?:tiempo|informacion|info|atencion|apoyo|ayuda|paciencia|amabilidad)\b/g, " ").replace(/\s+/g, " ").trim();
+}
+
 export function detectClosing(text, { lastReply = "" } = {}) {
-  const value = norm(text);
+  const value = stripThanksTail(norm(text));
   if (!value || asksSomething(text)) return false;
   if (/^(?:si|claro)\b/.test(value) && OFFER_RE.test(norm(lastReply))) return false;
   return THANKS_RE.test(value) && CLOSING_ONLY_RE.test(value);
@@ -90,7 +97,10 @@ function planLabel(memory = {}) {
 
 // "No gracias" a una oferta (p. ej. al seguimiento "¿Te gustaría que iniciemos…?").
 // "No me interesa Infonavit" no es esto: descarta solo una parte (feature-rejection.js).
-const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^no[ ,.!]*(?:me interesa(?! (?:el |la |lo de )?(?:infonavit|afore|credito|plan))|por ahora|por el momento|de momento)\b/;
+const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^(?:muchas |mil )?gracias[ ,.!]*(?:pero )?no (?:me )?interesa\b|^no[ ,.!]*(?:me interesa(?! (?:el |la |lo de )?(?:infonavit|afore|credito|plan))|por ahora|por el momento|de momento)\b/;
+
+const NOT_FIT_RE = /\bno (?:es|era) (?:lo que|el (?:servicio|plan) que) (?:busco|buscaba|necesito|necesitaba|quiero|queria|ocupo)\b|\bno (?:es|era) (?:para mi|lo mio)\b|\bno me (?:sirve|funciona)\b(?! (?:el|la) (?:plan|horario))/;
+const NOT_FIT_MARK = "qué es lo que buscas";
 
 // Mensajes de cortesía que no piden nada ("Ok", "Gracias", "👍", "No gracias, yo les aviso").
 export function isCourtesy(text) {
@@ -116,6 +126,13 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   if (!resumedAfterHours && Boolean(memory.ultima_respuesta_agente) && DECLINE_RE.test(norm(combinedText)) && !/[?¿]/.test(String(combinedText))) {
     const name = firstName(memory);
     return { reply: `Entendido${name}, gracias por tu tiempo. Si más adelante te interesa, ${CLOSING_MARK} y con gusto te ayudo.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: "declined" };
+  }
+  // "No es lo que busco. Gracias" (caso real 20-oct, quedó sin respuesta): una sola vez se pregunta
+  // qué busca; si ya se le preguntó, se despide.
+  if (!resumedAfterHours && Boolean(memory.ultima_respuesta_agente) && NOT_FIT_RE.test(norm(combinedText)) && !/[?¿]/.test(String(combinedText))) {
+    const asked = String(memory.ultima_respuesta_agente || "").includes(NOT_FIT_MARK);
+    const name = firstName(memory);
+    return { reply: asked ? `Entendido${name}, gracias por tu tiempo. Si más adelante te interesa, ${CLOSING_MARK} y con gusto te ayudo.` : `Entiendo${name}, gracias por decirme. ¿Me cuentas qué es lo que buscas? Así reviso si te podemos ayudar de otra forma.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: asked ? "declined" : "not_fit" };
   }
   const kind = detectDeferral(combinedText);
   // Un "gracias" solo cierra la plática si Mia ya había contestado algo real (no al aviso
