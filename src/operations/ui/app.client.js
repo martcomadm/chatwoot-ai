@@ -740,7 +740,7 @@ function renderPanel() {
     ["Actividad", esc(c.actividad || "—")],
     ["Plan", `${esc(planLabel(sale.sale?.plan))}, ${money(sale.sale?.precio)}`],
     ["Abierto", esc(dateTime(sale.created_at))],
-    ["Conversación", state.saleLinks?.chatwoot ? `<a href="${esc(state.saleLinks.chatwoot)}" target="_blank" rel="noopener">Abrir en Chatwoot</a>` : esc(sale.conversation_id || "—")],
+    ["Conversación", state.saleLinks?.chatwoot ? `<a href="${esc(state.saleLinks.chatwoot)}" target="_blank" rel="noopener">Abrir en Chatwoot</a>` : (sale.conversation_id ? `<a href="#sale-chat" data-act="goto-chat">Ver abajo</a>` : "—")],
   ];
   const html = `
     <div class="scrim" id="scrim" data-act="close-panel"></div>
@@ -770,12 +770,36 @@ function renderPanel() {
         <section><h3>Datos del cliente</h3><dl class="facts">${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join("")}</dl></section>
         <section><h3>Documentos</h3>${documentsHtml(sale)}</section>
         ${supervision.length ? `<section><h3>Supervisión</h3><div class="actions">${supervision.join("")}</div></section>` : ""}
+        ${sale.conversation_id ? `<section id="sale-chat-section"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">Conversación con el cliente</h3><button class="btn quiet small" data-act="reload-chat">Actualizar</button></div><div id="sale-chat" class="sale-chat"><p class="muted">Cargando conversación…</p></div></section>` : ""}
         <section><h3>Historial</h3>${historyHtml(sale)}</section>
       </div>
     </aside>`;
   document.getElementById("panel")?.remove();
   document.getElementById("scrim")?.remove();
   document.body.insertAdjacentHTML("beforeend", html);
+  if (sale.conversation_id) loadSaleChat(sale.sale_id);
+}
+
+// Conversación de WhatsApp dentro del expediente (solo lectura), para no entrar a Chatwoot.
+async function loadSaleChat(saleId) {
+  const box = document.getElementById("sale-chat");
+  if (!box) return;
+  try {
+    const result = await api(`/operations/api/sales/${encodeURIComponent(saleId)}/conversation`);
+    if (state.saleId !== saleId) return;
+    const items = result.items || [];
+    if (!items.length) { box.innerHTML = `<p class="muted">${result.available === false ? "Este expediente no tiene conversación ligada." : "Sin mensajes."}</p>`; return; }
+    box.innerHTML = items.map(m => {
+      const files = (m.attachments || []).map(a => /image/.test(a.type)
+        ? `<a href="${esc(a.url)}" target="_blank" rel="noopener" class="chat-img"><img src="${esc(a.thumb || a.url)}" alt="Imagen enviada" loading="lazy"></a>`
+        : /audio/.test(a.type) ? `<audio controls preload="none" src="${esc(a.url)}"></audio>`
+        : `<a href="${esc(a.url)}" target="_blank" rel="noopener">📎 ${esc(a.name || "Archivo")}</a>`).join("");
+      return `<div class="chat-msg ${m.who}"><div class="chat-meta">${esc(m.who === "nota" ? "Nota interna" : m.name)} · ${esc(dateTime(m.at))}</div>${m.text ? `<div class="chat-text">${esc(m.text)}</div>` : ""}${files ? `<div class="chat-files">${files}</div>` : ""}</div>`;
+    }).join("");
+    box.scrollTop = box.scrollHeight;
+  } catch (error) {
+    if (error.message !== "Sesión terminada") box.innerHTML = `<p class="muted">No se pudo cargar la conversación: ${esc(error.message)}</p>`;
+  }
 }
 
 async function saleAction(action) {
@@ -1368,6 +1392,8 @@ document.addEventListener("click", async event => {
   if (target.dataset.act === "password") return changePassword();
   if (target.dataset.act === "mia-toggle") return toggleMia();
   if (target.dataset.act === "close-panel") return closePanel();
+  if (target.dataset.act === "reload-chat") return state.saleId && loadSaleChat(state.saleId);
+  if (target.dataset.act === "goto-chat") { event.preventDefault(); return document.getElementById("sale-chat-section")?.scrollIntoView({ behavior: "smooth" }); }
   if (target.dataset.sale) return openSale(target.dataset.sale);
   if (target.dataset.saleLink) { event.preventDefault(); return openSale(target.dataset.saleLink); }
   if (target.dataset.saleAct) { target.disabled = true; try { await saleAction(target.dataset.saleAct); } finally { target.disabled = false; } return; }

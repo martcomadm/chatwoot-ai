@@ -398,3 +398,14 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 .notify-box { display: grid; gap: 6px; margin: 10px 0; font-size: 13px; line-height: 1.35; color: var(--muted, inherit); }
 .notify-box.on { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); }
 .notify-box small { font-size: 12px; }
+
+.sale-chat { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; padding: 10px; margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper, transparent); }
+.chat-msg { max-width: 85%; padding: 8px 10px; border-radius: 10px; background: var(--surface-2, rgba(127,127,127,.08)); font-size: 14px; line-height: 1.4; }
+.chat-msg.cliente { align-self: flex-start; border-top-left-radius: 2px; }
+.chat-msg.mia, .chat-msg.persona { align-self: flex-end; border-top-right-radius: 2px; background: color-mix(in srgb, var(--area-supervision) 14%, transparent); }
+.chat-msg.nota { align-self: center; max-width: 95%; background: color-mix(in srgb, #d9a400 16%, transparent); font-size: 13px; }
+.chat-meta { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.chat-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chat-img img { display: block; max-width: 180px; max-height: 180px; border-radius: 8px; object-fit: cover; }
+.chat-files audio { max-width: 240px; }

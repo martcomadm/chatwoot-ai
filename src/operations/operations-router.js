@@ -31,7 +31,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
 const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null }) {
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -197,7 +197,41 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.get("/operations/api/sales/:id", (req, res) => {
     const sale = visibleSale(req, res);
     if (!sale) return;
-    res.json({ sale: saleView(sale, alertHours()), links: { chatwoot: chatwootConversationUrl(sale) } });
+    // "Abrir en Chatwoot" solo para Supervisión y Cobranza; los demás ven la conversación en el expediente.
+    const canOpenChatwoot = hasArea(req.opsUser, "supervision") || hasArea(req.opsUser, "cobranza");
+    res.json({ sale: saleView(sale, alertHours()), links: { chatwoot: canOpenChatwoot ? chatwootConversationUrl(sale) : null } });
+  });
+
+  // Conversación de WhatsApp del expediente, para verla sin entrar a Chatwoot (solo lectura).
+  router.get("/operations/api/sales/:id/conversation", async (req, res) => {
+    const sale = visibleSale(req, res);
+    if (!sale) return;
+    if (!sale.conversation_id || !chatwoot) return res.json({ items: [], available: false });
+    try {
+      const raw = chatwoot.getAllMessages ? await chatwoot.getAllMessages(sale.conversation_id) : await chatwoot.getMessages(sale.conversation_id);
+      const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
+      const items = list
+        .filter(m => m && [0, 1, "incoming", "outgoing"].includes(m.message_type))
+        // Notas privadas no, salvo la transcripción de notas de voz (útil para Captura).
+        .filter(m => m.private !== true || /^🎤 Transcripción/.test(String(m.content || "")))
+        .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))
+        .slice(-300)
+        .map(m => {
+          const incoming = m.message_type === 0 || m.message_type === "incoming";
+          const own = !incoming && (selfSenders?.isOwn?.(m) || Number(m.sender_id || m.sender?.id || 0) === Number(config.chatwoot?.agentId || -1));
+          return {
+            id: String(m.id),
+            who: m.private ? "nota" : incoming ? "cliente" : own ? "mia" : "persona",
+            name: incoming ? (sale.customer?.nombre || "Cliente") : own ? "Mia" : (m.sender?.name || "Equipo"),
+            text: String(m.content || ""),
+            at: new Date(Number(m.created_at || 0) * 1000).toISOString(),
+            attachments: (m.attachments || []).map(a => ({ type: String(a.file_type || "").toLowerCase(), url: a.data_url || a.file_url || null, thumb: a.thumb_url || null, name: a.file_name || a.fallback_title || null })).filter(a => a.url),
+          };
+        });
+      res.json({ items, available: true });
+    } catch (error) {
+      res.status(502).json({ error: "No se pudo leer la conversación de Chatwoot", detail: String(error?.message || error).slice(0, 200) });
+    }
   });
 
   router.post("/operations/api/sales", requireArea("supervision"), (req, res) => {
