@@ -6,6 +6,7 @@ import { RETURN_TARGETS } from "./workflow-engine.js";
 import { AREAS, ACTION_AREAS, QUEUE_LABELS, areaForQueue, canRunAction, canSeeSale, hasArea, normalizeAreas, seesAllQueues, visibleQueues } from "./access/areas.js";
 import { LoginThrottle, REQUEST_HEADER, actorOf, clearSessionCookie, createAuthenticator, requireArea, requireUser, sessionCookie } from "./access/auth.js";
 import { normalizeUsername } from "./access/user-store.js";
+import { CASE_KIND_LABELS, CASE_STATUS_LABELS } from "./customer-service/case-store.js";
 import { buildAuditTrail, buildOverview, hoursInQueue, queueEnteredAt, urgencyOf } from "./supervision-service.js";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -31,7 +32,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
 const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null }) {
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -202,36 +203,96 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     res.json({ sale: saleView(sale, alertHours()), links: { chatwoot: canOpenChatwoot ? chatwootConversationUrl(sale) : null } });
   });
 
-  // Conversación de WhatsApp del expediente, para verla sin entrar a Chatwoot (solo lectura).
+  // Conversación de WhatsApp (solo lectura) para verla sin entrar a Chatwoot.
+  async function conversationItems(conversationId, customerName) {
+    const raw = chatwoot.getAllMessages ? await chatwoot.getAllMessages(conversationId) : await chatwoot.getMessages(conversationId);
+    const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
+    return list
+      .filter(m => m && [0, 1, "incoming", "outgoing"].includes(m.message_type))
+      // Notas privadas no, salvo la transcripción de notas de voz (útil para Captura).
+      .filter(m => m.private !== true || /^🎤 Transcripción/.test(String(m.content || "")))
+      .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))
+      .slice(-300)
+      .map(m => {
+        const incoming = m.message_type === 0 || m.message_type === "incoming";
+        const own = !incoming && (selfSenders?.isOwn?.(m) || Number(m.sender_id || m.sender?.id || 0) === Number(config.chatwoot?.agentId || -1));
+        return {
+          id: String(m.id),
+          who: m.private ? "nota" : incoming ? "cliente" : own ? "mia" : "persona",
+          name: incoming ? (customerName || "Cliente") : own ? "Mia" : (m.sender?.name || "Equipo"),
+          text: String(m.content || ""),
+          at: new Date(Number(m.created_at || 0) * 1000).toISOString(),
+          attachments: (m.attachments || []).map(a => ({ type: String(a.file_type || "").toLowerCase(), url: a.data_url || a.file_url || null, thumb: a.thumb_url || null, name: a.file_name || a.fallback_title || null })).filter(a => a.url),
+        };
+      });
+  }
+  async function sendConversation(res, conversationId, customerName) {
+    if (!conversationId || !chatwoot) return res.json({ items: [], available: false });
+    try { res.json({ items: await conversationItems(conversationId, customerName), available: true }); }
+    catch (error) { res.status(502).json({ error: "No se pudo leer la conversación de Chatwoot", detail: String(error?.message || error).slice(0, 200) }); }
+  }
   router.get("/operations/api/sales/:id/conversation", async (req, res) => {
     const sale = visibleSale(req, res);
     if (!sale) return;
-    if (!sale.conversation_id || !chatwoot) return res.json({ items: [], available: false });
-    try {
-      const raw = chatwoot.getAllMessages ? await chatwoot.getAllMessages(sale.conversation_id) : await chatwoot.getMessages(sale.conversation_id);
-      const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
-      const items = list
-        .filter(m => m && [0, 1, "incoming", "outgoing"].includes(m.message_type))
-        // Notas privadas no, salvo la transcripción de notas de voz (útil para Captura).
-        .filter(m => m.private !== true || /^🎤 Transcripción/.test(String(m.content || "")))
-        .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))
-        .slice(-300)
-        .map(m => {
-          const incoming = m.message_type === 0 || m.message_type === "incoming";
-          const own = !incoming && (selfSenders?.isOwn?.(m) || Number(m.sender_id || m.sender?.id || 0) === Number(config.chatwoot?.agentId || -1));
-          return {
-            id: String(m.id),
-            who: m.private ? "nota" : incoming ? "cliente" : own ? "mia" : "persona",
-            name: incoming ? (sale.customer?.nombre || "Cliente") : own ? "Mia" : (m.sender?.name || "Equipo"),
-            text: String(m.content || ""),
-            at: new Date(Number(m.created_at || 0) * 1000).toISOString(),
-            attachments: (m.attachments || []).map(a => ({ type: String(a.file_type || "").toLowerCase(), url: a.data_url || a.file_url || null, thumb: a.thumb_url || null, name: a.file_name || a.fallback_title || null })).filter(a => a.url),
-          };
-        });
-      res.json({ items, available: true });
-    } catch (error) {
-      res.status(502).json({ error: "No se pudo leer la conversación de Chatwoot", detail: String(error?.message || error).slice(0, 200) });
-    }
+    return sendConversation(res, sale.conversation_id, sale.customer?.nombre);
+  });
+
+  // ── Atención a Clientes ─────────────────────────────────────────────────
+  const caseStore = customerService?.store || null;
+  const canSeeCases = user => hasArea(user, "atencion") || hasArea(user, "supervision") || (user?.areas || []).includes("observador");
+  const caseView = (c, { withEvents = true } = {}) => { const v = structuredClone(c); if (!withEvents) delete v.events; return { ...v, kind_label: CASE_KIND_LABELS[c.kind] || c.kind, status_label: CASE_STATUS_LABELS[c.status] || c.status }; };
+  function visibleCase(req, res) {
+    if (!caseStore) { res.status(503).json({ error: "Atención a Clientes no disponible" }); return null; }
+    if (!canSeeCases(req.opsUser)) { res.status(403).json({ error: "Tu usuario no tiene acceso a Atención a Clientes", code: "forbidden" }); return null; }
+    const c = caseStore.get(req.params.id);
+    if (!c) { res.status(404).json({ error: "Caso no encontrado" }); return null; }
+    return c;
+  }
+  const canWorkCase = (user, c) => hasArea(user, "supervision") || (hasArea(user, "atencion") && (!c.assignee || c.assignee.username === user.username));
+  router.get("/operations/api/cases", (req, res) => {
+    if (!caseStore) return res.json({ items: [] });
+    if (!canSeeCases(req.opsUser)) return res.status(403).json({ error: "Tu usuario no tiene acceso a Atención a Clientes", code: "forbidden" });
+    res.json({ items: caseStore.list().map(c => caseView(c, { withEvents: false })) });
+  });
+  router.get("/operations/api/cases/people", (req, res) => {
+    if (!canSeeCases(req.opsUser)) return res.status(403).json({ error: "Sin acceso", code: "forbidden" });
+    res.json({ items: (customerService?.agents() || []).map(u => ({ username: u.username, name: u.name, chatwoot_agent_id: u.chatwoot_agent_id || null })) });
+  });
+  router.get("/operations/api/cases/:id", (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    const sale = c.sale_id ? saleStore.get(c.sale_id) : null;
+    const chatwootLink = (hasArea(req.opsUser, "atencion") || hasArea(req.opsUser, "supervision")) && c.conversation_id ? chatwootConversationUrl({ conversation_id: c.conversation_id }) : null;
+    res.json({ case: caseView(c), links: { chatwoot: chatwootLink, sale: sale && canSeeSale(req.opsUser, sale) ? sale.sale_id : null }, can: { work: canWorkCase(req.opsUser, c), assign: hasArea(req.opsUser, "supervision") } });
+  });
+  router.get("/operations/api/cases/:id/conversation", async (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    return sendConversation(res, c.conversation_id, c.customer?.nombre);
+  });
+  router.post("/operations/api/cases/:id/take", async (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    if (!hasArea(req.opsUser, "atencion")) return res.status(403).json({ error: "Solo Atención a Clientes puede tomar casos", code: "forbidden" });
+    if (c.assignee && c.assignee.username !== req.opsUser.username && !hasArea(req.opsUser, "supervision")) return fail(res, new Error(`Este caso ya lo tiene ${c.assignee.name}`), 409);
+    try { res.json({ ok: true, case: caseView(await customerService.assign(c, { username: req.opsUser.username, by: actorOf(req.opsUser) })) }); }
+    catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/cases/:id/assign", async (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    if (!hasArea(req.opsUser, "supervision")) return res.status(403).json({ error: "Solo Supervisión reasigna casos", code: "forbidden" });
+    const username = String(req.body?.username || "");
+    if (!customerService.agents().some(a => a.username === username)) return fail(res, new Error("Elige a una persona activa de Atención a Clientes"));
+    try { res.json({ ok: true, case: caseView(await customerService.assign(c, { username, by: actorOf(req.opsUser) })) }); }
+    catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/cases/:id/status", (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    if (!canWorkCase(req.opsUser, c)) return res.status(403).json({ error: "Este caso no es tuyo", code: "forbidden" });
+    try { res.json({ ok: true, case: caseView(customerService.setStatus(c.case_id, String(req.body?.status || ""), { note: req.body?.note, by: actorOf(req.opsUser) })) }); }
+    catch (error) { fail(res, error); }
   });
 
   router.post("/operations/api/sales", requireArea("supervision"), (req, res) => {
@@ -355,7 +416,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.get("/operations/api/admin/users", admin, (_req, res) => res.json({ items: users.list(), areas: AREAS }));
   router.post("/operations/api/admin/users", admin, (req, res) => {
     try {
-      const user = users.create({ username: req.body?.username, name: req.body?.name, areas: req.body?.areas, password: req.body?.password });
+      const user = users.create({ username: req.body?.username, name: req.body?.name, areas: req.body?.areas, password: req.body?.password, chatwoot_agent_id: req.body?.chatwoot_agent_id });
       audit.record("user.created", actorOf(req.opsUser), { username: user.username, areas: user.areas });
       res.json({ ok: true, user });
     } catch (error) { fail(res, error); }
@@ -367,6 +428,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       if (req.body?.name !== undefined) patch.name = req.body.name;
       if (req.body?.areas !== undefined) patch.areas = normalizeAreas(req.body.areas);
       if (req.body?.active !== undefined) patch.active = req.body.active;
+      if (req.body?.chatwoot_agent_id !== undefined) patch.chatwoot_agent_id = req.body.chatwoot_agent_id;
       const user = users.update(req.params.username, patch);
       if (before?.active && !user.active) sessions.destroyForUser(user.username);
       audit.record("user.updated", actorOf(req.opsUser), { username: user.username, before: before && { name: before.name, areas: before.areas, active: before.active }, after: { name: user.name, areas: user.areas, active: user.active } });
@@ -459,8 +521,10 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     // Avisos dirigidos a esta persona (sonido y aviso dentro de la página).
     const notifyListener = n => { if ((n.to || []).includes(user.username)) res.write(`data: ${JSON.stringify({ type: "notify", notification: { ...n, to: undefined } })}\n\n`); };
     notifier?.on("notify", notifyListener);
+    const caseListener = event => { if (canSeeCases(user)) res.write(`data: ${JSON.stringify({ type: "case", case_id: event.case?.case_id })}\n\n`); };
+    caseStore?.on("case", caseListener);
     const keepAlive = setInterval(() => res.write(": keepalive\n\n"), 25000);
-    req.on("close", () => { clearInterval(keepAlive); saleStore.off("sale", listener); notifier?.off("notify", notifyListener); });
+    req.on("close", () => { clearInterval(keepAlive); saleStore.off("sale", listener); notifier?.off("notify", notifyListener); caseStore?.off("case", caseListener); });
   });
 
   return router;

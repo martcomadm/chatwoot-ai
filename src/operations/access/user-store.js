@@ -22,6 +22,14 @@ export function normalizeUsername(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+// ID de la persona en Chatwoot (para asignarle conversaciones); vacío = sin ID.
+function chatwootId(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const id = Number(String(value).trim());
+  if (!Number.isInteger(id) || id <= 0) throw new Error("El ID de Chatwoot debe ser un número");
+  return id;
+}
+
 function validatePassword(password) {
   if (String(password || "").length < MIN_PASSWORD_LENGTH) throw new Error(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
 }
@@ -48,7 +56,7 @@ export class UserStore {
     return Object.values(this.data.users).filter(user => user.active && user.areas.includes("admin") && user.username !== excluding).length;
   }
 
-  create({ username, name, areas, password }) {
+  create({ username, name, areas, password, chatwoot_agent_id = null }) {
     const key = normalizeUsername(username);
     if (!USERNAME_RE.test(key)) throw new Error("El usuario debe tener de 3 a 32 caracteres: letras minúsculas, números, punto, guion o guion bajo");
     if (this.data.users[key]) throw new Error(`El usuario ${key} ya existe`);
@@ -59,7 +67,7 @@ export class UserStore {
     validatePassword(password);
     const { salt, hash } = hashPassword(password);
     const timestamp = now();
-    this.data.users[key] = { username: key, name: cleanName, areas: cleanAreas, active: true, password_salt: salt, password_hash: hash, created_at: timestamp, updated_at: timestamp, last_login_at: null, password_changed_at: timestamp };
+    this.data.users[key] = { username: key, name: cleanName, areas: cleanAreas, active: true, chatwoot_agent_id: chatwootId(chatwoot_agent_id), password_salt: salt, password_hash: hash, created_at: timestamp, updated_at: timestamp, last_login_at: null, password_changed_at: timestamp };
     this.persist();
     return this.get(key);
   }
@@ -78,6 +86,7 @@ export class UserStore {
       if (!next.areas.length) throw new Error("Asigna al menos un área");
     }
     if (patch.active !== undefined) next.active = Boolean(patch.active);
+    if (patch.chatwoot_agent_id !== undefined) next.chatwoot_agent_id = chatwootId(patch.chatwoot_agent_id);
     const losesAdmin = user.active && user.areas.includes("admin") && (!next.active || !next.areas.includes("admin"));
     if (losesAdmin && this.activeAdmins(key) === 0) throw new Error("Debe quedar al menos un administrador activo");
     next.updated_at = now();

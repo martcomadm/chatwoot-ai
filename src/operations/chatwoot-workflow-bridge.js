@@ -197,6 +197,8 @@ export class ChatwootWorkflowBridge{
     if (event.type === "payment.validated") {
       await this.sendReferral(conversationId, sale);
       await this.completeHumanHandoff(conversationId, sale);
+      // Caso para Atención a Clientes, asignado por rotación (después de pasar al equipo en Chatwoot).
+      try { await this.onCompletedSale?.(sale); } catch (error) { console.error("NEXT Atención a Clientes (venta completada):", error?.message || error); }
     }
   }
 }

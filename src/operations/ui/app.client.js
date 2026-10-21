@@ -9,10 +9,11 @@
 const QUEUE_AREA = { capture: "captura", validation: "validacion", validity: "vigencia", payment: "cobranza" };
 const AREA_QUEUE = { captura: "capture", validacion: "validation", vigencia: "validity", cobranza: "payment" };
 const WORK_AREAS = ["captura", "validacion", "vigencia", "cobranza"];
-const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
+const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", atencion: "Atención a Clientes", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
 const STAGES = [["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completado"]];
 
 const AREA_INTRO = {
+  atencion: "Clientes con su trámite completado, casos que Mia canaliza y clientes activos que vuelven a escribir. Se asignan por turnos.",
   observador: "Sigue en qué etapa va cada venta, de Captura a Cobranza. Solo lectura: puedes ver los expedientes, pero no modificarlos.",
   captura: "Expedientes autorizados por el cliente, listos para dar de alta.",
   validacion: "Altas capturadas que esperan revisión de datos y documentos.",
@@ -354,6 +355,7 @@ async function start() {
   renderShell();
   await renderView();
   if (state.saleId) await openSale(state.saleId, { push: false });
+  if (params.get("case")) await openCase(params.get("case"));
   startEvents();
 }
 
@@ -369,6 +371,7 @@ async function go(view) {
   state.view = view;
   state.filter = { assignee: "all", docs: "all", search: "", queue: "active" };
   closePanel(false);
+  closeCasePanel();
   syncUrl();
   renderShell();
   await renderView();
@@ -458,6 +461,7 @@ async function renderView() {
   if (WORK_AREAS.includes(state.view)) return renderWorkArea(view);
   if (state.view === "supervision") return renderSupervision(view);
   if (state.view === "observador") return renderObserver(view);
+  if (state.view === "atencion") return renderCustomerService(view);
   if (state.view === "admin") return renderAdmin(view);
 }
 
@@ -781,12 +785,13 @@ function renderPanel() {
 }
 
 // Conversación de WhatsApp dentro del expediente (solo lectura), para no entrar a Chatwoot.
-async function loadSaleChat(saleId) {
+async function loadSaleChat(saleId) { return loadChat(`/operations/api/sales/${encodeURIComponent(saleId)}/conversation`, saleId); }
+async function loadChat(url, ownerId) {
   const box = document.getElementById("sale-chat");
   if (!box) return;
   try {
-    const result = await api(`/operations/api/sales/${encodeURIComponent(saleId)}/conversation`);
-    if (state.saleId !== saleId) return;
+    const result = await api(url);
+    if (state.saleId !== ownerId && state.caseId !== ownerId) return;
     const items = result.items || [];
     if (!items.length) { box.innerHTML = `<p class="muted">${result.available === false ? "Este expediente no tiene conversación ligada." : "Sin mensajes."}</p>`; return; }
     box.innerHTML = items.map(m => {
@@ -1078,6 +1083,7 @@ async function userAction(action, username) {
       { name: "name", label: "Nombre completo", required: true },
       { name: "username", label: "Usuario", required: true, placeholder: "ej. ana.lopez", help: "Minúsculas, números, punto o guion. Lo usará para iniciar sesión." },
       { name: "areas", label: "Áreas", type: "checkboxes", options: areaOptions },
+      { name: "chatwoot_agent_id", label: "ID de Chatwoot (opcional)", placeholder: "ej. 31", help: "Necesario en Atención a Clientes para asignarle las conversaciones en Chatwoot." },
       { name: "password", label: "Contraseña temporal", required: true, minlength: 10, value: password, mono: true, help: "Compártela por un medio privado; la persona puede cambiarla después." },
     ], confirm: "Agregar", area: "admin" });
     if (data) done = await run(() => api("/operations/api/admin/users", { method: "POST", body: data }), `${data.name} agregado`);
@@ -1086,6 +1092,7 @@ async function userAction(action, username) {
     const data = await ask({ title: `Editar a ${user.name}`, fields: [
       { name: "name", label: "Nombre completo", required: true, value: user.name },
       { name: "areas", label: "Áreas", type: "checkboxes", options: areaOptions, value: user.areas },
+      { name: "chatwoot_agent_id", label: "ID de Chatwoot (opcional)", value: user.chatwoot_agent_id ?? "", help: "Necesario en Atención a Clientes para asignarle las conversaciones en Chatwoot." },
     ], confirm: "Guardar cambios", area: "admin" });
     if (data) done = await run(() => api(`/operations/api/admin/users/${encodeURIComponent(username)}`, { method: "PATCH", body: data }), "Cambios guardados");
   }
@@ -1266,11 +1273,151 @@ function startEvents() {
     try { data = JSON.parse(message.data); } catch {}
     if (data.type === "connected") return;
     if (data.type === "notify") { handleNotify(data.notification || {}); return; }
+    if (data.type === "case") { refreshCasesSoon(data.case_id); return; }
     refreshSoon({ sale_id: data.sale?.sale_id || data.sale_id || null });
   };
   state.events = source;
 }
 function stopEvents() { state.events?.close(); state.events = null; }
+
+// ── Atención a Clientes ────────────────────────────────────────────────
+const CASE_STATUS_TEXT = { new: "Nuevo", in_progress: "Atendiendo", following: "En seguimiento", resolved: "Atendido" };
+state.cases = [];
+state.caseFilter = "open";
+state.caseId = null;
+
+async function loadCases() {
+  try { state.cases = (await api("/operations/api/cases")).items || []; } catch { state.cases = []; }
+}
+
+function filteredCases() {
+  const me = state.me.user.username;
+  const f = state.caseFilter;
+  return state.cases.filter(c => f === "open" ? ["new", "in_progress", "following"].includes(c.status)
+    : f === "mine" ? c.assignee?.username === me && c.status !== "resolved"
+    : f === "unassigned" ? !c.assignee && c.status !== "resolved"
+    : c.status === f);
+}
+
+function sinceLabel(iso) {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso || 0)) / 60000));
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} d`;
+}
+
+async function renderCustomerService(view) {
+  view.style.setProperty("--area", areaVar("atencion"));
+  await loadCases();
+  const me = state.me.user.username;
+  const counts = {
+    open: state.cases.filter(c => c.status !== "resolved").length,
+    mine: state.cases.filter(c => c.assignee?.username === me && c.status !== "resolved").length,
+    unassigned: state.cases.filter(c => !c.assignee && c.status !== "resolved").length,
+  };
+  const items = filteredCases();
+  const rows = items.length ? `<div class="queue-row queue-head case-row" role="row"><span>Cliente</span><span>Motivo</span><span>Estado</span><span>Responsable</span><span>Desde</span></div>` + items.map(c => `<button class="queue-row case-row" role="row" data-case="${esc(c.case_id)}" style="--area:${areaVar("atencion")}" ${state.caseId === c.case_id ? 'aria-current="true"' : ""}>
+      <span class="cell-customer"><strong>${esc(c.customer?.nombre || "Cliente sin nombre")}</strong><small class="mono">${esc(c.case_id)}</small></span>
+      <span>${esc(c.kind_label)}${c.reason ? `<span class="cell-sub">${esc(c.reason.slice(0, 70))}</span>` : ""}</span>
+      <span><span class="tag ${c.status === "new" ? "warn" : c.status === "resolved" ? "ok" : ""}">${esc(CASE_STATUS_TEXT[c.status] || c.status)}</span></span>
+      <span>${c.assignee ? esc(c.assignee.name) : '<span class="muted">Sin asignar</span>'}</span>
+      <span>${esc(sinceLabel(c.created_at))}</span>
+    </button>`).join("") : `<div class="empty"><strong>Sin casos</strong>No hay casos con este filtro.</div>`;
+  view.innerHTML = `
+    ${pageHead("atencion", "Atención a Clientes", AREA_INTRO.atencion, `<p class="muted" style="margin:0">${plural(counts.open, "caso abierto", "casos abiertos")}${counts.mine ? `, ${counts.mine} tuyos` : ""}</p>`)}
+    <div class="toolbar"><div class="segmented" role="group">${[["open", `Abiertos (${counts.open})`], ["mine", `Míos (${counts.mine})`], ["unassigned", `Sin asignar (${counts.unassigned})`], ["following", "En seguimiento"], ["resolved", "Atendidos"]].map(([k, l]) => `<button data-case-filter="${k}" aria-pressed="${state.caseFilter === k}">${esc(l)}</button>`).join("")}</div></div>
+    <div class="queue" role="table" aria-label="Casos de Atención a Clientes">${rows}</div>`;
+}
+
+const refreshCasesSoon = debounce(async caseId => {
+  if (state.view === "atencion" && !document.querySelector("dialog[open]")) await renderView();
+  if (state.caseId && state.caseId === caseId && !document.querySelector("dialog[open]")) await openCase(caseId, { keepScroll: true });
+}, 400);
+
+function closeCasePanel() {
+  state.caseId = null; state.caseData = null;
+  document.getElementById("panel")?.remove();
+  document.getElementById("scrim")?.remove();
+}
+
+async function openCase(id) {
+  closePanel(false);
+  state.caseId = id;
+  let result;
+  try { result = await api(`/operations/api/cases/${encodeURIComponent(id)}`); }
+  catch (error) { toast(error.message, "bad"); state.caseId = null; return; }
+  state.caseData = result;
+  const c = result.case;
+  const me = state.me.user.username;
+  const buttons = [];
+  if (hasArea("atencion") && c.assignee?.username !== me && (!c.assignee || hasArea("supervision"))) buttons.push(`<button class="btn small" data-case-act="take">Tomar caso</button>`);
+  if (result.can.work && c.status !== "resolved") {
+    if (c.status !== "in_progress") buttons.push(`<button class="btn small primary" data-case-act="in_progress">Atendiendo</button>`);
+    if (c.status !== "following") buttons.push(`<button class="btn small" data-case-act="following">En seguimiento</button>`);
+    buttons.push(`<button class="btn small" data-case-act="resolved">Marcar como atendido</button>`);
+  }
+  if (result.can.work && c.status === "resolved") buttons.push(`<button class="btn small" data-case-act="in_progress">Reabrir</button>`);
+  if (result.can.assign && c.status !== "resolved") buttons.push(`<button class="btn small" data-case-act="assign">Reasignar a…</button>`);
+  const history = [...(c.events || [])].reverse().map(e => {
+    const d = e.details || {};
+    const what = { "case.created": "Caso creado", "case.assigned": d.by_rotation ? `Asignado por rotación a ${d.to_name}` : `Asignado a ${d.to_name}`, "case.unassigned": "Sin responsable disponible", "case.in_progress": "Atendiendo", "case.following": "En seguimiento", "case.resolved": "Atendido", "case.new": "Reabierto", "case.note": "Nuevo motivo" }[e.type] || e.type;
+    return `<li class="${e.actor ? "person" : ""}"><div><div class="what">${esc(what)}</div>${d.note ? `<div>${esc(d.note)}</div>` : ""}${e.type === "case.assigned" && d.chatwoot === false ? `<div class="muted">No se asignó en Chatwoot (falta su ID de Chatwoot en Admin)</div>` : ""}<div class="meta">${esc(actorName(e.actor))}, ${esc(dateTime(e.at))}</div></div></li>`;
+  }).join("");
+  const html = `
+    <div class="scrim" id="scrim" data-act="close-case"></div>
+    <aside class="panel" id="panel" style="--area:${areaVar("atencion")}" role="dialog" aria-modal="false" aria-labelledby="panel-title">
+      <div class="panel-head"><div class="top"><div><h2 id="panel-title">${esc(c.customer?.nombre || "Cliente sin nombre")}</h2><div class="folio mono">${esc(c.case_id)}</div></div><button class="btn quiet" data-act="close-case" aria-label="Cerrar caso">Cerrar</button></div></div>
+      <div class="panel-body">
+        <section>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="tag area" style="--area:${areaVar("atencion")}">${esc(c.kind_label)}</span><span class="tag">${esc(CASE_STATUS_TEXT[c.status] || c.status)}</span></div>
+          ${c.reason ? `<p style="margin:10px 0 0">${esc(c.reason)}</p>` : ""}
+          <div style="margin-top:12px"><span class="muted">Responsable:</span> <strong>${c.assignee ? esc(c.assignee.name) : "Sin asignar"}</strong></div>
+          ${buttons.length ? `<div class="actions" style="margin-top:12px">${buttons.join("")}</div>` : ""}
+        </section>
+        <section><h3>Datos</h3><dl class="facts">
+          <div><dt>Teléfono</dt><dd>${c.customer?.telefono ? `<span class="mono">${esc(c.customer.telefono)}</span>` : "—"}</dd></div>
+          <div><dt>Plan</dt><dd>${esc(planLabel(c.customer?.plan))}</dd></div>
+          <div><dt>Abierto</dt><dd>${esc(dateTime(c.created_at))}</dd></div>
+          <div><dt>Conversación</dt><dd>${result.links.chatwoot ? `<a href="${esc(result.links.chatwoot)}" target="_blank" rel="noopener">Abrir en Chatwoot</a>` : "Ver abajo"}</dd></div>
+          ${result.links.sale ? `<div><dt>Expediente</dt><dd><a href="#" data-open-sale="${esc(result.links.sale)}">${esc(result.links.sale)}</a></dd></div>` : ""}
+        </dl></section>
+        ${c.conversation_id ? `<section id="sale-chat-section"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">Conversación con el cliente</h3><button class="btn quiet small" data-act="reload-chat">Actualizar</button></div><div id="sale-chat" class="sale-chat"><p class="muted">Cargando conversación…</p></div></section>` : ""}
+        <section><h3>Historial</h3><ol class="timeline">${history}</ol></section>
+      </div>
+    </aside>`;
+  document.getElementById("panel")?.remove();
+  document.getElementById("scrim")?.remove();
+  document.body.insertAdjacentHTML("beforeend", html);
+  for (const row of document.querySelectorAll(".queue-row[data-case]")) row.toggleAttribute("aria-current", row.dataset.case === id);
+  if (c.conversation_id) loadChat(`/operations/api/cases/${encodeURIComponent(id)}/conversation`, id);
+}
+
+async function caseAction(action) {
+  const c = state.caseData?.case;
+  if (!c) return;
+  const id = encodeURIComponent(c.case_id);
+  const post = (path, body = {}, message) => run(() => api(`/operations/api/cases/${id}/${path}`, { method: "POST", body }), message);
+  let done = null;
+  if (action === "take") done = await post("take", {}, "Caso tomado");
+  if (action === "in_progress") done = await post("status", { status: "in_progress" }, "Caso en atención");
+  if (action === "following") {
+    const data = await ask({ title: "Dejar en seguimiento", fields: [{ name: "note", label: "Nota (opcional)", type: "textarea", placeholder: "Ej. le llamo mañana para confirmar su clínica" }], confirm: "Guardar", area: "atencion" });
+    if (data) done = await post("status", { status: "following", note: data.note }, "Caso en seguimiento");
+  }
+  if (action === "resolved") {
+    const data = await ask({ title: "Marcar como atendido", fields: [{ name: "note", label: "¿Qué se resolvió?", type: "textarea", required: true }], confirm: "Marcar como atendido", area: "atencion" });
+    if (data) done = await post("status", { status: "resolved", note: data.note }, "Caso atendido");
+  }
+  if (action === "assign") {
+    const people = await run(() => api("/operations/api/cases/people"));
+    if (!people) return;
+    const options = people.items.map(p => [p.username, `${p.name}${p.chatwoot_agent_id ? "" : " (sin ID de Chatwoot)"}`]);
+    if (!options.length) return toast("No hay personas activas en Atención a Clientes. Agrégalas desde Admin.", "bad");
+    const data = await ask({ title: "Reasignar caso", fields: [{ name: "username", label: "Responsable", type: "select", options, value: c.assignee?.username || options[0][0] }], confirm: "Reasignar", area: "supervision" });
+    if (data) done = await post("assign", { username: data.username }, "Caso reasignado");
+  }
+  if (done) { await openCase(c.case_id); if (state.view === "atencion") await renderView(); }
+}
 
 // ── Avisos (sonido, aviso del sistema y Web Push) ──────────────────────
 // Llegan por el canal en vivo (SSE) mientras la página está abierta y por Web Push al celular o la
@@ -1304,6 +1451,8 @@ async function initNotifications() {
     const url = event.data?.url ? new URL(event.data.url, location.origin) : null;
     const id = url?.pathname.match(/^\/operations\/sales\/([^/]+)/)?.[1];
     if (id) openSale(decodeURIComponent(id));
+    const caseId = url?.searchParams.get("case");
+    if (caseId) { if (state.view !== "atencion" && state.me.areas.some(a => a.key === "atencion")) go("atencion").then(() => openCase(caseId)); else openCase(caseId); }
   });
 }
 
@@ -1383,7 +1532,7 @@ function handleNotify(n) {
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
-  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act]");
+  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale]");
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.act === "logout") return logout();
@@ -1392,7 +1541,12 @@ document.addEventListener("click", async event => {
   if (target.dataset.act === "password") return changePassword();
   if (target.dataset.act === "mia-toggle") return toggleMia();
   if (target.dataset.act === "close-panel") return closePanel();
-  if (target.dataset.act === "reload-chat") return state.saleId && loadSaleChat(state.saleId);
+  if (target.dataset.act === "close-case") return closeCasePanel();
+  if (target.dataset.act === "reload-chat") return state.caseId ? loadChat(`/operations/api/cases/${encodeURIComponent(state.caseId)}/conversation`, state.caseId) : state.saleId && loadSaleChat(state.saleId);
+  if (target.dataset.case) return openCase(target.dataset.case);
+  if (target.dataset.caseAct) { target.disabled = true; try { await caseAction(target.dataset.caseAct); } finally { target.disabled = false; } return; }
+  if (target.dataset.caseFilter) { state.caseFilter = target.dataset.caseFilter; return renderView(); }
+  if (target.dataset.openSale) { closeCasePanel(); return openSale(target.dataset.openSale); }
   if (target.dataset.act === "goto-chat") { event.preventDefault(); return document.getElementById("sale-chat-section")?.scrollIntoView({ behavior: "smooth" }); }
   if (target.dataset.sale) return openSale(target.dataset.sale);
   if (target.dataset.saleLink) { event.preventDefault(); return openSale(target.dataset.saleLink); }

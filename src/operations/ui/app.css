@@ -21,6 +21,7 @@
   --area-cobranza: #a8670f;
   --area-supervision: #2f4357;
   --area-observador: #5b6b7a;
+  --area-atencion: #7a4f9c;
   --area-admin: #59636f;
 
   --font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -54,6 +55,7 @@
     --area-cobranza: #e0a548;
     --area-supervision: #9fb3c7;
     --area-observador: #b4c0cc;
+    --area-atencion: #c3a3dc;
     --area-admin: #a9b3be;
     --shadow-panel: -12px 0 32px rgba(0, 0, 0, 0.45);
     color-scheme: dark;
@@ -409,3 +411,10 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 .chat-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chat-img img { display: block; max-width: 180px; max-height: 180px; border-radius: 8px; object-fit: cover; }
 .chat-files audio { max-width: 240px; }
+
+.queue-row.case-row { grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 1.4fr) 130px minmax(120px, 1fr) 80px; }
+@media (max-width: 980px) {
+  .queue-row.case-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .queue-row.case-row > :nth-child(2), .queue-row.case-row > :nth-child(4) { display: none; }
+  .queue-row.case-row > :nth-child(3) { display: block; }
+}

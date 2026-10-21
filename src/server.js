@@ -17,6 +17,8 @@ import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
 import { createOperationsRouter } from "./operations/operations-router.js";
 import { PushStore } from "./operations/notifications/push-store.js";
 import { OpsNotifier } from "./operations/notifications/ops-notifier.js";
+import { CaseStore } from "./operations/customer-service/case-store.js";
+import { CustomerService } from "./operations/customer-service/customer-service.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
 import { webhookEventAllowedForAgent } from "./utils/webhook-isolation.js";
 import { UserStore } from "./operations/access/user-store.js";
@@ -95,6 +97,13 @@ try {
   processor.requeue = (id, ids) => buffer.requeue(id, ids);
   processor.onValidityReply = id => workflowBridge.deliverAwaitingValidity(id);
   processor.onOperationsCustomerMessage = (sale, text) => opsNotifier.customerMessage(sale, text);
+  // Atención a Clientes: casos con responsable por rotación (también asignados en Chatwoot).
+  const caseStore = new CaseStore(path.join(config.storage.dataDir, "customer-service-cases.json"));
+  const customerService = new CustomerService({ store: caseStore, users: opsUsers, chatwoot, notifier: opsNotifier, isOpen: () => processor.inSchedule() });
+  customerService.start();
+  workflowBridge.onCompletedSale = sale => customerService.openCase({ conversation_id: sale.conversation_id, kind: "completed_sale", reason: "Pago validado: trámite completado", sale });
+  processor.onCustomerServiceCase = input => customerService.openCase(input);
+  processor.onCustomerServiceMessage = (conversationId, text, sale) => customerService.customerWrote(conversationId, text, { sale });
   // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
   if (followUps) {
     followUps.isOpen = now => processor.inSchedule(now);
@@ -167,7 +176,7 @@ try {
     return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
   });
 
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService }));
   const miaConsole = new MiaConsole({ config, memories, inspectorEvents, afterHours, followUps, operationsConfig, chatwoot, selfSenders,
     testFile: path.join(config.storage.dataDir, "inspector-test-conversations.json"),
     isOpen: now => processor.inSchedule(now), isMiaPaused: () => opsSettings.miaPaused() });

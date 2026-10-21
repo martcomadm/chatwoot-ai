@@ -10,6 +10,7 @@ export const AREAS = Object.freeze([
   { key: "validacion", label: "Validación", queue: "validation" },
   { key: "vigencia", label: "Vigencia", queue: "validity" },
   { key: "cobranza", label: "Cobranza", queue: "payment" },
+  { key: "atencion", label: "Atención a Clientes", queue: null },
   { key: "observador", label: "Observador", queue: null },
   { key: "supervision", label: "Supervisión", queue: null },
   { key: "admin", label: "Admin", queue: null },

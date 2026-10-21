@@ -191,6 +191,8 @@ export class ConversationProcessor {
     const teamId = Number(this.config.operations.customerServiceTeamId);
     const routed = await this.chatwoot.assignTeam(conversationId, teamId);
     await this.record(conversationId, "specialized_advice_handoff", { reason, kind: specialized?.kind || "specialized_advice", team_id: teamId, routed });
+    // Caso para Atención a Clientes con responsable por rotación.
+    try { await this.onCustomerServiceCase?.({ conversation_id: conversationId, kind: "specialized", reason, customer: { nombre: memory?.nombre || null, plan: memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.recommended_plan || null } }); } catch (error) { console.error("NEXT Atención a Clientes (canalizado):", error?.message || error); }
     return routed;
   }
 
@@ -304,12 +306,12 @@ export class ConversationProcessor {
     // También se procesa (sin que Mia responda) la respuesta a la plantilla de vigencia.
     const awaitingValidity = Boolean(pendingSale?.validity?.awaiting_customer_reply);
     // Aviso a Operations: el cliente de un expediente en proceso escribió (aunque lo atienda una persona).
-    if (pendingSale && this.onOperationsCustomerMessage) {
+    {
       const incoming = [...(snapshot?.webhookMessages?.values?.() || [])].filter(m => isIncoming(m) && m?.private !== true);
-      if (incoming.length) {
-        const text = incoming.map(m => m.content || ((m.attachments || []).length ? "📎 Envió un archivo" : "")).filter(Boolean).join(" · ");
-        try { await this.onOperationsCustomerMessage(pendingSale, text); } catch {}
-      }
+      const text = incoming.map(m => m.content || ((m.attachments || []).length ? "📎 Envió un archivo" : "")).filter(Boolean).join(" · ");
+      if (incoming.length && pendingSale && this.onOperationsCustomerMessage) { try { await this.onOperationsCustomerMessage(pendingSale, text); } catch {} }
+      // Atención a Clientes: aviso a quien tiene el caso, o caso nuevo si el cliente ya completó su trámite.
+      if (incoming.length && this.onCustomerServiceMessage) { try { await this.onCustomerServiceMessage(conversationId, text, pendingSale); } catch {} }
     }
     // Se registra para que el Inspector y el .txt digan por qué Mia no contestó (antes era silencio sin rastro).
     if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity) {
