@@ -40,7 +40,8 @@ export function validateNextIsolation(config) {
 }
 
 // Mismos asesores toda la semana (oct-2026).
-export const DEFAULT_HANDOFF_AGENTS = "26:Pamela Montiel,24:Adriana Rangel,20:Jonathan Nuñez,40:Alberto Gonzalez";
+// 21-oct-2026: Tonatiuh Ramirez (31) sustituye a Adriana Rangel (24), que cambió de puesto.
+export const DEFAULT_HANDOFF_AGENTS = "26:Pamela Montiel,31:Tonatiuh Ramirez,20:Jonathan Nuñez,40:Alberto Gonzalez";
 
 export function loadConfig() {
   for (const key of required) if (!process.env[key]) throw new Error(`Falta la variable obligatoria ${key}`);

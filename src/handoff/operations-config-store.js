@@ -20,6 +20,12 @@ function normalizeAgents(items){
     });
 }
 
+// Cambios de personal que se aplican una sola vez a la rotación guardada (y a las excepciones
+// futuras), conservando el lugar en la rotación. Si después alguien la edita, no se vuelve a aplicar.
+const AGENT_REPLACEMENTS = [
+  { key: "2026-10-21-adriana-tonatiuh", from: 24, to: { id: 31, name: "Tonatiuh Ramirez" } },
+];
+
 // Rotaciones predeterminadas anteriores (antes de oct-2026).
 const LEGACY_DEFAULT_IDS = { saturday:[40,26,32], sunday:[25,20,31] };
 
@@ -58,6 +64,22 @@ export class OperationsConfigStore {
         this.state.groups[group] = current.length ? current : clone(this.defaults[group]);
       }
       this.state.exceptions = this.state.exceptions && typeof this.state.exceptions === "object" ? this.state.exceptions : {};
+      this.state.migrations = Array.isArray(this.state.migrations) ? this.state.migrations : [];
+      for(const change of AGENT_REPLACEMENTS){
+        if(this.state.migrations.includes(change.key)) continue;
+        const swap = list => { const out = []; for(const agent of list || []){ const next = Number(agent?.id) === change.from ? change.to : agent; if(!out.some(a=>Number(a.id)===Number(next.id))) out.push({...next}); } return out; };
+        const changed = [];
+        for(const group of ["weekday","saturday","sunday"]){
+          if((this.state.groups[group]||[]).some(a=>Number(a.id)===change.from)){ this.state.groups[group] = swap(this.state.groups[group]); changed.push(group); }
+        }
+        const today = new Date().toISOString().slice(0,10);
+        for(const [date, agents] of Object.entries(this.state.exceptions)){
+          if(date >= today && (agents||[]).some(a=>Number(a?.id)===change.from)){ this.state.exceptions[date] = swap(agents); changed.push(date); }
+        }
+        this.state.agents = (this.state.agents||[]).filter(a=>Number(a?.id)!==change.from);
+        this.state.migrations.push(change.key);
+        if(changed.length) this.audit("rotation_agent_replaced", "sistema", { from: change.from, to: change.to, where: changed });
+      }
       const catalog = [];
       for(const group of ["weekday","saturday","sunday"]){
         for(const agent of this.state.groups[group] || []){

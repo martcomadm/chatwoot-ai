@@ -44,7 +44,7 @@ test("plantillas: se envían con el nombre e idioma sincronizados en el inbox", 
   assert.equal((await off.send(10, "referral")).reason, "disabled");
 });
 
-test("rotación predeterminada toda la semana: Pamela, Adriana, Jonathan y Alberto", () => {
+test("rotación predeterminada toda la semana: Pamela, Tonatiuh, Jonathan y Alberto", () => {
   const base = { CHATWOOT_BASE_URL: "http://x", CHATWOOT_API_TOKEN: "t", CHATWOOT_ACCOUNT_ID: "1", CHATWOOT_INBOX_ID: "7", CHATWOOT_AI_AGENT_ID: "53", OPENAI_API_KEY: "k", APP_ENV: "next", ALLOWED_INBOX_IDS: "7", NEXT_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "next-cfg-")) };
   const keys = [...Object.keys(base), "HANDOFF_WEEKDAY_AGENTS", "HANDOFF_SATURDAY_AGENTS", "HANDOFF_SUNDAY_AGENTS", "TEMPLATE_VALIDITY", "TEMPLATE_REFERRAL", "TEMPLATE_FOLLOWUP_24H"];
   const saved = Object.fromEntries(keys.map(k => [k, process.env[k]]));
@@ -61,7 +61,7 @@ test("rotación predeterminada toda la semana: Pamela, Adriana, Jonathan y Alber
         process.env[key] = key.endsWith("_ID") ? "53" : "x";
       }
     }
-    for (const group of ["weekdayAgents", "saturdayAgents", "sundayAgents"]) assert.deepEqual(config.handoff[group].map(a => a.id), [26, 24, 20, 40], group);
+    for (const group of ["weekdayAgents", "saturdayAgents", "sundayAgents"]) assert.deepEqual(config.handoff[group].map(a => a.id), [26, 31, 20, 40], group);
     assert.deepEqual(config.whatsappTemplates, NAMES);
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
@@ -238,7 +238,7 @@ test("la rotación guardada de fin de semana (la vieja predeterminada) pasa a lo
     sunday: [{ id: 25, name: "Elizabeth Aguilera" }, { id: 20, name: "Jonathan Nuñez" }, { id: 31, name: "Tonatiuh Ramirez" }],
   } }));
   const store = new OperationsConfigStore(file, { weekday: agents, saturday: agents, sunday: agents });
-  for (const group of ["weekday", "saturday", "sunday"]) assert.deepEqual(store.agentsFor(group).map(a => a.id), [26, 24, 20, 40], group);
+  for (const group of ["weekday", "saturday", "sunday"]) assert.deepEqual(store.agentsFor(group).map(a => a.id), [26, 31, 20, 40], group);
   assert.ok(store.snapshot().audit.some(e => e.type === "rotation_defaults_migrated"));
 
   fs.writeFileSync(file, JSON.stringify({ groups: { saturday: [{ id: 40, name: "Alberto Gonzalez" }] } }));
