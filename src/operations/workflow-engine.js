@@ -97,6 +97,14 @@ export class SaleWorkflowEngine {
     });
   }
 
+  // Captura pide al cliente una llamada (el expediente se queda en Captura). Mia le manda el mensaje.
+  requestCall(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Solicitar llamada");
+    const note = String(payload.note || "").trim() || null;
+    return this.store.update(id, { capture: { ...sale.capture, call_requested_at: new Date().toISOString(), call_note: note } }, "capture.call_requested", { note });
+  }
+
   // Captura escribe la CURP (p. ej. la leyó de la foto que mandó el cliente) para completar el alta.
   registerCurp(id, payload = {}) {
     const sale = this.mustGet(id);

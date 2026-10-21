@@ -30,7 +30,7 @@ import { ensureAuthorizedSale } from "../operations/sale-factory.js";
 import { discussedPlan } from "../sales/progressive-disclosure.js";
 import { featureRejectionDecision } from "../sales/feature-rejection.js";
 import { isAudioAttachment } from "../ai/audio.js";
-import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT } from "../operations/onboarding-service.js";
+import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { explicitHumanRequest, acceptsAdvisorOffer } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
@@ -858,6 +858,7 @@ export class ConversationProcessor {
     memory = {
       ...memory,
       ...(decision.reply === ONBOARDING_COMPLETE_TEXT ? { onboarding_complete_notified: true } : {}),
+      ...(decision.reply === CALL_ACK_TEXT ? { call_ack_at: new Date().toISOString() } : {}),
       ultima_respuesta_agente: decision.reply,
       ultima_pregunta: decision.question_key || null,
       preguntas_realizadas: decision.question_key ? arrays(memory.preguntas_realizadas, [decision.question_key]) : memory.preguntas_realizadas,

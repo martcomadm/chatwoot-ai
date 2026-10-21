@@ -54,6 +54,7 @@ export function operationsMemoryFromSale(sale = {}) {
   return {
     sale_id: sale.sale_id, status: sale.status, queue: sale.queue,
     validation_approved: Boolean(sale.validation?.approved), validation_rejected: Boolean(sale.validation?.rejected), validation_correction: sale.validation?.correction || null,
+    call_requested_at: sale.capture?.call_requested_at || null,
     validity_confirmed: Boolean(sale.validity?.confirmed), validity_confirmed_at: sale.validity?.confirmed_at || null, validity_confirmed_by: sale.validity?.confirmed_by || null, validity_issue: sale.validity?.issue || null, validity_document_name: sale.validity?.document_name || null, validity_awaiting_reply: Boolean(sale.validity?.awaiting_customer_reply),
     payment_requested: Boolean(sale.payment?.requested), payment_requested_at: sale.payment?.requested_at || null, payment_due_date: sale.payment?.due_date || null, payment_accounts_image_name: sale.payment?.accounts_image_name || null,
     payment_received: Boolean(sale.payment?.received), payment_received_at: sale.payment?.received_at || null, payment_reference: sale.payment?.reference || null, payment_proof_name: sale.payment?.proof_name || null, payment_issue: sale.payment?.issue || null,
@@ -66,6 +67,8 @@ export function operationsMemoryFromSale(sale = {}) {
 
 // Estados en los que el expediente ya salió de Captura: el aviso de "expediente completo" ya no aplica.
 const PAST_CAPTURE = new Set(["alta_processed", "waiting_validation", "validation_in_progress", "validation_approved", "validation_rejected", "waiting_validity", "validity_confirmed", "validity_issue", "payment_requested", "payment_received", "payment_issue", "payment_validated", "completed", "cancelled"]);
+
+export const CALL_ACK_TEXT = "Gracias, ya le pasé tu respuesta al asesor y te llamará a este número. Cualquier cosa, aquí sigo.";
 
 export const ONBOARDING_COMPLETE_TEXT = "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.";
 
@@ -88,6 +91,13 @@ function isCourtesyText(text = "") {
 
 export function buildOnboardingDecision(memory = {}, combinedText = "") {
   if (!memory.sales_cycle?.authorized || !memory.operations?.sale_id) return null;
+  // Captura pidió una llamada: la respuesta del cliente (su horario) se agradece una vez.
+  const callAt = Date.parse(memory.operations.call_requested_at || "");
+  if (Number.isFinite(callAt) && Date.now() - callAt < 48 * 3600 * 1000 && !(Date.parse(memory.call_ack_at || "") > callAt)
+    && String(combinedText || "").trim() && !hasCurpValue(combinedText) && !hasNssValue(combinedText)
+    && !/[?¿]/.test(combinedText) && !/\b(?:ine|curp|nss|documento|documentos|foto|fotos|archivo)\b/.test(norm(combinedText))) {
+    return { reply: CALL_ACK_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+  }
   if (memory.operations.documents_complete) {
     const last = String(memory.ultima_respuesta_agente || "").trim();
     // La primera vez se avisa que el expediente quedó completo. Después ya no se repite a cada

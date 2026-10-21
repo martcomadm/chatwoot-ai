@@ -9,6 +9,12 @@ export const CUSTOMER_MESSAGE_DEFINITIONS = Object.freeze([
     text: "Agradecemos su confianza. El trámite de afiliación ya se encuentra en proceso.\n\nEl Área de Validación se comunicará con usted para confirmar sus datos y asegurarse de que toda la información haya sido registrada correctamente.\nAdemás, por WhatsApp recibirá los Términos y Condiciones del servicio.\nLe pedimos, por favor, confirmar de enterado cuando los reciba.\n\nEl contacto se realizará desde los siguientes números:\n📞 561 485 8202\n📞 554 883 3726\n\nGracias nuevamente. Estamos para servirle.",
   },
   {
+    key: "capture.call_requested",
+    label: "Solicitud de llamada (Captura)",
+    help: "Se envía cuando Captura presiona 'Solicitar llamada'. El expediente se queda en Captura.",
+    text: "Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?",
+  },
+  {
     key: "validation.correction.requested",
     label: "Corrección solicitada al cliente",
     help: "Se envía cuando Validación pide al cliente corregir algo. {motivo} se reemplaza por lo que escribió Validación.",

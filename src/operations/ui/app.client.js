@@ -36,6 +36,7 @@ const EVENT_LABELS = {
   "documents.synced": "Documentos sincronizados",
   "capture.nss.registered": "NSS registrado",
   "capture.curp.registered": "CURP registrada",
+  "capture.call_requested": "Llamada solicitada al cliente",
   "supervision.plan_changed": "Plan cambiado",
   "customer.name_corrected": "Nombre corregido",
   "capture.started": "Captura iniciada",
@@ -642,6 +643,7 @@ function areaActions(sale) {
       add("capture-complete", "Completar alta", sale.status === "capture_in_progress" ? "primary" : "", sale.documents?.complete ? "" : `Faltan: ${(sale.documents?.missing || []).join(", ").toUpperCase()}`);
       add("capture-curp", "Registrar CURP");
       add("capture-name", "Corregir nombre");
+      add("capture-call", "Solicitar llamada");
       add("capture-nss", "Registrar NSS");
       add("documents-sync", "Actualizar documentos");
     }
@@ -820,6 +822,12 @@ async function saleAction(action) {
     case "capture-start": done = await post("capture/start", {}, "Captura iniciada"); break;
     case "capture-complete": done = await post("capture/complete", {}, "Alta capturada: pasa a Validación"); break;
     case "documents-sync": done = await post("documents/sync", {}, "Documentos actualizados"); break;
+    case "capture-call": {
+      const sent = sale.capture?.call_requested_at ? `Ya se pidió una llamada el ${dateTime(sale.capture.call_requested_at)}. ` : "";
+      const data = await ask({ title: "Solicitar llamada al cliente", text: `${sent}Mia le enviará por WhatsApp: <em>“Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?”</em> El expediente se queda en Captura.`, fields: [{ name: "note", label: "Motivo (interno, opcional)", type: "textarea", placeholder: "Ej. confirmar datos de la INE" }], confirm: "Enviar mensaje", area });
+      if (data) done = await post("capture/call", { note: data.note }, "Mensaje enviado al cliente");
+      break;
+    }
     case "capture-name":
     case "sup-name": {
       const data = await ask({ title: "Corregir nombre del cliente", text: "Escribe el nombre completo del titular como aparece en su INE o CURP.", fields: [{ name: "nombre", label: "Nombre completo", required: true, value: sale.customer?.nombre || "" }], confirm: "Guardar nombre", area: action === "sup-name" ? "supervision" : area });

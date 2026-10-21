@@ -32,6 +32,7 @@ export const ACTION_AREAS = Object.freeze({
   "documents/sync": "captura",
   "capture/nss": "captura",
   "capture/curp": "captura",
+  "capture/call": "captura",
   "capture/name": "captura",
   "supervision/name": "supervision",
   "capture/start": "captura",
