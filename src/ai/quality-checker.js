@@ -60,11 +60,14 @@ export function checkReply(reply,{memory,questionKey,maxChars=850,customerText="
   // La misma pregunta ya se hizo 2 veces (caso real 20-oct: "¿estás dado de alta en el IMSS?" 5 veces
   // a un cliente que no entendía): se deja de preguntar y se avanza.
   const repeatedKey=questionKey||(asksImssStatus(text)?"tiene_imss":null);
-  if(repeatedKey && Number(memory?.asked_counts?.[repeatedKey]||0)>=2) reasons.push(`pregunta_repetida_muchas_veces:${repeatedKey}`);
+  // Solo si la pregunta anterior también fue esa: la IA etiqueta a veces mal question_key y se tiraban
+  // respuestas buenas ("¿a qué te dedicas?", caso real 21-oct).
+  if(repeatedKey && memory?.ultima_pregunta===repeatedKey && Number(memory?.asked_counts?.[repeatedKey]||0)>=2) reasons.push(`pregunta_repetida_muchas_veces:${repeatedKey}`);
   // Antes de autorizar no se mencionan plazos de pago ni bajas, ni se inventan "cotizaciones",
   // direcciones u otro nombre de asesor (casos reales del 13 y 14 de octubre).
   if(!memory?.sales_cycle?.authorized && /(antes de las 6|d[eé] de baja|darse de baja|dar de baja el proceso)/i.test(text)) reasons.push("politica_pago_prematura");
-  if(/\bcotizaci[oó]n\b/i.test(text)) reasons.push("cotizacion_inventada");
+  // "Semanas de cotización" es normal; lo prohibido es ofrecer "preparar una cotización" (precios fijos).
+  if(/\b(?:una|la|tu|su|esta|nueva|personalizada)\s+cotizaci[oó]n\b|\bcotizaci[oó]n\s+(?:personalizada|formal|a tu medida)\b|\b(?:prepar|envi|mand|hac|elabor)\w*\s+(?:una\s+|la\s+|tu\s+)?cotizaci[oó]n\b/i.test(text) && !/\bsemanas? de cotizaci[oó]n\b/i.test(text)) reasons.push("cotizacion_inventada");
   if(/\bxochimilco\b|\bcolonia\b|\balcald[ií]a\b/i.test(text)) reasons.push("ubicacion_inventada");
   // "Parece que ese mensaje no era para nosotros" solo cabe ante cadenas o avisos largos;
   // a "No lo conozco" (respuesta a una pregunta de Mia) se le contestó eso (caso real 15-oct).
@@ -75,7 +78,9 @@ export function checkReply(reply,{memory,questionKey,maxChars=850,customerText="
   // Caso real 21-oct: "inicio tu trámite… el área de validación (validacion@martcom.com.mx) te pedirá CURP, NSS e INE"
   // sin que el sistema abriera el expediente. En la venta no se dan correos ni se da por iniciado el trámite.
   if(/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) reasons.push("menciona_correo");
-  if(!memory?.sales_cycle?.authorized && /\b(?:inicio|inici[eé]|registro|registr[eé]|abr[ií]|abro|di de alta|doy de alta)\s+(?:tu|el|su)\s+(?:tr[aá]mite|caso|expediente|alta)\b|\bya (?:qued[oó]|est[aá]) (?:iniciado|registrado) tu (?:tr[aá]mite|caso)\b/i.test(text)) reasons.push("da_por_iniciado_sin_autorizacion");
+  // Solo afirmaciones ("Inicio tu trámite", "Ya registré tu caso"), no preguntas ni ofertas
+  // ("¿Quieres que inicie el trámite?", caso real 21-oct: se tiraban respuestas buenas).
+  if(!memory?.sales_cycle?.authorized && String(text).split(/(?<=[.!?¿])\s+/).some(sentence=>!/[?¿]/.test(sentence) && !/\b(?:que|si|cuando|para|puedo|podemos|quieres|deseas|gustas)[\s,]+(?:[\w,]+\s+){0,2}(?:inicio|registro|abro|doy)\b/i.test(sentence) && /(?:^|[\s,;:])(?:inicio|inici[ée]|registro|registr[ée]|abr[ií]|abro|di de alta|doy de alta)\s+(?:tu|el|su)\s+(?:tr[aá]mite|caso|expediente|alta)\b|\bya (?:qued[oó]|est[aá]) (?:iniciado|registrado) tu (?:tr[aá]mite|caso)\b/i.test(sentence) && !/\binicie\b/i.test(sentence.match(/inici\S*/i)?.[0]||""))) reasons.push("da_por_iniciado_sin_autorizacion");
   // Este número no recibe llamadas, pero un asesor sí la regresa (casos reales 20-oct).
   if(/\bno (?:realizamos|ofrecemos|damos|manejamos|hacemos|tenemos)\s+(?:atenci[oó]n\s+(?:por|telef[oó]nica)|llamadas|atenci[oó]n por tel[eé]fono)/i.test(text)) reasons.push("niega_llamadas");
   if(!memory?.sales_cycle?.authorized && /(?:comparta|comparto|env[ií]e|env[ií]o|mande|mando|indique|indico|pase|paso)\s+(?:los\s+)?datos\s+(?:para|de)(?:l)?\s+(?:el\s+)?(?:pago|dep[oó]sito)|datos (?:bancarios|para (?:el )?pago|de pago)|cuentas? para (?:pagar|depositar)/i.test(text)) reasons.push("pago_antes_de_vigencia");

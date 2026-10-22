@@ -151,6 +151,9 @@ export function priceObjectionDecision(memory = {}, combinedText = "") {
   const value = norm(combinedText);
   const objection = /\b(?:caro|cara|costoso|costosa|barato|barata|descuento|rebaja|economico|economica|presupuesto|no me alcanza|fuera de mi presupuesto|bajar(?:me)? el precio|mejor precio|mas barato|menos caro|precio elevado|precio alto)\b/.test(value);
   if (!objection) return null;
+  // "Compárteme lo del plan 2 porque es más caro, ¿cuál es la diferencia?" (caso real 22-oct) pide la
+  // comparación, no un descuento.
+  if (/\b(?:diferencia|diferencias|que incluye|que trae|compar\w*|por que (?:es|sale|cuesta) mas|lo del plan)\b/.test(value) && !/\b(?:descuento|rebaja|no me alcanza|presupuesto|mas barato)\b/.test(value)) return null;
   const plan = effectivePlan(memory);
   const price = plan === "plan_2" ? "$1,500 MXN mensuales" : plan === "plan_1" ? "$1,100 MXN mensuales" : null;
   return {
@@ -189,7 +192,9 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   const weeksContext = Boolean(structured.weeks) || /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas)\b/.test(needText);
   const serviceContext = Boolean(structured.service_medical) || /\b(servicio medico|seguro medico|medico|beneficiarios|guarderia|maternidad)\b/.test(needText);
   const rejectsPlan2 = /\b(?:no|sin|ni)\s+(?:me interesa\s+|quiero\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b/.test(norm(combinedText));
-  const plan2Context = !rejectsPlan2 && (Boolean(structured.afore_infonavit) || /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(needText));
+  // "Me dieron el dinero y el aforé" (ya la retiró, caso real 21-oct) o "ya tengo mi afore" no piden el Plan 2.
+  const ownAfore = /\b(?:me dieron|me entregaron|retire|saque|cobre)\b.{0,30}\b(?:afore|dinero)\b|\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+)?afore\b/.test(norm(combinedText));
+  const plan2Context = !rejectsPlan2 && (Boolean(structured.afore_infonavit) || (!ownAfore && /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(needText)));
 
   if (plan === "plan_1" && retirementContext && weeksContext) {
     return {

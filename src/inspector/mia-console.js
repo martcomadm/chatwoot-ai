@@ -67,6 +67,7 @@ export const EVENT_LABELS = {
   duplicate_reply_suppressed: "Respuesta duplicada evitada",
   duplicate_turn_skipped: "Mensaje ya en proceso por otro turno",
   empty_batch_skipped: "No respondió: no encontró mensajes nuevos para atender",
+  already_answered_skip: "No respondió: otro turno de Mia ya había contestado esos mensajes",
   duplicate_turn_skipped: "Mensaje duplicado",
   authorized_sale_workflow: "Expediente abierto/actualizado",
   payment_proof_auto_detected: "Comprobante recibido",
@@ -86,7 +87,7 @@ export const EVENT_LABELS = {
 };
 
 // Eventos que explican por qué Mia no contestó; van en el .txt junto a los mensajes.
-const SILENCE_EVENTS = new Set(["empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule"]);
+const SILENCE_EVENTS = new Set(["already_answered_skip", "empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule"]);
 
 const REASON_LABELS = {
   human_replied: "Parecía que una persona ya había contestado",
@@ -134,6 +135,10 @@ const DEFERRAL_LABELS = { no_money: "Sin dinero por ahora", later: "Avisará des
 
 // Por qué se cambió lo que escribió la IA (reasons del processor y del quality-checker).
 const REPLACED_LABELS = {
+  pregunta_repetida_muchas_veces: "Repetía por tercera vez la misma pregunta",
+  da_por_iniciado_sin_autorizacion: "Daba por iniciado el trámite sin que el cliente aceptara",
+  menciona_correo: "Mencionaba un correo electrónico",
+  niega_llamadas: "Decía que no hay atención por llamada",
   fallo_ia: "La IA no respondió (error o tiempo agotado)",
   pide_frase_terminos: "Pedía escribir una frase exacta de términos y condiciones",
   pago_antes_de_vigencia: "Ofrecía datos de pago antes del alta",
@@ -403,7 +408,7 @@ export class MiaConsole {
             else if (NOTICE_RE.test(text)) { who = "mia"; label = "Aviso de horario"; }
             else if (followTexts.has(text)) { who = "mia"; label = "Seguimiento"; }
             else if (this.selfSenders?.isOwn?.(m)) { who = "mia"; label = "Mia"; }
-            return { who, label, text: m.content || "", at, attachments: (m.attachments || []).length, flags: match ? replyFlags(match, new Set(replyEvents.filter(r => ms(r.timestamp) < ms(match.timestamp)).map(r => norm(r.details?.reply)))) : [], why: match ? (match.details?.replaced_reasons || []).map(replacedReasonLabel) : [] };
+            return { who, label, text: m.content || "", at, attachments: (m.attachments || []).length, flags: match ? replyFlags(match, new Set(replyEvents.filter(r => ms(r.timestamp) < ms(match.timestamp)).map(r => norm(r.details?.reply)))) : [], why: match ? (match.details?.replaced_reasons || []).map(replacedReasonLabel) : [], draft: match?.details?.replaced_reasons?.length ? match.details?.ai_draft || null : null };
           });
       } catch (error) { transcriptError = String(error?.message || error).slice(0, 200); }
     }
@@ -496,6 +501,8 @@ export class MiaConsole {
         out.push(`[${stamp(m.at)}] ${who}${extras.length ? ` [${extras.join(" · ")}]` : ""}:`);
         out.push(String(m.text || (m.attachments ? "(solo adjunto)" : "(vacío)")).trim());
         if (m.why?.length) out.push(`   ↳ La IA había escrito otra cosa; se cambió porque: ${m.why.join("; ")}`);
+        // El borrador de la IA ayuda a revisar si el cambio estuvo bien.
+        if (m.why?.length && m.draft) out.push(`   ↳ Borrador de la IA: ${String(m.draft).replace(/\s+/g, " ").slice(0, 400)}`);
         out.push("");
       }
       out.push(line);

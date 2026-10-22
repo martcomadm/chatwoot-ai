@@ -12,7 +12,7 @@ function planPrice(plan) { return plan === "plan_2" ? "$1,500 MXN mensuales" : p
 // "Pues iniciar trámite" (caso real 21-oct) también es iniciar.
 const START_RE = /^(?:(?:pues|si|ok|bueno|entonces|claro|va|vamos a|ya)[ ,]*)*(?:iniciar|empezar|comenzar|arrancar)(?:le)?\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?(?:quiero|deseo|podemos|quiero que)\s+(?:iniciar|empezar|proceder|continuar|hacer)\s+(?:con\s+)?(?:el\s+)?(?:tramite|proceso|alta)|\b(?:iniciemos|empecemos|empezemos|procedamos)\b|\badelante con (?:el )?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?me interesa[, ]+(?:iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/;
 // También "Para el plan 1", "con el plan 2", "mejor el 1" (caso real 20-oct).
-const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)\s+(?:el\s+)?plan\s*(1|uno|2|dos)(?:\s+(?:por favor|porfa|mejor|entonces))?[ .!]*$|\bmejor el (?:plan\s*)?(?:1|uno|2|dos)\b/;
+const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo|seria|sera|va a ser)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)\s+(?:el\s+)?plan\s*(1|uno|2|dos)(?:\s+(?:por favor|porfa|mejor|entonces))?[ .!]*$|\bmejor el (?:plan\s*)?(?:1|uno|2|dos)\b/;
 const INTEREST_ONLY_RE = /\bme interesa(?:\s+(?:adquirir|contratar|tomar|elegir|escoger))?(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|\b(?:quiero|deseo)\s+(?:adquirir|contratar|tomar)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
 
 export function commitmentDecision(memory = {}, combinedText = "") {

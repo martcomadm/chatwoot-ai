@@ -52,7 +52,7 @@ export function onboardingStateFromSale(sale = {}) {
 // completo" a un cliente que ya está en Cobranza (caso real 19-oct).
 export function operationsMemoryFromSale(sale = {}) {
   return {
-    sale_id: sale.sale_id, status: sale.status, queue: sale.queue,
+    sale_id: sale.sale_id, status: sale.status, queue: sale.queue, plan: sale.sale?.plan || null,
     validation_approved: Boolean(sale.validation?.approved), validation_rejected: Boolean(sale.validation?.rejected), validation_correction: sale.validation?.correction || null,
     call_requested_at: sale.capture?.call_requested_at || null,
     validity_confirmed: Boolean(sale.validity?.confirmed), validity_confirmed_at: sale.validity?.confirmed_at || null, validity_confirmed_by: sale.validity?.confirmed_by || null, validity_issue: sale.validity?.issue || null, validity_document_name: sale.validity?.document_name || null, validity_awaiting_reply: Boolean(sale.validity?.awaiting_customer_reply),
@@ -72,7 +72,9 @@ export const CALL_ACK_TEXT = "Gracias, ya le pasé tu respuesta al asesor y te l
 
 export const PAYMENT_HOW_TEXT = "El pago se hace hasta que tu alta esté vigente: primero te enviamos tu documento de vigencia y después nuestra área de Cobranza te comparte por aquí los datos para tu primer pago, que puedes hacer por transferencia, depósito u OXXO.";
 
-export const DOCS_LATER_TEXT = "Claro, sin problema. Cuando lo tengas, envíamelo por aquí y seguimos con tu trámite.";
+export const NSS_HELP_TEXT = "El NSS es tu Número de Seguridad Social: un número de 11 dígitos que te asigna el IMSS. Lo encuentras en tu constancia de semanas cotizadas, en la app IMSS Digital o en papeles del IMSS de algún trabajo anterior. Si no lo tienes, no te preocupes: con tu CURP lo podemos localizar.";
+
+export const DOCS_LATER_TEXT = "Claro, sin problema. Cuando tengas tus documentos, envíamelos por aquí y seguimos con tu trámite.";
 
 export const ONBOARDING_COMPLETE_TEXT = "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.";
 
@@ -127,6 +129,19 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
       }
       if (/\b(?:no pude|no he podido|no alcance|lo hago|lo realizo|deposito|pago|hago el deposito|hago el pago)\b.{0,40}\b(?:ratito|rato|al rato|mas tarde|manana|hoy|en la tarde|en un momento|ahorita|despues|luego)\b|\b(?:ahorita|al rato|mas tarde|manana|en un ratito)\b.{0,25}\b(?:deposito|pago|lo hago|lo realizo)\b/.test(t)) {
         return { reply: "Claro, sin problema. Cuando lo realices, envíame por aquí tu comprobante, por favor.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+      }
+    }
+    // "Paquete 2" con el expediente ya completo (caso real 22-oct, quedó sin respuesta): se le confirma
+    // con qué plan va y, si pide otro, se avisa al equipo (Operaciones ya recibe el aviso del mensaje).
+    {
+      const t = norm(combinedText);
+      const asked = t.match(/^(?:(?:quiero|mejor|seria|prefiero|el|es el|para el|cambiar al?|cambiame al?)\s+)*(?:plan|paquete)\s*(1|2|uno|dos)\b/)?.[1];
+      if (asked && t.split(" ").length <= 6) {
+        const wanted = /^(?:2|dos)$/.test(asked) ? "plan_2" : "plan_1";
+        const current = ops.plan || memory.sales_cycle?.selected_plan || memory.sales_cycle?.recommended_plan || null;
+        const label = p => p === "plan_2" ? "Plan 2 ($1,500 MXN mensuales)" : "Plan 1 ($1,100 MXN mensuales)";
+        const reply = current === wanted ? `Sí, tu trámite va con el ${label(wanted)}.` : `Anotado: quieres el ${label(wanted)}. Ya le aviso al equipo para que lo actualice en tu trámite y te confirmo por aquí.`;
+        return { reply, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true, plan_change_request: current === wanted ? null : wanted };
       }
     }
     // "¿Y para realizar los pagos?" antes de Cobranza (caso real 20-oct): se explica cuándo y cómo se paga.
@@ -186,9 +201,14 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   // suprimía como duplicada, y el cliente se quedaba sin respuesta.
   if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
     && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso))\b/.test(text)
-    && /\b(?:envio|mando|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?)\b/.test(text)
+    && /\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos)\b/.test(text)
     && String(memory.ultima_respuesta_agente || "").trim() !== DOCS_LATER_TEXT) {
     return { reply: DOCS_LATER_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
+  }
+  // "¿Qué es NSS?", "¿a cuál se refiere?" (casos reales 21-oct: se repetía la solicitud y luego silencio).
+  const nssPending = memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss";
+  if (nssPending && /\b(?:que es (?:el |un )?(?:nss|numero de seguro)|que significa nss|cual (?:es el )?nss|a cual se refiere|cual numero|no se que es|que numero)\b/.test(text)) {
+    return { reply: NSS_HELP_TEXT, question_key: "nss", add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: "nss", priority: true };
   }
   const looksLikeQuestion = /\?|\b(cuanto|cuánto|como|cómo|cuando|cuándo|donde|dónde|por que|por qué|puedo|puede|incluye|cuesta|tarda|pago|proceso)\b/.test(text);
   const containsRequestedData = hasCurpValue(combinedText) || hasNssValue(combinedText);

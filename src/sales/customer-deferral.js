@@ -45,6 +45,7 @@ const LATER_RE = [
   /\b(?:salgo|voy) (?:a ver|aber|haber|a buscar)\b.{0,30}\b(?:consigo|conseguir|junto|juntar|dinero|lana)\b/,
   // "Mañana ok necesito checar mi número de IMSS", "Voy a buscar los papeles" (casos reales 20 y 21-oct).
   /^(?:ok\s+|bueno\s+|si\s+)?manana\b|\b(?:necesito|tengo que|voy a|deja|dejame|dejeme)\s+(?:checar|buscar|revisar|ver|conseguir|sacar|localizar)\s+(?:mi|mis|el|la|los|las)\s+(?:numero|nss|curp|ine|papeles|documentos|datos|credencial)\b/,
+  /\b(?:podemos|puedo|quiero)\s+(?:iniciar|empezar|comenzar)\b.{0,25}\b(?:el lunes|el martes|el miercoles|el jueves|el viernes|el sabado|el domingo|manana|la otra semana|la proxima semana|despues|luego|mas tarde)\b|\b(?:llegando|cuando llegue|al llegar)\b.{0,25}\b(?:los|las|lo|la)\s+(?:busco|mando|envio|paso|checo)\b|\b(?:te|se|le)\s+(?:lo|la|los|las)\s+(?:mando|envio|paso)\s+(?:en un rato|al rato|mas tarde|manana|en (?:una|dos|tres|unas) horas?)\b|\ben (?:una|dos|tres|unas|un par de) horas?\b.{0,20}\b(?:te|se|le)\s+(?:lo|la|los|las)\s+(?:mando|envio|paso)\b/,
   /\bestoy en espera de\b|\btodavia no (?:lo )?(?:decido|se|tengo)\b|\bno gracias,? (?:despues|luego|mas adelante)\b/,
 ];
 
@@ -59,6 +60,8 @@ function asksSomething(text) {
 export function detectDeferral(text) {
   const value = norm(text);
   if (!value || /[?¿]/.test(String(text))) return null;
+  // "Que costos tienen para platicarlo con mi pareja" (caso real 21-oct): primero el precio.
+  if (/\b(?:cuanto|costos?|precios?|cuesta|cobran|mensualidad)\b/.test(value) && !NO_MONEY_RE.some(re => re.test(value))) return null;
   if (NO_MONEY_RE.some(re => re.test(value))) return "no_money";
   if (LATER_RE.some(re => re.test(value))) return "later";
   return null;
@@ -101,6 +104,7 @@ const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^(?:muchas 
 
 const NOT_FIT_RE = /\bno (?:es|era) (?:lo que|el (?:servicio|plan) que) (?:busco|buscaba|necesito|necesitaba|quiero|queria|ocupo)\b|\bno (?:es|era) (?:para mi|lo mio)\b|\bno me (?:sirve|funciona)\b(?! (?:el|la) (?:plan|horario))/;
 const NOT_FIT_MARK = "qué es lo que buscas";
+const START_LATER_MARK = "envíamelos por aquí y arrancamos tu trámite";
 
 // Mensajes de cortesía que no piden nada ("Ok", "Gracias", "👍", "No gracias, yo les aviso").
 export function isCourtesy(text) {
@@ -123,7 +127,9 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   if (closedBefore && isCourtesy(combinedText)) {
     return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: detectDeferral(combinedText) || "closing" };
   }
-  if (!resumedAfterHours && Boolean(memory.ultima_respuesta_agente) && DECLINE_RE.test(norm(combinedText)) && !/[?¿]/.test(String(combinedText))) {
+  // "No de momento, ando en la calle, pero en dos horas te lo mando" (caso real 22-oct) no es rechazo.
+  const declines = DECLINE_RE.test(norm(combinedText)) && !/\b(?:pero|te lo|te los|se lo|se los|le mando|te mando|te envio|al rato|en un rato|horas|manana|luego)\b/.test(norm(combinedText));
+  if (!resumedAfterHours && Boolean(memory.ultima_respuesta_agente) && declines && !/[?¿]/.test(String(combinedText))) {
     const name = firstName(memory);
     return { reply: `Entendido${name}, gracias por tu tiempo. Si más adelante te interesa, ${CLOSING_MARK} y con gusto te ayudo.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: "declined" };
   }
@@ -143,7 +149,11 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   const plan = planLabel(memory);
   const alreadyClosed = String(memory.ultima_respuesta_agente || "").includes(CLOSING_MARK);
   let reply;
-  if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
+  // Quiere iniciar pero después ("Podemos iniciar el trámite el lunes, voy a buscar mis papeles",
+  // "mañana le envío papeles"; casos reales 21 y 22-oct): se le dice qué tener listo.
+  const startLater = kind === "later" && /\b(?:papeles|documentos|curp|nss|ine|iniciar|empezar|tramite)\b/.test(norm(combinedText));
+  if (startLater) reply = String(memory.ultima_respuesta_agente || "").includes(START_LATER_MARK) ? "" : `Perfecto${name}. Cuando tengas a la mano tu CURP, NSS e INE, ${START_LATER_MARK}${plan ? ` con ${plan}` : ""}.`;
+  else if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
   else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando puedas, ${CLOSING_MARK} y con gusto continuamos con tu trámite. Aquí estaré para ayudarte.`;
   // Un "gracias" después de que Mia ya se despidió no necesita otra respuesta.
   else reply = alreadyClosed ? "" : `Con gusto${name}. Quedo al pendiente; cuando quieras continuar, ${CLOSING_MARK}.`;
@@ -151,6 +161,6 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
     reply,
     question_key: null,
     add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
-    deferral: kind || "closing",
+    deferral: startLater ? "start_later" : kind || "closing",
   };
 }

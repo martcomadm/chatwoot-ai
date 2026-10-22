@@ -32,6 +32,7 @@ import { featureRejectionDecision } from "../sales/feature-rejection.js";
 import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
+import { fixCommonTypos } from "../semantic/typos.js";
 import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
@@ -112,6 +113,16 @@ function recoverCommercialContext(conversation, memory = {}) {
   const plan = /\bplan\s*(2|dos)\b/.test(recent) ? "plan_2" : /\bplan\s*(1|uno)\b/.test(recent) ? "plan_1" : null;
   if (!plan) return memory;
   return { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), stage: memory.sales_cycle?.stage || "plan_recommended", recommended_plan: plan } };
+}
+
+// Una respuesta de la IA un poco larga se recorta en la última oración completa (antes se tiraba toda y
+// salía "¿Tienes alguna duda…?", caso real 22-oct al explicar el Plan 2).
+export function fitLength(reply = "", max = 850) {
+  const text = String(reply || "").trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf(".\n"), cut.lastIndexOf("\n"));
+  return end > max * 0.5 ? cut.slice(0, end + 1).trim() : text;
 }
 
 // Algunos clientes escriben con puntos en vez de espacios; sin esto ninguna regla los entiende.
@@ -346,7 +357,9 @@ export class ConversationProcessor {
     }));
     if (!batch.length) {
       // Antes era silencio sin rastro (caso 20-oct: "No es lo que busco / Gracias" quedó sin respuesta).
-      if ((snapshot?.ids || []).length) await this.record(conversationId, "empty_batch_skipped", { message_ids: (snapshot.ids || []).map(String), sources: snapshot.sources || [] });
+      // Solo cuando el turno venía de una respuesta reemplazada: al retomar los chats de la noche es normal
+      // (ya se contestó en el primer turno) y en el .txt salía como "no respondió".
+      if ((snapshot?.ids || []).length && (snapshot?.sources || []).includes("superseded")) await this.record(conversationId, "empty_batch_skipped", { message_ids: (snapshot.ids || []).map(String), sources: snapshot.sources || [] });
       return;
     }
     if (traceEnabled()) await this.record(conversationId, "attachment_pipeline_debug", {
@@ -413,7 +426,7 @@ export class ConversationProcessor {
       }
     }
     // "Si.laberdad.tengo.apenas.55.años." (caso real 19-oct): puntos en lugar de espacios.
-    const combinedText = undotted(batch.map(m => m.content || "").filter(Boolean).join("\n").trim());
+    const combinedText = fixCommonTypos(undotted(batch.map(m => m.content || "").filter(Boolean).join("\n").trim()));
     if (!combinedText && !batch.some(hasAttachments)) {
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
@@ -631,7 +644,8 @@ export class ConversationProcessor {
     const priceObjection = priceObjectionDecision(memory, combinedText);
     // Con el trámite iniciado, una CURP es un documento del expediente, no una "revisión de caso".
     const directDecisionRaw = directAnswerDecision({ judgment, orchestration });
-    const directDecision = memory.sales_cycle?.authorized && /^direct:case_review/.test(directDecisionRaw?.__source || "") ? null : directDecisionRaw;
+    // Con el trámite iniciado, "no tengo NSS" lo resuelve el expediente (onboarding), no la respuesta de venta.
+    const directDecision = memory.sales_cycle?.authorized && /^direct:(?:case_review|missing_docs|requirements|fees)/.test(directDecisionRaw?.__source || "") ? null : directDecisionRaw;
     const commitment = commitmentDecision(memory, combinedText);
     // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
     // "No me interesa Infonavit" descarta una parte, no es despedida (caso real 19-oct).
@@ -686,7 +700,7 @@ export class ConversationProcessor {
     const aiDraft = decision?.__source === "llm" ? String(decision.reply || "") : null;
     // "Veo que…" está prohibido, pero tirar toda la respuesta por eso dejaba al cliente con
     // "¿Me compartes tu nombre completo?" (12 chats del 19-20 oct). Se quita la frase y se conserva lo demás.
-    if (["llm"].includes(decision?.__source)) decision = { ...decision, reply: scrubOpeners(decision.reply) };
+    if (["llm"].includes(decision?.__source)) decision = { ...decision, reply: fitLength(scrubOpeners(decision.reply), this.config.ai.maxReplyChars || 850) };
 
     // ── 11. Guardas sobre respuestas de IA (las deterministas no se tocan) ──
     // Firmas reales: answered(memory, key), checkReply(reply, {memory, questionKey, maxChars}),
@@ -737,10 +751,12 @@ export class ConversationProcessor {
     applyCommercialGuards();
     disclosureReasons = applyDisclosureGuard();
     const decisionSource = decision?.__source || "unknown";
-    const decisionState = { nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
+    const decisionState = { plan_change_request: decision?.plan_change_request || null, nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
     decision = stripDecisionMetadata(decision || {});
     decision.reply = String(decision.reply || "").trim().slice(0, this.config.ai.maxReplyChars || 850);
-    decision.add_labels = Array.isArray(decision.add_labels) ? decision.add_labels.filter(label => allowedLabels.has(label) && !["cliente", "venta", "cerrado", "no_contesta"].includes(label)) : [];
+    // Mia no pone etiquetas que la callan (no_quiere_el_servicio, rechazado…): caso real 21-oct, la IA
+    // la puso y el cliente siguió preguntando sin recibir respuesta. Esas las pone el equipo.
+    decision.add_labels = Array.isArray(decision.add_labels) ? decision.add_labels.filter(label => allowedLabels.has(label) && !["cliente", "venta", "cerrado", "no_contesta"].includes(label) && !stopLabels.has(label)) : [];
     decision.remove_labels = Array.isArray(decision.remove_labels) ? decision.remove_labels.filter(label => allowedLabels.has(label) && !protectedLabels.has(label)) : [];
     if (decision.add_labels.length || decision.remove_labels.length) currentLabels = await this.labels.mergeSafe(conversationId, decision.add_labels, decision.remove_labels, conversation);
 
@@ -802,6 +818,7 @@ export class ConversationProcessor {
     // point so every decision path is protected, not only the opening greeting.
     let duplicateReply = false;
     let humanAnswered = false;
+    let alreadyAnswered = false;
     let supersededBy = [];
     try {
       const fresh = await this.chatwoot.getMessages(conversationId);
@@ -817,6 +834,14 @@ export class ConversationProcessor {
       const batchAt = Math.max(0, ...recent.filter(m => batchIds.has(String(m.id))).map(m => Number(m.created_at || 0)));
       const sinceIso = batchAt ? new Date(batchAt * 1000).toISOString() : null;
       humanAnswered = Boolean(sinceIso) && humanRepliedSince({ messages: recent }, sinceIso, this.config.chatwoot.agentId, [], this.selfSenders);
+      // Otro turno de Mia ya contestó estos mensajes (caso real 21-oct: dos respuestas seguidas al mismo
+      // mensaje, la segunda a algo de hacía una hora). Se compara con la última respuesta guardada.
+      const fresh2 = this.memories.get(conversationId) || {};
+      const lastSaved = String(fresh2.ultima_respuesta_agente || "").replace(/\s+/g, " ").trim();
+      const followSent = new Set((fresh2.followups_sent || []).map(t => String(t).replace(/\s+/g, " ").trim()));
+      const forcedTurn = (snapshot?.forceIds || []).length > 0;
+      alreadyAnswered = !forcedTurn && Boolean(batchAt) && Boolean(lastSaved) && !followSent.has(lastSaved) && recent.some(m => (m?.message_type === "outgoing" || m?.message_type === 1) && m?.private !== true
+        && Number(m?.created_at || 0) > batchAt && String(m?.content || "").replace(/\s+/g, " ").trim() === lastSaved);
       const normalizedReply = String(decision.reply || "").replace(/\s+/g, " ").trim();
       duplicateReply = recent.slice(-12).some(message => {
         const outgoing = message?.message_type === "outgoing" || message?.message_type === 1;
@@ -834,6 +859,11 @@ export class ConversationProcessor {
       await this.record(conversationId, "reply_superseded", { reply: decision.reply, message_ids: messageIds.map(String), newer_ids: supersededBy });
       this.turnLock?.release?.(conversationId, messageIds.map(String));
       this.requeue(conversationId, messageIds.map(String));
+      return;
+    }
+    if (alreadyAnswered && !humanAnswered) {
+      await this.record(conversationId, "already_answered_skip", { reply: decision.reply, message_ids: messageIds.map(String) });
+      await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
     if (humanAnswered) {
@@ -861,6 +891,11 @@ export class ConversationProcessor {
       return;
     }
     await this.chatwoot.sendMessage(conversationId, decision.reply);
+    if (decisionState.plan_change_request) {
+      const label = decisionState.plan_change_request === "plan_2" ? "Plan 2 ($1,500)" : "Plan 1 ($1,100)";
+      try { await this.chatwoot.sendMessage(conversationId, `MÍA → OPERACIONES\nEl cliente pide cambiar su trámite al ${label}. Un supervisor puede cambiarlo desde el expediente (Cambiar plan).`, true); } catch {}
+      await this.record(conversationId, "plan_change_requested", { plan: decisionState.plan_change_request });
+    }
     memory = {
       ...memory,
       ...(decision.reply === ONBOARDING_COMPLETE_TEXT ? { onboarding_complete_notified: true } : {}),
@@ -899,7 +934,8 @@ export class ConversationProcessor {
     await this.memories.set(conversationId, memory);
     await this.memories.markProcessedMany(conversationId, messageIds);
     // Programar seguimientos si el cliente deja de contestar (no si acaba de rechazar).
-    if (this.followUps && !negatesCommitment(combinedText) && !deferral) {
+    // Quien quiere iniciar después ("el lunes", "mañana te mando los papeles") sí recibe recordatorio.
+    if (this.followUps && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later")) {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply });
     }

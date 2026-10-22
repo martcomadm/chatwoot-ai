@@ -14,10 +14,10 @@ const NEVER_FIRST = new Set(["que", "qué", "como", "cómo", "cual", "cuál", "c
   "por", "para", "con", "sin", "a", "al", "en", "de", "del", "me", "le", "te", "se", "lo", "su", "nada", "nomas", "nomás", "tambien", "también",
   "vale", "va", "sale", "bueno", "porfa", "nesecito", "necesito", "ocupo", "busco", "ahorita", "ahora", "entonces", "pues", "oiga", "oye", "disculpe", "perdon", "perdón", "porque", "aun", "aún"]);
 // "Porfa Expliqueme", "Nesecito Afiliarme" (casos reales 19 y 20-oct) también se guardaban como nombre.
-const NEVER_ANY = /\b(?:porfa|porfavor|expl[ií]que\w*|espl[ií]que\w*|explica\w*|nesecito|necesito|nesesito|afiliar\w*|afiliacion\w*|afiliaciones|inscrib\w*|ayuda|ayudar\w*|interesa\w*|informacion|info|dudas?|pregunta\w*|consulta|asesor\w*|ocupo|busco|gracias|modalidad|atienden|trabajar|legal|empresa|patron(?:es)?|planes?|diferencia|hay|cuesta|costo|ubicaci[oó]n|informes?|favor|semanas|años|anos|hogar|casa|esposo|esposa|hijos?|solo|servicios?|m[eé]dic\w*|ustedes|financ\w*|mensualidad\w*|tiempo|alta|imss|imms|tramite|trámite|iniciar)\b/i;
+const NEVER_ANY = /\b(?:porfa|porfavor|expl[ií]que\w*|espl[ií]que\w*|explica\w*|nesecito|necesito|nesesito|afiliar\w*|afiliacion\w*|afiliaciones|inscrib\w*|ayuda|ayudar\w*|interesa\w*|informacion|info|dudas?|pregunta\w*|consulta|asesor\w*|ocupo|busco|gracias|modalidad|atienden|trabajar|legal|empresa|patron(?:es)?|planes?|diferencia|hay|cuesta|costo|ubicaci[oó]n|informes?|favor|semanas|años|anos|hogar|casa|esposo|esposa|hijos?|solo|servicios?|m[eé]dic\w*|ustedes|financ\w*|mensualidad\w*|tiempo|alta|imss|imms|tramite|trámite|iniciar|haber|aclar\w*|ecuaci[oó]n|seguir|año|trabaj\w*|chofer|taxi\w*|construcci[oó]n|obrero|ovrero|comerciante|empleado|colima)\b/i;
 
 export function validateNameCandidate(value) {
-  const text = String(value ?? "").trim().replace(/[.,;:!?]+$/g, "").replace(/\b([A-Za-z]{1,3})\.(?=[A-ZÁÉÍÓÚÑ])/g, "$1. ");
+  const text = String(value ?? "").trim().replace(/[.,;:!?]+$/g, "").replace(/\b([A-Za-z]{1,3})\.(?=[A-Za-zÁÉÍÓÚÑáéíóúñ])/g, "$1. ");
   const firstWord = text.split(/\s+/)[0]?.toLowerCase() || "";
   if (NEVER_FIRST.has(firstWord) || NEVER_ANY.test(text)) return { ok: false, reason: "not_a_name" };
   if (!text || text.length < 4 || text.length > 90 || /\d/.test(text)) return { ok: false, reason: "shape" };

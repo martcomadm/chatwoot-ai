@@ -15,7 +15,8 @@ export function specializedAdviceHandoff(text="", memory={}){
     && /\b(?:revis|analiz|calcul|verific|checa|evalua|cuanto|conviene|afecta)\w*\b/.test(v);
   // "Me faltan semanas" (para pensionarse) es una venta, y las semanas que no aparecen se aclaran en la
   // clínica del IMSS ya activo con nosotros (respuesta confirmada 20-oct): ninguna de las dos se canaliza.
-  const imssDiscrepancy=/\b(?:no coincide|desconozco|duplicad|homonim|correccion de datos|regularizar|inconsisten|error en (?:mi )?(?:nss|curp|semanas|vigencia))\w*\b/.test(v);
+  // "Desconozco totalmente ese tema" (caso real 21-oct) no es una inconsistencia.
+  const imssDiscrepancy=/\b(?:no coincide|desconozco (?:esas |las |unas |ese |el )?(?:semanas|periodo|patron|empresa|alta|movimiento)|duplicad|homonim|correccion de datos|regularizar|inconsisten|error en (?:mi )?(?:nss|curp|semanas|vigencia))\w*\b/.test(v);
   const verificationNeeded=/\b(?:puedes (?:consultar|revisar|verificar)|revisa (?:mi|mis)|consulta (?:mi|mis)|verifica (?:mi|mis))\b/.test(v)
     && /\b(?:nss|curp|vigencia|semanas|historial|pension|imss)\b/.test(v);
 

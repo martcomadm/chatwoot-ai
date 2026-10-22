@@ -23,11 +23,14 @@ export function deriveCommercialNeed(text, previous = {}) {
   // "No Infonavit, no Afore, semanas ok" descarta el Plan 2 aunque mencione esas palabras.
   const rejectsAforeInfonavit = /\b(?:no|sin|ni|menos|excepto|salvo)\s+(?:me interesa\s+|quiero\s+|necesito\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b|\b(?:afore|infonavit)\b.{0,20}\b(?:no me interesa|no quiero|no necesito)\b/.test(value);
   // "Ya tengo mi afore y mi seguro" dice lo que tiene, no lo que busca (caso real 20-oct).
-  const mentionsOwn = /\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/.test(value);
+  // "Ya no tengo, me dieron el dinero y el aforé" (caso real 21-oct): ya retiró su AFORE.
+  const mentionsOwn = /\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/.test(value)
+    || /\b(?:me dieron|me entregaron|retire|saque|cobre|ya cobre)\b.{0,30}\b(?:afore|dinero)\b/.test(value);
   if (rejectsAforeInfonavit) next.afore_infonavit = false;
   else if (AFORE_INFONAVIT.test(value.replace(/\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/g, " ")) && !(mentionsOwn && !/\b(?:aportar|aportaciones|sumar|puntos|quiero|me interesa)\b/.test(value))) next.afore_infonavit = true;
   // "¿Cómo puedo hacer esas aportaciones?" = AFORE (caso Laura, 17-oct); "sin aportaciones" no.
-  else if (/\baportaciones?\b/.test(value) && !/\b(?:sin|ninguna|no tengo|no hay)\s+(?:\w+\s+)?aportaciones?\b/.test(value)) next.afore_infonavit = true;
+  // "Aportar si es posible" a "¿…o también aportar a AFORE e INFONAVIT?" (caso real 21-oct).
+  else if (/\b(?:aportaciones?|aportar|aporte)\b/.test(value) && !/\b(?:sin|ninguna|no tengo|no hay|no quiero|no puedo)\s+(?:\w+\s+)?(?:aportaciones?|aportar)\b/.test(value)) next.afore_infonavit = true;
   if (RETIREMENT.test(value)) next.retirement = true;
   next.unknown = !(next.service_medical || next.weeks || next.afore_infonavit || next.retirement);
   return next;

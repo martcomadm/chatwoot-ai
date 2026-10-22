@@ -37,8 +37,8 @@ const ALTA_INTEREST_PATTERNS = [
 
 const PLAN_SELECTION_PATTERNS = [
   // "Para el plan 1", "con el plan 1", "mejor el 1" (caso real 20-oct: Enedino cambió del 2 al 1).
-  { plan: "plan_2", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)?\s*(?:el\s+)?plan\s*(2|dos)(?:\s+(?:por favor|porfa|mejor|esta bien|entonces))?[ .!]*$|\bmejor el (?:2|dos)\b/ },
-  { plan: "plan_1", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo)(?:\s+el)?\s+plan\s*(1|uno)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)?\s*(?:el\s+)?plan\s*(1|uno)(?:\s+(?:por favor|porfa|mejor|esta bien|entonces))?[ .!]*$|\bmejor el (?:1|uno)\b/ },
+  { plan: "plan_2", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo|seria|sera|va a ser)(?:\s+el)?\s+plan\s*(2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)?\s*(?:el\s+)?plan\s*(2|dos)(?:\s+(?:por favor|porfa|mejor|esta bien|entonces))?[ .!]*$|\bmejor el (?:2|dos)\b/ },
+  { plan: "plan_1", pattern: /\b(quiero|prefiero|elijo|me quedo con|me interesa|mejor|me late|me conviene|escojo|tomo|seria|sera|va a ser)(?:\s+el)?\s+plan\s*(1|uno)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)?\s*(?:el\s+)?plan\s*(1|uno)(?:\s+(?:por favor|porfa|mejor|esta bien|entonces))?[ .!]*$|\bmejor el (?:1|uno)\b/ },
 ];
 
 const PAUSE_PATTERNS = [
@@ -108,6 +108,8 @@ export function detectPlanPreference(text) {
 
   // "Todo menos Infonavit"; "Ya tengo mi afore y mi seguro" dice lo que tiene, no lo que busca (19 y 20-oct).
   if (/\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/.test(value) && !/\b(?:aportar|aportaciones|sumar|puntos|quiero|me interesa)\b/.test(value)) return null;
+  // "Me dieron el dinero y el aforé" (ya retiró su AFORE, caso real 21-oct).
+  if (/\b(?:me dieron|me entregaron|retire|saque|cobre)\b.{0,30}\b(?:afore|dinero)\b/.test(value)) return null;
   const rejectsPlan2Need = /\b(no|sin|menos|excepto|salvo)\b.{0,30}\b(afore|infonavit|credito|puntos)\b/.test(value)
     || /\b(afore|infonavit)\b.{0,30}\b(no me interesa|no quiero|no necesito)\b/.test(value);
 

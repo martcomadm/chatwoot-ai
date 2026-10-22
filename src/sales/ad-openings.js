@@ -22,6 +22,8 @@ export function adOpeningKind(text = "") {
   if (!v || v.length > 120 || /[?¿]/.test(raw)) return null;
   if (/\bdeje de cotizar\b.*\b(seguir sumando|pensionarme|pension)\b|^quiero seguir cotizando\b|\bseguir cotizando en el seguro\b/.test(v)) return "pension";
   if (/\binformacion y revisar mi caso\b/.test(v)) return "case_review";
+  // "Deje de cotizar" a secas (casos reales 21 y 22-oct): se recomendaba el Plan 1 sin saber nada.
+  if (/^(?:hola\s+)?(?:ya\s+)?deje de cotizar$/.test(v)) return "pension";
   if (/\bno cuento con imss y quiero afiliarme\b|^comenzar con mi afiliacion\b/.test(v)) return "no_imss";
   if (/^ya estoy afiliado al imss\b/.test(v)) return "already_affiliated";
   return null;

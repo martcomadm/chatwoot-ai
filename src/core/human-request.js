@@ -34,7 +34,9 @@ export function explicitHumanRequest(text) {
 export function acceptsAdvisorOffer(text, lastReply = "") {
   if (!/quieres que te comunique con un asesor/.test(norm(lastReply))) return false;
   const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
-  return /^(?:si|claro|por favor|porfavor|ok|okay|va|sale|de acuerdo|me parece|esta bien|bueno)\b/.test(value) && !/\bno\b/.test(value);
+  // "Ok, voy a buscar la hoja rosa y te envío foto" (caso real 21-oct) no es aceptar al asesor.
+  const short = value.split(" ").length <= 5 || /\b(?:asesor|asesora|persona|comuni\w*|pasame|pasenme)\b/.test(value);
+  return short && /^(?:si|claro|por favor|porfavor|ok|okay|va|sale|de acuerdo|me parece|esta bien|bueno)\b/.test(value) && !/\bno\b/.test(value) && !/\b(?:voy a|luego|despues|manana|te envio|te mando)\b/.test(value);
 }
 
 // Pide platicarlo por teléfono ("Le puedo marcar xfa", "me gustaría platicarlo bien x teléfono",

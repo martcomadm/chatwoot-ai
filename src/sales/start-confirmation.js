@@ -19,7 +19,7 @@ const SHORT_AFFIRMATIVE_RE = /^(?:(?:si+|sip|claro|ok|okay|okey|oki|va|vale|sale
 // Mia preguntó explícitamente si iniciamos/comenzamos el trámite o la contratación.
 // Incluye las formas que usa la IA: "¿Deseas que inicie tu trámite con el Plan 1?",
 // "¿Quieres que proceda con Plan 1…?", "¿Confirmas que deseas iniciar…?" (casos reales 19 y 20-oct).
-const AGENT_ASKED_TO_START_RE = /(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos|inicie|comience|empiece|proceda|demos de alta|te demos de alta|te de de alta|tramitemos)|(?:quieres|deseas|te gustaria) (?:iniciar|comenzar|empezar|proceder|contratar|continuar con el tramite)|confirmas que (?:deseas|quieres) (?:iniciar|comenzar|proceder)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) (?:tramite|alta)|si estas de acuerdo, podemos iniciar/;
+const AGENT_ASKED_TO_START_RE = /(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos|inicie|comience|empiece|proceda|demos de alta|te demos de alta|te de de alta|tramitemos)|(?:quieres|deseas|te gustaria) (?:iniciar|comenzar|empezar|proceder|contratar|continuar con el tramite)|confirmas que (?:deseas|quieres) (?:iniciar|comenzar|proceder)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) (?:tramite|alta)|si estas de acuerdo, podemos iniciar|(?:proceder|iniciar|continuar|seguir) con (?:el|tu) tramite\?|para iniciar necesito que me envies/;
 
 export function genericInterest(text) {
   const value = norm(text);
@@ -50,5 +50,8 @@ export function affirmsWithDocuments(text) {
   if (!value || /[?¿]/.test(raw) || negatesCommitment(value) || value.length > 90) return false;
   return /^(?:si+|claro|ok|okay|va|sale|de acuerdo|esta bien|bueno|listo|perfecto)\b/.test(value)
     && /\b(?:curp|nss|ine|documentos?|papeles|credencial|fotos?)\b/.test(value)
-    && !/\b(?:no tengo|no cuento|despues|luego|manana|mas tarde|lo pienso)\b/.test(value);
+    // "Si solo que estoy trabajando puedo enviarle papeles mañana" (caso real 21-oct) también acepta:
+    // los documentos llegan después, pero quiere iniciar.
+    && !/\b(?:no tengo|no cuento|lo pienso|lo voy a pensar|todavia no se)\b/.test(value)
+    && (!/\b(?:despues|luego|manana|mas tarde)\b/.test(value) || /\b(?:envi\w*|mand\w*|pas\w*|comparto)\b.{0,20}\b(?:papeles|documentos?|curp|ine|nss)\b|\b(?:papeles|documentos?)\b.{0,20}\b(?:envi\w*|mand\w*)\b/.test(value));
 }
