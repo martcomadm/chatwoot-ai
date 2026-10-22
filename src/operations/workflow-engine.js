@@ -97,12 +97,14 @@ export class SaleWorkflowEngine {
     });
   }
 
-  // Captura pide al cliente una llamada (el expediente se queda en Captura). Mia le manda el mensaje.
+  // Cualquier área (la que tiene el expediente, o Supervisión) pide al cliente una llamada; el expediente
+  // se queda en su etapa y Mia le manda el mensaje. Se guarda en capture.* por compatibilidad.
   requestCall(id, payload = {}) {
     const sale = this.mustGet(id);
-    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Solicitar llamada");
+    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED].includes(sale.status)) throw new Error(`Solicitar llamada no permitido desde estado ${sale.status}`);
     const note = String(payload.note || "").trim() || null;
-    return this.store.update(id, { capture: { ...sale.capture, call_requested_at: new Date().toISOString(), call_note: note } }, "capture.call_requested", { note });
+    const area = payload.area || null;
+    return this.store.update(id, { capture: { ...sale.capture, call_requested_at: new Date().toISOString(), call_note: note, call_area: area } }, "capture.call_requested", { note, area });
   }
 
   // Captura escribe la CURP (p. ej. la leyó de la foto que mandó el cliente) para completar el alta.

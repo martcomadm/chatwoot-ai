@@ -10,8 +10,8 @@ export const CUSTOMER_MESSAGE_DEFINITIONS = Object.freeze([
   },
   {
     key: "capture.call_requested",
-    label: "Solicitud de llamada (Captura)",
-    help: "Se envía cuando Captura presiona 'Solicitar llamada'. El expediente se queda en Captura.",
+    label: "Solicitud de llamada",
+    help: "Se envía cuando un área (o Supervisión) presiona 'Solicitar llamada'. El expediente se queda en su etapa.",
     text: "Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?",
   },
   {

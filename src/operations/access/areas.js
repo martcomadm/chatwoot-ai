@@ -79,6 +79,14 @@ export function canSeeSale(user, sale) {
   return Boolean(sale) && visibleQueues(user).includes(sale.queue);
 }
 
+// "Solicitar llamada": el área que tiene el expediente en su cola, o Supervisión/Admin (no Observador).
+export function canRequestCall(user, sale) {
+  if (!sale || ["completed", "cancelled"].includes(sale.queue)) return false;
+  if (hasArea(user, "supervision")) return true;
+  const area = areaForQueue(sale.queue);
+  return Boolean(area) && hasArea(user, area);
+}
+
 export function canRunAction(user, action) {
   const area = ACTION_AREAS[action];
   return Boolean(area) && hasArea(user, area);

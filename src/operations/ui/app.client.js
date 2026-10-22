@@ -7,6 +7,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 const QUEUE_AREA = { capture: "captura", validation: "validacion", validity: "vigencia", payment: "cobranza" };
+const QUEUE_LABEL_TEXT = { capture: "Captura", validation: "Validación", validity: "Vigencia", payment: "Cobranza" };
 const AREA_QUEUE = { captura: "capture", validacion: "validation", vigencia: "validity", cobranza: "payment" };
 const WORK_AREAS = ["captura", "validacion", "vigencia", "cobranza"];
 const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", atencion: "Atención a Clientes", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
@@ -643,7 +644,6 @@ function areaActions(sale) {
       add("capture-complete", "Completar alta", sale.status === "capture_in_progress" ? "primary" : "", sale.documents?.complete ? "" : `Faltan: ${(sale.documents?.missing || []).join(", ").toUpperCase()}`);
       add("capture-curp", "Registrar CURP");
       add("capture-name", "Corregir nombre");
-      add("capture-call", "Solicitar llamada");
       add("capture-nss", "Registrar NSS");
       add("documents-sync", "Actualizar documentos");
     }
@@ -666,6 +666,8 @@ function areaActions(sale) {
     if (sale.status === "payment_received") { add("payment-validate", "Validar pago y cerrar", "primary"); add("payment-issue", "Reportar incidencia", "danger"); }
     if (sale.status === "payment_issue") add("payment-reopen", "Reabrir pago", "primary");
   }
+  // Solicitar llamada: el área que tiene el expediente o Supervisión, en cualquier etapa activa.
+  if (!["completed", "cancelled"].includes(sale.queue) && (canAct(sale, QUEUE_AREA[sale.queue]) || hasArea("supervision"))) add("capture-call", "Solicitar llamada");
   return buttons;
 }
 
@@ -824,8 +826,8 @@ async function saleAction(action) {
     case "documents-sync": done = await post("documents/sync", {}, "Documentos actualizados"); break;
     case "capture-call": {
       const sent = sale.capture?.call_requested_at ? `Ya se pidió una llamada el ${dateTime(sale.capture.call_requested_at)}. ` : "";
-      const data = await ask({ title: "Solicitar llamada al cliente", text: `${sent}Mia le enviará por WhatsApp: <em>“Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?”</em> El expediente se queda en Captura.`, fields: [{ name: "note", label: "Motivo (interno, opcional)", type: "textarea", placeholder: "Ej. confirmar datos de la INE" }], confirm: "Enviar mensaje", area });
-      if (data) done = await post("capture/call", { note: data.note }, "Mensaje enviado al cliente");
+      const data = await ask({ title: "Solicitar llamada al cliente", text: `${sent}Mia le enviará por WhatsApp: <em>“Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?”</em> El expediente se queda en ${esc(QUEUE_LABEL_TEXT[sale.queue] || "su etapa")}.`, fields: [{ name: "note", label: "Motivo (interno, opcional)", type: "textarea", placeholder: "Ej. confirmar datos de la INE" }], confirm: "Enviar mensaje", area: hasArea(area) ? area : "supervision" });
+      if (data) done = await post("call", { note: data.note }, "Mensaje enviado al cliente");
       break;
     }
     case "capture-name":

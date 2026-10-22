@@ -3,7 +3,7 @@ import express from "express";
 import { operationsAppPage } from "./ui/operations-app.js";
 import { publicSale } from "./sale-store.js";
 import { RETURN_TARGETS } from "./workflow-engine.js";
-import { AREAS, ACTION_AREAS, QUEUE_LABELS, areaForQueue, canRunAction, canSeeSale, hasArea, normalizeAreas, seesAllQueues, visibleQueues } from "./access/areas.js";
+import { AREAS, ACTION_AREAS, QUEUE_LABELS, areaForQueue, canRequestCall, canRunAction, canSeeSale, hasArea, normalizeAreas, seesAllQueues, visibleQueues } from "./access/areas.js";
 import { LoginThrottle, REQUEST_HEADER, actorOf, clearSessionCookie, createAuthenticator, requireArea, requireUser, sessionCookie } from "./access/auth.js";
 import { normalizeUsername } from "./access/user-store.js";
 import { CASE_KIND_LABELS, CASE_STATUS_LABELS } from "./customer-service/case-store.js";
@@ -325,7 +325,20 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.post(salePath("capture/nss"), areaAction("capture/nss", (req, body) => workflow.registerNss(req.params.id, body)));
   router.post(salePath("capture/name"), areaAction("capture/name", (req, body) => workflow.correctCustomerName(req.params.id, body)));
   router.post(salePath("supervision/name"), areaAction("supervision/name", (req, body) => workflow.correctCustomerName(req.params.id, body, { anyStage: true })));
-  router.post(salePath("capture/call"), areaAction("capture/call", (req, body) => workflow.requestCall(req.params.id, body)));
+  // Solicitar llamada: disponible para el área que tiene el expediente (y Supervisión), no solo Captura.
+  const requestCallHandler = (req, res) => {
+    const sale = visibleSale(req, res);
+    if (!sale) return;
+    if (!canRequestCall(req.opsUser, sale)) return res.status(403).json({ error: "Solo el área que tiene el expediente o Supervisión pueden solicitar la llamada", code: "forbidden" });
+    try {
+      const area = areaForQueue(sale.queue);
+      const body = { ...(req.body || {}), by: req.opsUser.name, area: hasArea(req.opsUser, area) ? area : "supervision" };
+      const result = saleStore.runAs(actorOf(req.opsUser), () => workflow.requestCall(req.params.id, body));
+      res.json({ ok: true, sale: saleView(result, alertHours()) });
+    } catch (error) { fail(res, error); }
+  };
+  router.post(salePath("capture/call"), requestCallHandler);
+  router.post(salePath("call"), requestCallHandler);
   router.post(salePath("capture/curp"), areaAction("capture/curp", (req, body) => workflow.registerCurp(req.params.id, body)));
   router.post(salePath("capture/start"), areaAction("capture/start", req => workflow.startCapture(req.params.id, { id: req.opsUser.username, name: req.opsUser.name })));
   router.post(salePath("capture/complete"), areaAction("capture/complete", (req, body) => workflow.completeCapture(req.params.id, body)));
