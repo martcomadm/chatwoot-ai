@@ -140,3 +140,27 @@ test("otro turno de Mia ya contestó esos mensajes: no se manda una segunda resp
   assert.deepEqual(h.sent, []);
   assert.ok(h.events.some(e => e.type === "already_answered_skip"));
 });
+
+test("'Podemos iniciar el trámite el lunes / voy hoy a buscar mis papeles': sin pedirle la CURP a los 20 minutos", async () => {
+  const { customerResumeAt, FollowUpService, FollowUpStore } = await import("../src/core/follow-up.js");
+  const { DOCS_LATER_TEXT } = await import("../src/operations/onboarding-service.js");
+  const text = "Podemos iniciar el trámite el lunes\nVoy hoy a buscar mis papeles";
+  const now = new Date("2026-10-22T20:01:00Z"); // jueves 14:01 en CDMX
+  assert.equal(customerResumeAt(text, now).toISOString(), "2026-10-26T15:00:00.000Z", "lunes 9:00");
+  assert.equal(customerResumeAt("mañana le envío papeles", now).toISOString(), "2026-10-23T15:00:00.000Z");
+  assert.equal(customerResumeAt("ok gracias", now), null);
+  const pending = { sales_cycle: { authorized: true }, operations: { sale_id: "S", onboarding_next: "curp", documents_missing: ["curp"] } };
+  assert.equal(buildOnboardingDecision(pending, text).reply, DOCS_LATER_TEXT);
+  // El seguimiento espera hasta el día que dijo.
+  const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+  const sent = [];
+  const service = new FollowUpService({
+    store: new FollowUpStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "next-fu-nb-")), "f.json")),
+    chatwoot: { async getConversation() { return { id: 5, inbox_id: 7, status: "open", labels: [], meta: { assignee: { id: 53 } }, messages: [] }; }, async sendMessage(_i, t) { sent.push(t); } },
+    labels: { async mergeSafe() {} }, memories: { get: () => pending, async set() {} }, config: { chatwoot: { inboxId: 7, agentId: 53 } },
+  });
+  service.afterReply(5, { customerAt: now, now, notBefore: customerResumeAt(text, now) });
+  await service.tick(new Date(now.getTime() + 25 * 60 * 1000));
+  await service.tick(new Date(now.getTime() + 20 * 3600 * 1000));
+  assert.deepEqual(sent, []);
+});

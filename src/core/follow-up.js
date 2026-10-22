@@ -143,9 +143,9 @@ export class FollowUpService {
   }
 
   // Mia acaba de contestar: empieza (o reinicia) la serie de seguimientos.
-  afterReply(conversationId, { customerAt = new Date(), now = new Date(), reply = "" } = {}) {
+  afterReply(conversationId, { customerAt = new Date(), now = new Date(), reply = "", notBefore = null } = {}) {
     const texts = reply ? [String(reply).replace(/\s+/g, " ").trim()] : [];
-    this.store.set(conversationId, { mia_at: now.toISOString(), customer_at: new Date(customerAt).toISOString(), sent: 0, last_sent_at: null, texts });
+    this.store.set(conversationId, { mia_at: now.toISOString(), customer_at: new Date(customerAt).toISOString(), sent: 0, last_sent_at: null, texts, not_before: notBefore ? new Date(notBefore).toISOString() : null });
   }
 
   // El cliente escribió: se cancela lo pendiente.
@@ -159,7 +159,8 @@ export class FollowUpService {
     if (step >= this.offsets.length) return null;
     const base = Date.parse(entry.mia_at) + this.offsets[step];
     const gap = entry.last_sent_at ? Date.parse(entry.last_sent_at) + MIN_GAP_MS : 0;
-    return Math.max(base, gap);
+    // El cliente dijo cuándo ("el lunes", "mañana"): no se le escribe antes.
+    return Math.max(base, gap, Date.parse(entry.not_before || "") || 0);
   }
 
   windowEnd(entry) { return Date.parse(entry.customer_at) + WINDOW_MS - WINDOW_SAFETY_MS; }
@@ -198,6 +199,9 @@ export class FollowUpService {
     try {
       for (const entry of this.store.list()) {
         const id = entry.conversationId;
+        // Antes del día que dijo el cliente no sale nada, ni la plantilla (caso real 22-oct: dijo "el lunes"
+        // y a los 20 minutos recibió "¿Pudiste conseguir tu CURP?").
+        if (entry.not_before && now.getTime() < Date.parse(entry.not_before)) continue;
         const windowClosed = now.getTime() > this.windowEnd(entry);
         const due = this.dueAt(entry);
         if (!windowClosed && (due === null || now.getTime() < due || !this.isOpen(now))) continue;
@@ -267,4 +271,23 @@ export class FollowUpService {
     timer.unref?.();
     return () => clearInterval(timer);
   }
+}
+
+// Cuándo dijo el cliente que retoma: "mañana", "el lunes", "en dos horas", "al rato". null si no lo dijo.
+// Hora del centro de México (UTC-6, sin horario de verano); los días se retoman a las 9:00.
+const DAYS = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
+export function customerResumeAt(text = "", now = new Date()) {
+  const v = String(text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+  const OFFSET = -6 * 3600 * 1000;
+  const localNow = new Date(now.getTime() + OFFSET);
+  const atNine = daysAhead => { const d = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate() + daysAhead, 9, 0)); return new Date(d.getTime() - OFFSET); };
+  const hours = v.match(/\ben (una|dos|tres|cuatro|\d+) horas?\b/);
+  if (hours) { const n = { una: 1, dos: 2, tres: 3, cuatro: 4 }[hours[1]] || Number(hours[1]); return new Date(now.getTime() + Math.min(n, 12) * 3600 * 1000); }
+  if (/\bpasado manana\b/.test(v)) return atNine(2);
+  if (/\bmanana\b/.test(v)) return atNine(1);
+  const day = v.match(/\b(?:el|este|el proximo|el siguiente)\s+(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/);
+  if (day) { let diff = (DAYS[day[1]] - localNow.getUTCDay() + 7) % 7; if (diff === 0) diff = 7; return atNine(diff); }
+  if (/\b(?:la (?:proxima|otra|siguiente) semana)\b/.test(v)) return atNine(((8 - localNow.getUTCDay()) % 7) || 7);
+  if (/\b(?:al rato|en un rato|mas tarde|en la tarde|en la noche|hoy voy a buscar|voy hoy a buscar|llegando a (?:la )?casa|cuando llegue)\b/.test(v)) return new Date(now.getTime() + 3 * 3600 * 1000);
+  return null;
 }

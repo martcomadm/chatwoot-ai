@@ -33,6 +33,7 @@ import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { fixCommonTypos } from "../semantic/typos.js";
+import { customerResumeAt } from "./follow-up.js";
 import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
@@ -937,7 +938,8 @@ export class ConversationProcessor {
     // Quien quiere iniciar después ("el lunes", "mañana te mando los papeles") sí recibe recordatorio.
     if (this.followUps && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later")) {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
-      this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply });
+      const notBefore = customerResumeAt(combinedText);
+      this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply, notBefore });
     }
     await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null,
       ...(aiDraft && aiDraft.trim() !== String(decision.reply || "").trim() ? { ai_draft: aiDraft.slice(0, 900), replaced_reasons: [...new Set(replacedReasons)] } : {}) });

@@ -74,7 +74,7 @@ export const PAYMENT_HOW_TEXT = "El pago se hace hasta que tu alta esté vigente
 
 export const NSS_HELP_TEXT = "El NSS es tu Número de Seguridad Social: un número de 11 dígitos que te asigna el IMSS. Lo encuentras en tu constancia de semanas cotizadas, en la app IMSS Digital o en papeles del IMSS de algún trabajo anterior. Si no lo tienes, no te preocupes: con tu CURP lo podemos localizar.";
 
-export const DOCS_LATER_TEXT = "Claro, sin problema. Cuando tengas tus documentos, envíamelos por aquí y seguimos con tu trámite.";
+export const DOCS_LATER_TEXT = "Claro, sin problema. Cuando tengas tus documentos (CURP, NSS e INE), envíamelos por aquí y seguimos con tu trámite.";
 
 export const ONBOARDING_COMPLETE_TEXT = "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.";
 
@@ -200,7 +200,7 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   // "En dos horas te lo envío, ando fuera" (caso real 20-oct): antes se repetía la solicitud y se
   // suprimía como duplicada, y el cliente se quedaba sin respuesta.
   if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
-    && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso))\b/.test(text)
+    && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso)|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|(?:proxima|otra|siguiente) semana|voy (?:hoy )?a buscar|hoy (?:voy a )?busco|tengo que buscar)\b/.test(text)
     && /\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos)\b/.test(text)
     && String(memory.ultima_respuesta_agente || "").trim() !== DOCS_LATER_TEXT) {
     return { reply: DOCS_LATER_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
