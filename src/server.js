@@ -59,6 +59,9 @@ try {
     sunday: config.handoff.sundayAgents,
   });
   const handoffRouter = new HandoffRouter({ config, store: handoffRotation, chatwoot, operationsConfig });
+  // Atención humana (no llamadas): su propia rotación, la misma toda la semana.
+  const humanAgents = config.handoff.humanAgents || [];
+  const humanHandoffRouter = humanAgents.length ? new HandoffRouter({ config: { ...config, handoff: { ...config.handoff, weekdayAgents: humanAgents, saturdayAgents: humanAgents, sundayAgents: humanAgents } }, store: new HandoffRotationStore(config.storage.humanHandoffRotationFile), chatwoot }) : null;
   const saleStore = new SaleStore(config.storage.salesFile);
   const workflow = new SaleWorkflowEngine(saleStore);
   const opsUsers = new UserStore(config.storage.opsUsersFile);
@@ -90,7 +93,7 @@ try {
     sentTexts: new Set([outOfScheduleMessage(parseSchedule(config.ai.schedule))]),
     selfSenders, templates,
   }) : null;
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps, selfSenders, templates });
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps, selfSenders, templates });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot), {
     onError: (id, error, snapshot) => inspectorEvents.record(id, "processing_error", { error: String(error?.message || error).slice(0, 500), message_ids: (snapshot?.ids || []).map(String) }),
   });

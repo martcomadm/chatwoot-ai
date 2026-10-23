@@ -147,7 +147,7 @@ export function explainedPlanInReply(reply = "") {
 }
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter = null, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null }) {
     this.templates = templates;
     this.config = config;
     this.chatwoot = chatwoot;
@@ -157,6 +157,7 @@ export class ConversationProcessor {
     this.ai = ai;
     this.inspectorEvents = inspectorEvents;
     this.handoffRouter = handoffRouter;
+    this.humanHandoffRouter = humanHandoffRouter;
     this.workflow = workflow;
     this.turnLock = turnLock;
     this.isMiaPaused = isMiaPaused;
@@ -183,15 +184,19 @@ export class ConversationProcessor {
   }
 
   // Handoff a un asesor humano: nota privada con resumen, aviso al cliente y asignación por rotación.
-  async transfer(conversationId, conversation, reason, memory, { customerText = null } = {}) {
+  // call=true: el cliente pidió que le llamen → rotación de asesores. Si no, atención humana → su rotación
+  // (Jaqueline, Claudia, Ricardo y Brenda desde el 23-oct), si está configurada.
+  async transfer(conversationId, conversation, reason, memory, { customerText = null, call = false } = {}) {
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
     const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, summary, true);
     await this.chatwoot.sendMessage(conversationId, customerText || "Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");
     let routed = null;
-    if (typeof this.handoffRouter?.handoff === "function") routed = await this.handoffRouter.handoff(conversationId, { reason, memory });
-    else if (typeof this.handoffRouter?.route === "function") routed = await this.handoffRouter.route({ conversationId, reason, reservedAdvisor: memory?.advisor_affinity || null });
-    await this.record(conversationId, "handoff", { reason, routed });
+    const human = !call && this.humanHandoffRouter ? this.humanHandoffRouter : null;
+    const router = human || this.handoffRouter;
+    if (typeof router?.handoff === "function") routed = await router.handoff(conversationId, { reason, memory });
+    else if (typeof router?.route === "function") routed = await router.route({ conversationId, reason, reservedAdvisor: human ? null : memory?.advisor_affinity || null });
+    await this.record(conversationId, "handoff", { reason, routed, rotation: human ? "atencion_humana" : "asesores" });
     return routed;
   }
 
@@ -566,7 +571,7 @@ export class ConversationProcessor {
         await this.memories.markProcessedMany(conversationId, messageIds);
         return;
       }
-      await this.transfer(conversationId, conversation, reason, memory, { customerText: wantsCall ? CALL_HANDOFF_TEXT : null });
+      await this.transfer(conversationId, conversation, reason, memory, { customerText: wantsCall ? CALL_HANDOFF_TEXT : null, call: wantsCall });
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
