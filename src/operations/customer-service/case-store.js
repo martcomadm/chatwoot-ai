@@ -5,7 +5,7 @@ import { readJson, writeJson } from "../access/json-file.js";
 // a escribir. Cada caso tiene responsable (asignado por rotación) y estado.
 export const CASE_STATUSES = Object.freeze({ NEW: "new", IN_PROGRESS: "in_progress", FOLLOWING: "following", RESOLVED: "resolved" });
 export const OPEN_STATUSES = new Set(["new", "in_progress", "following"]);
-export const CASE_KIND_LABELS = Object.freeze({ completed_sale: "Venta completada", specialized: "Canalizado por Mia", returning: "Cliente activo escribió" });
+export const CASE_KIND_LABELS = Object.freeze({ completed_sale: "Venta completada", specialized: "Canalizado por Mia", returning: "Cliente activo escribió", escalated: "Enviado por un área" });
 export const CASE_STATUS_LABELS = Object.freeze({ new: "Nuevo", in_progress: "Atendiendo", following: "En seguimiento", resolved: "Atendido" });
 
 const now = () => new Date().toISOString();

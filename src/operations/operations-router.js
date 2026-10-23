@@ -263,7 +263,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!c) return;
     const sale = c.sale_id ? saleStore.get(c.sale_id) : null;
     const chatwootLink = (hasArea(req.opsUser, "atencion") || hasArea(req.opsUser, "supervision")) && c.conversation_id ? chatwootConversationUrl({ conversation_id: c.conversation_id }) : null;
-    res.json({ case: caseView(c), links: { chatwoot: chatwootLink, sale: sale && canSeeSale(req.opsUser, sale) ? sale.sale_id : null }, can: { work: canWorkCase(req.opsUser, c), assign: hasArea(req.opsUser, "supervision") } });
+    const service = sale?.service?.open ? { reason: sale.service.reason, from_area: sale.service.from_area, from_queue: sale.service.from_queue, queue: sale.queue, queue_label: QUEUE_LABELS[sale.queue] || sale.queue, targets: Object.entries(RETURN_TARGETS).map(([key, t]) => ({ key, label: t.label, origin: key === sale.queue })) } : null;
+    res.json({ case: caseView(c), service, links: { chatwoot: chatwootLink, sale: sale && canSeeSale(req.opsUser, sale) ? sale.sale_id : null }, can: { work: canWorkCase(req.opsUser, c), assign: hasArea(req.opsUser, "supervision"), return: Boolean(service) && canWorkCase(req.opsUser, c) } });
   });
   router.get("/operations/api/cases/:id/conversation", async (req, res) => {
     const c = visibleCase(req, res);
@@ -295,6 +296,27 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     catch (error) { fail(res, error); }
   });
 
+  // Atención a Clientes regresa el expediente: a la misma área (ya se solucionó) o a otra que deba revisarlo.
+  router.post("/operations/api/cases/:id/return", async (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    if (!canWorkCase(req.opsUser, c)) return res.status(403).json({ error: "Este caso no es tuyo", code: "forbidden" });
+    const sale = c.sale_id ? saleStore.get(c.sale_id) : null;
+    if (!sale?.service?.open) return fail(res, new Error("Este caso no tiene un expediente enviado por un área"));
+    const target = String(req.body?.target || "origin");
+    const note = String(req.body?.note || "").trim();
+    try {
+      const result = saleStore.runAs(actorOf(req.opsUser), () => workflow.returnFromService(sale.sale_id, { target, note, by: req.opsUser.name }));
+      const label = QUEUE_LABELS[result.queue] || result.queue;
+      const closed = customerService.setStatus(c.case_id, "resolved", { note: `Regresado a ${label}: ${note}`, by: actorOf(req.opsUser) });
+      // La conversación vuelve con Mia para que siga el trámite con el cliente.
+      if (sale.conversation_id && chatwoot?.assignConversation && config?.chatwoot?.agentId) {
+        try { await chatwoot.assignConversation(sale.conversation_id, Number(config.chatwoot.agentId)); } catch {}
+      }
+      res.json({ ok: true, case: caseView(closed), sale: saleView(result, alertHours()) });
+    } catch (error) { fail(res, error); }
+  });
+
   router.post("/operations/api/sales", requireArea("supervision"), (req, res) => {
     try {
       const sale = saleStore.runAs(actorOf(req.opsUser), () => workflow.openAuthorizedSale(req.body || {}));
@@ -312,6 +334,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       }
       const sale = visibleSale(req, res);
       if (!sale) return;
+      // Mientras Atención a Clientes lo tiene, el área no lo mueve (Supervisión sí puede).
+      if (sale.service?.open && !String(action).startsWith("supervision/")) return res.status(409).json({ error: "El expediente está en Atención a Clientes; espera a que lo regresen", code: "in_service" });
       try {
         const body = { ...(req.body || {}), by: req.opsUser.name };
         const result = saleStore.runAs(actorOf(req.opsUser), () => handler(req, body, sale));
@@ -338,6 +362,25 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     } catch (error) { fail(res, error); }
   };
   router.post(salePath("capture/call"), requestCallHandler);
+  // Enviar a Atención a Clientes con el motivo: abre (o anota) el caso con responsable por rotación.
+  router.post(salePath("service"), async (req, res) => {
+    const sale = visibleSale(req, res);
+    if (!sale) return;
+    if (!canRequestCall(req.opsUser, sale)) return res.status(403).json({ error: "Solo el área que tiene el expediente o Supervisión pueden enviarlo a Atención a Clientes", code: "forbidden" });
+    if (!customerService) return res.status(503).json({ error: "Atención a Clientes no disponible" });
+    const reason = String(req.body?.reason || "").trim();
+    if (!reason) return fail(res, new Error("Escribe por qué lo mandas a Atención a Clientes"));
+    if (sale.service?.open) return fail(res, new Error("El expediente ya está en Atención a Clientes"), 409);
+    const area = hasArea(req.opsUser, areaForQueue(sale.queue)) ? areaForQueue(sale.queue) : "supervision";
+    const areaLabel = AREAS.find(a => a.key === area)?.label || area;
+    try {
+      const c = await customerService.openCase({ conversation_id: sale.conversation_id, kind: "escalated", reason: `${areaLabel}: ${reason}`, sale, from: actorOf(req.opsUser) });
+      // Si el cliente ya tenía un caso abierto, ese caso se liga al expediente.
+      if (!c.sale_id || c.kind !== "escalated") customerService.store.update(c.case_id, { sale_id: sale.sale_id, kind: "escalated", reason: c.reason || `${areaLabel}: ${reason}` }, "case.linked_sale", { sale_id: sale.sale_id });
+      const result = saleStore.runAs(actorOf(req.opsUser), () => workflow.sendToService(sale.sale_id, { reason, area, case_id: c.case_id, by: req.opsUser.name }));
+      res.json({ ok: true, sale: saleView(result, alertHours()), case_id: c.case_id });
+    } catch (error) { fail(res, error); }
+  });
   router.post(salePath("call"), requestCallHandler);
   router.post(salePath("capture/curp"), areaAction("capture/curp", (req, body) => workflow.registerCurp(req.params.id, body)));
   router.post(salePath("capture/start"), areaAction("capture/start", req => workflow.startCapture(req.params.id, { id: req.opsUser.username, name: req.opsUser.name })));

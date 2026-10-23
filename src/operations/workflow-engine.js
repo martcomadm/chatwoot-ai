@@ -419,6 +419,39 @@ export class SaleWorkflowEngine {
     return this.store.update(id, patch, "supervision.returned", { from_status: sale.status, from_queue: sale.queue, to_status: target.status, to_queue: target.queue, reason });
   }
 
+  // ── Atención a Clientes ─────────────────────────────────────────────
+  // Un área (o Supervisión) manda el expediente a Atención a Clientes con el motivo. El expediente
+  // conserva su etapa, pero queda en pausa para el área hasta que Atención lo regrese.
+  sendToService(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED].includes(sale.status)) throw new Error("Este expediente ya no está en proceso");
+    if (sale.service?.open) throw new Error("El expediente ya está en Atención a Clientes");
+    const reason = requireReason(payload);
+    const service = { open: true, reason, case_id: payload.case_id || null, from_area: payload.area || null, from_queue: sale.queue, from_status: sale.status, sent_at: new Date().toISOString(), sent_by: payload.by || null, returned_at: null, returned_to: null, return_note: null };
+    return this.store.update(id, { service }, "service.sent", { reason, from_area: service.from_area, from_queue: sale.queue, case_id: service.case_id });
+  }
+
+  // Atención a Clientes lo regresa: a la misma área si ya lo solucionó, o a otra área que deba
+  // revisarlo (en ese caso se reinicia lo posterior, igual que cuando Supervisión lo regresa).
+  returnFromService(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (!sale.service?.open) throw new Error("El expediente no está en Atención a Clientes");
+    const note = String(payload.note || "").trim();
+    if (!note) throw new Error("Escribe qué se resolvió o por qué pasa a esa área");
+    const targetQueue = payload.target === "origin" || !payload.target ? sale.queue : payload.target;
+    const target = RETURN_TARGETS[targetQueue];
+    if (!target) throw new Error("Área destino inválida");
+    const closed = { ...sale.service, open: false, returned_at: new Date().toISOString(), returned_to: targetQueue, return_note: note, returned_by: payload.by || null };
+    if (targetQueue === sale.queue) {
+      return this.store.update(id, { service: closed }, "service.returned", { to_queue: targetQueue, note, same_area: true });
+    }
+    if (targetQueue === "validation" && !sale.capture?.completed_at && sale.queue === "capture") throw new Error("Todavía no se completa el alta en Captura; regrésalo a Captura");
+    // Se reutiliza la regla de Supervisión para mover y reiniciar etapas (valida los requisitos).
+    // Primero se mueve (si no cumple los requisitos, falla sin cambiar nada) y luego se cierra.
+    this.returnToStage(id, { target: targetQueue, reason: `Atención a Clientes: ${note}` });
+    return this.store.update(id, { service: closed }, "service.returned", { to_queue: targetQueue, note, same_area: false, from_queue: sale.queue });
+  }
+
   cancelSale(id, payload = {}) {
     const sale = this.mustGet(id);
     if (sale.status === SALE_STATUSES.COMPLETED) throw new Error("Un expediente completado no se puede cancelar");

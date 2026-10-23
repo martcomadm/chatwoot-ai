@@ -38,6 +38,8 @@ const EVENT_LABELS = {
   "capture.nss.registered": "NSS registrado",
   "capture.curp.registered": "CURP registrada",
   "capture.call_requested": "Llamada solicitada al cliente",
+  "service.sent": "Enviado a Atención a Clientes",
+  "service.returned": "Regresado por Atención a Clientes",
   "supervision.plan_changed": "Plan cambiado",
   "customer.name_corrected": "Nombre corregido",
   "capture.started": "Captura iniciada",
@@ -638,6 +640,8 @@ function canAct(sale, area) { return sale.queue === AREA_QUEUE[area] && hasArea(
 function areaActions(sale) {
   const buttons = [];
   const add = (action, label, kind = "", disabled = "") => buttons.push(`<button class="btn ${kind}" data-sale-act="${action}" ${disabled ? `disabled title="${esc(disabled)}"` : ""}>${esc(label)}</button>`);
+  // En Atención a Clientes: el área espera a que se lo regresen (Supervisión usa su sección).
+  if (sale.service?.open) return buttons;
   if (canAct(sale, "captura")) {
     if (sale.status === "waiting_capture") add("capture-start", "Iniciar captura", "primary");
     if (["waiting_capture", "capture_in_progress"].includes(sale.status)) {
@@ -667,7 +671,10 @@ function areaActions(sale) {
     if (sale.status === "payment_issue") add("payment-reopen", "Reabrir pago", "primary");
   }
   // Solicitar llamada: el área que tiene el expediente o Supervisión, en cualquier etapa activa.
-  if (!["completed", "cancelled"].includes(sale.queue) && (canAct(sale, QUEUE_AREA[sale.queue]) || hasArea("supervision"))) add("capture-call", "Solicitar llamada");
+  if (!["completed", "cancelled"].includes(sale.queue) && (canAct(sale, QUEUE_AREA[sale.queue]) || hasArea("supervision"))) {
+    add("capture-call", "Solicitar llamada");
+    add("send-service", "Enviar a Atención a Clientes");
+  }
   return buttons;
 }
 
@@ -696,6 +703,8 @@ function documentsHtml(sale) {
 
 function stageInfo(sale) {
   const parts = [];
+  if (sale.service?.open) parts.push(`<div class="notice warn"><strong>En Atención a Clientes</strong> desde ${esc(dateTime(sale.service.sent_at))}${sale.service.sent_by ? ` (lo envió ${esc(sale.service.sent_by)})` : ""}: ${esc(sale.service.reason)}<br><span class="muted">El expediente sigue en ${esc(QUEUE_LABEL_TEXT[sale.queue] || sale.queue)}; vuelve a moverse cuando Atención a Clientes lo regrese.</span></div>`);
+  else if (sale.service?.returned_at) parts.push(`<div class="notice"><strong>Regresado por Atención a Clientes</strong> el ${esc(dateTime(sale.service.returned_at))}${sale.service.returned_by ? ` (${esc(sale.service.returned_by)})` : ""}: ${esc(sale.service.return_note || "")}</div>`);
   if (sale.validation?.correction?.open) parts.push(`<div class="notice warn"><strong>Corrección solicitada ${sale.validation.correction.target === "customer" ? "al cliente" : "a Captura"}:</strong> ${esc(sale.validation.correction.reason)}</div>`);
   if (sale.validation?.rejected) parts.push(`<div class="notice bad"><strong>Rechazado en validación:</strong> ${esc(sale.validation.notes || "")}</div>`);
   if (sale.validity?.issue?.open) parts.push(`<div class="notice bad"><strong>Incidencia de vigencia:</strong> ${esc(sale.validity.issue.reason)}</div>`);
@@ -824,6 +833,11 @@ async function saleAction(action) {
     case "capture-start": done = await post("capture/start", {}, "Captura iniciada"); break;
     case "capture-complete": done = await post("capture/complete", {}, "Alta capturada: pasa a Validación"); break;
     case "documents-sync": done = await post("documents/sync", {}, "Documentos actualizados"); break;
+    case "send-service": {
+      const data = await ask({ title: "Enviar a Atención a Clientes", text: "El caso se asigna por turnos a una persona de Atención a Clientes y la conversación pasa a ella en Chatwoot. El expediente se queda en su etapa y no se mueve hasta que Atención a Clientes lo regrese.", fields: [{ name: "reason", label: "¿Por qué lo mandas?", type: "textarea", required: true, placeholder: "Ej. el cliente tiene semanas que no aparecen y quiere aclararlo antes de pagar" }], confirm: "Enviar", area: hasArea(area) ? area : "supervision" });
+      if (data) done = await post("service", { reason: data.reason }, "Enviado a Atención a Clientes");
+      break;
+    }
     case "capture-call": {
       const sent = sale.capture?.call_requested_at ? `Ya se pidió una llamada el ${dateTime(sale.capture.call_requested_at)}. ` : "";
       const data = await ask({ title: "Solicitar llamada al cliente", text: `${sent}Mia le enviará por WhatsApp: <em>“Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?”</em> El expediente se queda en ${esc(QUEUE_LABEL_TEXT[sale.queue] || "su etapa")}.`, fields: [{ name: "note", label: "Motivo (interno, opcional)", type: "textarea", placeholder: "Ej. confirmar datos de la INE" }], confirm: "Enviar mensaje", area: hasArea(area) ? area : "supervision" });
@@ -1364,13 +1378,15 @@ async function openCase(id) {
   if (result.can.work && c.status !== "resolved") {
     if (c.status !== "in_progress") buttons.push(`<button class="btn small primary" data-case-act="in_progress">Atendiendo</button>`);
     if (c.status !== "following") buttons.push(`<button class="btn small" data-case-act="following">En seguimiento</button>`);
-    buttons.push(`<button class="btn small" data-case-act="resolved">Marcar como atendido</button>`);
+    // Si un área mandó el expediente, se cierra regresándolo (a esa área o a otra).
+    if (result.can.return) buttons.push(`<button class="btn small primary" data-case-act="return">Regresar expediente</button>`);
+    else buttons.push(`<button class="btn small" data-case-act="resolved">Marcar como atendido</button>`);
   }
   if (result.can.work && c.status === "resolved") buttons.push(`<button class="btn small" data-case-act="in_progress">Reabrir</button>`);
   if (result.can.assign && c.status !== "resolved") buttons.push(`<button class="btn small" data-case-act="assign">Reasignar a…</button>`);
   const history = [...(c.events || [])].reverse().map(e => {
     const d = e.details || {};
-    const what = { "case.created": "Caso creado", "case.assigned": d.by_rotation ? `Asignado por rotación a ${d.to_name}` : `Asignado a ${d.to_name}`, "case.unassigned": "Sin responsable disponible", "case.in_progress": "Atendiendo", "case.following": "En seguimiento", "case.resolved": "Atendido", "case.new": "Reabierto", "case.note": "Nuevo motivo" }[e.type] || e.type;
+    const what = { "case.created": "Caso creado", "case.assigned": d.by_rotation ? `Asignado por rotación a ${d.to_name}` : `Asignado a ${d.to_name}`, "case.unassigned": "Sin responsable disponible", "case.in_progress": "Atendiendo", "case.following": "En seguimiento", "case.resolved": "Atendido", "case.new": "Reabierto", "case.note": "Nuevo motivo", "case.linked_sale": "Ligado al expediente" }[e.type] || e.type;
     return `<li class="${e.actor ? "person" : ""}"><div><div class="what">${esc(what)}</div>${d.note ? `<div>${esc(d.note)}</div>` : ""}${e.type === "case.assigned" && d.chatwoot === false ? `<div class="muted">No se asignó en Chatwoot (falta su ID de Chatwoot en Admin)</div>` : ""}<div class="meta">${esc(actorName(e.actor))}, ${esc(dateTime(e.at))}</div></div></li>`;
   }).join("");
   const html = `
@@ -1381,6 +1397,7 @@ async function openCase(id) {
         <section>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="tag area" style="--area:${areaVar("atencion")}">${esc(c.kind_label)}</span><span class="tag">${esc(CASE_STATUS_TEXT[c.status] || c.status)}</span></div>
           ${c.reason ? `<p style="margin:10px 0 0">${esc(c.reason)}</p>` : ""}
+          ${result.service ? `<div class="notice warn" style="margin-top:10px"><strong>Expediente en pausa en ${esc(result.service.queue_label)}.</strong> Cuando lo soluciones, regrésalo a esa área o pásalo a la que deba revisarlo.</div>` : ""}
           <div style="margin-top:12px"><span class="muted">Responsable:</span> <strong>${c.assignee ? esc(c.assignee.name) : "Sin asignar"}</strong></div>
           ${buttons.length ? `<div class="actions" style="margin-top:12px">${buttons.join("")}</div>` : ""}
         </section>
@@ -1417,6 +1434,13 @@ async function caseAction(action) {
   if (action === "resolved") {
     const data = await ask({ title: "Marcar como atendido", fields: [{ name: "note", label: "¿Qué se resolvió?", type: "textarea", required: true }], confirm: "Marcar como atendido", area: "atencion" });
     if (data) done = await post("status", { status: "resolved", note: data.note }, "Caso atendido");
+  }
+  if (action === "return") {
+    const svc = state.caseData?.service;
+    if (!svc) return;
+    const options = [["origin", `${svc.queue_label}: ya se solucionó, sigue donde estaba`], ...svc.targets.filter(t => !t.origin).map(t => [t.key, `Pasar a ${t.label}`])];
+    const data = await ask({ title: "Regresar expediente", text: "Si lo mandas a otra área, el expediente vuelve a pasar por las etapas siguientes (igual que cuando Supervisión lo regresa).", fields: [{ name: "target", label: "¿A dónde regresa?", type: "select", options, value: "origin" }, { name: "note", label: "¿Qué se resolvió o qué debe revisar esa área?", type: "textarea", required: true }], confirm: "Regresar expediente", area: "atencion" });
+    if (data) done = await post("return", { target: data.target, note: data.note }, "Expediente regresado");
   }
   if (action === "assign") {
     const people = await run(() => api("/operations/api/cases/people"));

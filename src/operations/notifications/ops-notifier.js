@@ -57,6 +57,9 @@ export class OpsNotifier extends EventEmitter {
         return { ...base, kind: "new", to: this.areaUsers("cobranza"), title: "Vigencia confirmada: toca el pago", body: `${who(sale)}${plan(sale)}` };
       case "supervision.returned":
         return area ? { ...base, kind: "new", to: this.areaUsers(area), title: `Expediente regresado a ${label}`, body: `${who(sale)}${d.reason ? ` · ${clip(d.reason, 90)}` : ""}` } : null;
+      case "service.returned":
+        // Regresó a la misma área (ya resuelto). Si cambió de área, avisa supervision.returned.
+        return d.same_area && area ? { ...base, kind: "update", to: sale.assignee?.username ? [sale.assignee.username] : this.areaUsers(area), title: `Atención a Clientes regresó el expediente a ${label}`, body: `${who(sale)}${d.note ? ` · ${clip(d.note, 90)}` : ""}` } : null;
       case "assignment.changed":
         return d.to ? { ...base, kind: "assigned", to: [d.to], title: "Te asignaron un expediente", body: `${who(sale)}${label ? ` · ${label}` : ""}` } : null;
       case "validation.rejected":
