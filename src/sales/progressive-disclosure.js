@@ -1,0 +1,263 @@
+function norm(value) {
+  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+}
+
+const PRICE_RE = /(?:\$\s*1[,.]?100|\$\s*1[,.]?500|1[,.]?100\s*(?:mxn|pesos)?|1[,.]?500\s*(?:mxn|pesos)?)/i;
+const BOTH_PLANS_RE = /plan\s*1[\s\S]{0,500}plan\s*2|plan\s*2[\s\S]{0,500}plan\s*1/i;
+const DETAIL_RE = /(?:salario diario|\$\s*480|5[.,]5\s*%|10\s*%|48\s*horas|incapacidades|documentaci[oó]n)/i;
+const PRICE_QUESTION_RE = /\b(precio|precios|cuanto cuesta|cuanto sale|costo|costos|planes|plan 1|plan 2)\b/;
+const DIRECT_DETAIL_RE = /\b(que incluye|beneficios|diferencia|como funciona|salario diario|incapacidad|tiempo|cuanto tarda|requisitos|documentos)\b/;
+const DETAIL_TOPIC_RE = /\b(afore|infonavit)\b/;
+const QUESTION_CUE_RE = /[?¿]|\b(que|cual|cuales|como|cuanto|cuanta|cuantos|cuantas|tienen|incluye|manejan|ofrecen|aplica|sirve)\b/;
+
+export function isEarlyCommercialStage(memory = {}) {
+  const stage = memory?.sales_cycle?.stage || "exploring";
+  return !memory?.sales_cycle?.authorized && ["exploring", "qualified", "interested", "plan_recommended", "explaining"].includes(stage);
+}
+
+export function customerAskedCommercialDetails(text) {
+  const value = norm(text);
+  if (PRICE_QUESTION_RE.test(value) || DIRECT_DETAIL_RE.test(value)) return true;
+  return DETAIL_TOPIC_RE.test(value) && QUESTION_CUE_RE.test(value);
+}
+
+export function isInformationOpening(text) {
+  const value = norm(text);
+  // Botón del anuncio "Comenzar con mi afiliación al IMSS".
+  if (/^(?:hola[,.! ]*)?(?:quiero |quisiera )?(?:comenzar|iniciar|empezar) (?:con )?(?:mi |la )?afiliacion(?: al imss)?[.!? ]*$/.test(value)) return true;
+  // Botón "Información" del menú de WhatsApp y aperturas cortas equivalentes.
+  if (/^(?:hola[,.! ]*)?(?:buen(?:os|as)? (?:dias|tardes|noches)[,.! ]*)?(?:(?:mas |quiero |quisiera )?(?:informacion|info|informes))?(?:[.,!¡? ]*(?:por favor|porfavor|porfa|gracias|en perdona|perdon))?[.!¡? ]*$/.test(value) && /informacion|info|informes/.test(value)) return true;
+  return /\b(quiero|quisiera|necesito|me gustaria|dame|busco)\b.{0,35}\b(informacion|informes|saber mas|orientacion)\b/.test(value)
+    || /\binformacion\b.{0,30}\b(afiliacion|imss|caso|nss)\b/.test(value)
+    || /\binformacion\b.{0,45}\b(?:revisar|revision)\b.{0,30}\b(?:caso|nss|imss)\b/.test(value);
+}
+
+export function disclosureViolations(reply, { memory = {}, combinedText = "" } = {}) {
+  if (!isEarlyCommercialStage(memory) || customerAskedCommercialDetails(combinedText)) return [];
+  const text = String(reply || "");
+  const reasons = [];
+  if (BOTH_PLANS_RE.test(text)) reasons.push("catalogo_completo_prematuro");
+  if (PRICE_RE.test(text)) reasons.push("precio_no_solicitado_en_apertura");
+  if (DETAIL_RE.test(text)) reasons.push("detalle_operativo_prematuro");
+  return reasons;
+}
+
+export function progressiveOpeningDecision(memory = {}, combinedText = "") {
+  if (!isInformationOpening(combinedText) || !isEarlyCommercialStage(memory)) return null;
+  if (customerAskedCommercialDetails(combinedText)) return null;
+  if (memory?.tiene_imss === null || memory?.tiene_imss === undefined) {
+    return {
+      // An explicit information/menu entry is a fresh customer opening. Greet here
+      // even if this Chatwoot conversation has older persisted presentation state.
+      // "Información y revisar mi caso con mi NSS" (botón del anuncio): reconocer lo que pidió.
+      reply: /\b(caso|nss)\b/.test(norm(combinedText))
+        ? "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo a revisar tu caso. Para empezar, ¿actualmente cuentas con IMSS o hace cuánto dejaste de cotizar?"
+        : /\b(comenzar|iniciar|empezar)\b/.test(norm(combinedText))
+        ? "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo con tu afiliación al IMSS. Para orientarte mejor, ¿actualmente cuentas con IMSS o ya habías cotizado antes?"
+        : "¡Hola! Soy Mia de MARTCOM. Con gusto te ayudo. La afiliación puede ayudarte a contar con servicio médico del IMSS y continuar cotizando semanas. Para orientarte mejor, ¿actualmente cuentas con IMSS?",
+      question_key: "tiene_imss",
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  return null;
+}
+
+function pendingQuestion(memory = {}) {
+  const key = memory?.ultima_pregunta;
+  if (!key) return null;
+  if ((memory?.resolved_questions || []).includes(key)) return null;
+  if (key === "nombre" && !memory?.nombre) return { key, text: "Para seguir orientándote, ¿me compartes tu nombre completo?" };
+  if (key === "edad" && !memory?.edad) return { key, text: "Para seguir orientándote, ¿qué edad tienes?" };
+  if (key === "actividad" && !memory?.actividad) return { key, text: "Para seguir orientándote, ¿a qué te dedicas actualmente?" };
+  return null;
+}
+
+// El plan del que se habló al último: para seguimientos y el "siguiente paso" (casos reales 19 y
+// 20-oct: "¿Te quedó alguna duda sobre el Plan 2?" a quien se le acababa de explicar el Plan 1).
+export function discussedPlan(memory = {}) {
+  if (memory?.sales_cycle?.infonavit_credit) return "plan_1";
+  return memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.last_plan || effectivePlan(memory);
+}
+
+export function effectivePlan(memory = {}) {
+  // Crédito INFONAVIT activo: el Plan 2 no aplica (22-oct).
+  if (memory?.sales_cycle?.infonavit_credit) return "plan_1";
+  if (memory?.sales_cycle?.selected_plan) return memory.sales_cycle.selected_plan;
+  const need = memory?.commercial_need || {};
+  // Si el cliente quiere AFORE/INFONAVIT es Plan 2 aunque antes se le haya sugerido el 1
+  // (caso real: Karla recibió seguimientos del Plan 1 después de elegir el 2).
+  if (need.afore_infonavit) return "plan_2";
+  if (memory?.sales_cycle?.recommended_plan) return memory.sales_cycle.recommended_plan;
+  if (need.service_medical || need.weeks || need.retirement) return "plan_1";
+  return null;
+}
+
+
+function affirmativeFollowUp(text = "") {
+  // "Si.", "Porfavor.", "Porfavor explíqueme…!!" también son un sí (casos reales del 15-oct).
+  // "Aver expliqueme", "a ver, explíqueme", "Espliqueme" (casos reales 19 y 20-oct).
+  const value = norm(text).replace(/^(?:a ver|aver|haber|aber)\b[ ,.]*/, "").replace(/\besplique/g, "explique").replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
+  return /^(?:(?:si|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno|me parece bien|me parece|muy bien|y gracias|gracias)\s*)+(?:(?:explicame|cuentame|dime|por favor|y gracias|gracias)\s*)*$/.test(value) && !/^(?:y gracias|gracias)/.test(value)
+    || /^(?:explicame|cuentame)(?: por favor)?$/.test(value)
+    || /\b(?:si|por favor)\s+(?:explicame|cuentame|dime)\b/.test(value);
+}
+
+function priorAgentOfferedExplanation(memory = {}) {
+  const previous = norm(memory?.ultima_respuesta_agente || "");
+  return /quieres que te explique como funciona/.test(previous)
+    || /si quieres, te explico como funciona/.test(previous)
+    || /puedo explicarte como funciona/.test(previous)
+    || /te explico como funciona/.test(previous);
+}
+
+export function contextualPlanExplanation(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  const value = norm(combinedText);
+  // "Más información" también cuenta si Mia ya mencionó un plan que aún no explicó, aunque
+  // en medio haya contestado otra duda (caso real: modalidad → "Podría darme más información").
+  const cycle = memory?.sales_cycle || {};
+  const pitchedNotExplained = (cycle.pitched_plans || []).some(p => !(cycle.explained_plans || []).includes(p));
+  const asksMoreInfo = /\b(?:mas informacion|darme (?:mas )?informacion|mandame (?:la )?informacion|dame (?:mas )?(?:informacion|info|informes)|me (?:das|da|puedes dar|podrias dar|podria dar) (?:mas )?informacion|informes|mas detalles)\b/.test(value) && (priorAgentOfferedExplanation(memory) || pitchedNotExplained);
+  const explicitExplanationRequest = asksMoreInfo || /\b(?:explicame|cuentame|dime)\b.{0,40}\b(?:como funciona|que incluye|incluye|del plan|sobre el plan|beneficios|que trae|todo|todos los detalles|mas detalles)\b/.test(value) || /\b(?:que incluye|que trae|que beneficios tiene|como funciona|todos los detalles|dame (?:todos )?los detalles|explicame todo|cuentame todo|quiero saber todo)\b/.test(value);
+  const contextualAffirmative = (affirmativeFollowUp(combinedText) || /\b(?:si|claro|por favor)\b.{0,20}\b(?:todos los detalles|detalles|todo)\b/.test(value)) && priorAgentOfferedExplanation(memory);
+  if (!explicitExplanationRequest && !contextualAffirmative) return null;
+  // "¿Quieres que te explique cómo funciona el Plan 2?" → explicar ese plan (caso 17-oct: explicó el 1).
+  const offered = /explique como funciona el plan ([12])/.exec(norm(memory?.ultima_respuesta_agente || ""))?.[1];
+  const plan = offered ? `plan_${offered}` : effectivePlan(memory);
+  // Ya se explicó este plan: no se manda otra vez el mismo bloque (caso real: Silvia recibió
+  // dos veces la explicación completa del Plan 2).
+  if (contextualAffirmative && !explicitExplanationRequest && (memory?.sales_cycle?.explained_plans || []).includes(plan)) {
+    const label = plan === "plan_2" ? "Plan 2" : "Plan 1";
+    return { reply: `Te resumo el ${label}: ${plan === "plan_2" ? "$1,500 MXN mensuales; servicio médico del IMSS, semanas cotizadas, aportaciones a AFORE e INFONAVIT" : "$1,100 MXN mensuales; servicio médico del IMSS y semanas cotizadas"}. Para iniciar solo necesitamos CURP, NSS e INE. ¿Quieres que iniciemos tu trámite o prefieres que un asesor revise tu caso primero?`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
+  }
+  if (plan === "plan_1") {
+    return {
+      reply: "Claro. El Plan 1 incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Se maneja con un salario diario registrado de $480 MXN y tiene un costo de $1,100 MXN mensuales. Una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si quieres, puedo explicarte qué atención médica puedes recibir o cuáles son los requisitos para iniciar.",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (plan === "plan_2") {
+    return {
+      reply: "Claro. El Plan 2 cuesta $1,500 MXN mensuales y maneja un salario diario registrado de $480 MXN. Incluye servicio médico del IMSS y continuación de semanas cotizadas; además contempla aportaciones a AFORE, alternando un mes 5.5% y el siguiente 10%, y acumulación estimada de entre 200 y 250 puntos para INFONAVIT. También contempla incapacidades conforme al caso. Para iniciar necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se solicita posteriormente. Con la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si estás de acuerdo, podemos iniciar el trámite.",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  return null;
+}
+
+// Price objections must be answered before a remembered commercial need can
+// trigger the same plan recommendation again.
+export function priceObjectionDecision(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  const value = norm(combinedText);
+  const objection = /\b(?:caro|cara|costoso|costosa|barato|barata|descuento|rebaja|economico|economica|presupuesto|no me alcanza|fuera de mi presupuesto|bajar(?:me)? el precio|mejor precio|mas barato|menos caro|precio elevado|precio alto)\b/.test(value);
+  if (!objection) return null;
+  // "Compárteme lo del plan 2 porque es más caro, ¿cuál es la diferencia?" (caso real 22-oct) pide la
+  // comparación, no un descuento.
+  if (/\b(?:diferencia|diferencias|que incluye|que trae|compar\w*|por que (?:es|sale|cuesta) mas|lo del plan)\b/.test(value) && !/\b(?:descuento|rebaja|no me alcanza|presupuesto|mas barato)\b/.test(value)) return null;
+  const plan = effectivePlan(memory);
+  const price = plan === "plan_2" ? "$1,500 MXN mensuales" : plan === "plan_1" ? "$1,100 MXN mensuales" : null;
+  return {
+    reply: `Entiendo que el precio sea importante para ti.${price ? ` El costo informado para ${plan === "plan_2" ? "el Plan 2" : "el Plan 1"} es de ${price}.` : ""} El precio es fijo y actualmente no manejamos descuentos. Si quieres, puedo explicarte qué incluye el plan para que puedas valorar si se ajusta a lo que necesitas.`,
+    question_key: null,
+    add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+  };
+}
+
+export function compactPlanRecommendation(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  // Never turn a price objection back into a generic plan pitch. This guard is
+  // intentionally duplicated at the recommendation boundary so future changes
+  // in processor priority cannot regress this behavior.
+  const objectionDecision = priceObjectionDecision(memory, combinedText);
+  if (objectionDecision) return objectionDecision;
+  const directValue = norm(combinedText);
+  const asksPlan2Option = /\b(?:tienen|hay|manejan|ofrecen|existe|opcion|plan)\b.{0,50}\b(?:afore|infonavit)\b/.test(directValue) || /\b(?:afore|infonavit)\b.{0,50}\b(?:es posible|tienen|hay|manejan|ofrecen|opcion|plan)\b/.test(directValue);
+  if (asksPlan2Option) {
+    return {
+      reply: "Sí. Para eso tenemos el Plan 2, que además del servicio médico y continuación de semanas contempla aportaciones a AFORE y acumulación de puntos para INFONAVIT. Tiene un costo de $1,500 MXN mensuales. ¿Quieres que te explique cómo funciona?",
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (customerAskedCommercialDetails(combinedText)) return null;
+  const plan = effectivePlan(memory);
+  // La recomendación del plan se da una sola vez: si ya se recomendó o explicó este plan,
+  // repetirla en cada turno hace que Mia "regrese" a un mensaje anterior.
+  const cycle = memory?.sales_cycle || {};
+  if (plan && [...(cycle.pitched_plans || []), ...(cycle.explained_plans || [])].includes(plan)) return null;
+  const needText = norm(`${memory?.necesidad_principal || ""} ${combinedText || ""}`);
+  const structured = memory?.commercial_need || {};
+  const pending = pendingQuestion(memory);
+  const retirementContext = Boolean(structured.retirement) || /\b(pension|pensionarme|retiro|jubilarme|jubilacion)\b/.test(needText);
+  const weeksContext = Boolean(structured.weeks) || /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas)\b/.test(needText);
+  const serviceContext = Boolean(structured.service_medical) || /\b(servicio medico|seguro medico|medico|beneficiarios|guarderia|maternidad)\b/.test(needText);
+  const rejectsPlan2 = /\b(?:no|sin|ni)\s+(?:me interesa\s+|quiero\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b/.test(norm(combinedText));
+  // "Me dieron el dinero y el aforé" (ya la retiró, caso real 21-oct) o "ya tengo mi afore" no piden el Plan 2.
+  const ownAfore = /\b(?:me dieron|me entregaron|retire|saque|cobre)\b.{0,30}\b(?:afore|dinero)\b|\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+)?afore\b/.test(norm(combinedText));
+  const plan2Context = !rejectsPlan2 && (Boolean(structured.afore_infonavit) || (!ownAfore && /\b(afore|infonavit|credito|vivienda|puntos)\b/.test(needText)));
+
+  if (plan === "plan_1" && retirementContext && weeksContext) {
+    return {
+      // Si ya dijo que empezó a cotizar antes de 1997 (anuncio de pensión), se le dice que es Ley 73.
+      reply: `Entiendo. ${memory?.pension_data?.cotizo_antes_1997 ? "Como empezaste a cotizar antes del 1 de julio de 1997, tu caso es Ley 73: necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos. " : ""}Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN mensuales. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.`,
+      question_key: null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (plan === "plan_1" && (serviceContext || weeksContext)) {
+    return {
+      reply: serviceContext
+        ? `Perfecto. Si lo que buscas principalmente es servicio médico, el Plan 1 puede ser una buena opción. Tiene un costo de $1,100 MXN mensuales e incluye servicio médico del IMSS y continuación de semanas cotizadas; también permite registrar beneficiarios conforme a las reglas del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`
+        : `Entiendo. Si tu prioridad es continuar cotizando semanas, el Plan 1 puede ajustarse a lo que buscas. Tiene un costo de $1,100 MXN mensuales e incluye continuación de semanas y servicio médico del IMSS.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
+      question_key: pending?.key || null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  if (plan === "plan_2" && plan2Context) {
+    return {
+      reply: `Perfecto. Si también te interesa AFORE e INFONAVIT, el Plan 2 puede ajustarse mejor a lo que buscas. Tiene un costo de $1,500 MXN mensuales e incluye servicio médico y continuación de semanas, además de aportaciones a AFORE y acumulación de puntos para INFONAVIT.${pending ? ` ${pending.text}` : " ¿Quieres que te explique cómo funciona?"}`,
+      question_key: pending?.key || null,
+      add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+    };
+  }
+  return null;
+}
+
+// "Solo me interesa sumar semanas, no me interesa el seguro médico": aclarar que el
+// servicio médico viene incluido (no se paga aparte) sin repetir el precio.
+export function medicalNotNeededDecision(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  const value = norm(combinedText);
+  const rejectsMedical = /\bno (?:me interesa|necesito|quiero|ocupo|busco)\b.{0,25}\b(?:el |lo del )?(?:seguro medico|servicio medico|atencion medica|seguro|servicio del imss)\b/.test(value);
+  if (!rejectsMedical) return null;
+  const wantsPlan2 = /\b(?:afore|infonavit)\b/.test(value) || effectivePlan(memory) === "plan_2";
+  const plan = wantsPlan2 ? "Plan 2" : "Plan 1";
+  const purpose = wantsPlan2 ? "seguir sumando semanas y además aportar a tu AFORE e INFONAVIT" : "seguir sumando semanas cotizadas para tu pensión";
+  const explained = (memory?.sales_cycle?.explained_plans || []).includes(wantsPlan2 ? "plan_2" : "plan_1");
+  return {
+    reply: `Entendido. El ${plan} es justamente para ${purpose}. El servicio médico del IMSS viene incluido en el mismo costo; no se paga aparte y lo usas solo si lo necesitas. ${explained ? "¿Quieres que iniciemos tu trámite?" : "¿Quieres que te explique cómo funciona?"}`,
+    question_key: null,
+    add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+  };
+}
+
+// Después de explicar el Plan 1 Mia ofrece "qué atención médica puedes recibir o cuáles son
+// los requisitos". Un "sí", "ok" o "dame informes" debe recibir eso, no otra pregunta
+// de datos ni el respaldo genérico (casos reales del 13 y 14 de octubre).
+const OFFER_COVERAGE_RE = /que atencion medica puedes recibir o cuales son los requisitos/;
+export function coverageAndRequirementsDecision(memory = {}, combinedText = "") {
+  if (memory?.sales_cycle?.authorized) return null;
+  if (!OFFER_COVERAGE_RE.test(norm(memory?.ultima_respuesta_agente || ""))) return null;
+  const value = norm(combinedText);
+  const accepts = /^(?:si|claro|ok|okey|va|vale|bueno|perfecto|por favor|ambos|las dos|los dos|muy bien|me parece)\b/.test(value)
+    || /\b(informes|informacion|requisitos|atencion medica|que necesito|explicame|dime|cuentame)\b/.test(value);
+  if (!accepts || /\bno\b/.test(value.split(" ").slice(0, 2).join(" "))) return null;
+  return {
+    reply: "Con tu alta vigente tienes acceso al servicio médico del IMSS: consultas, medicamentos, estudios, hospitalización y cirugías cuando las indique el IMSS, además de maternidad y guardería cuando corresponda. Para iniciar solo necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se pide más adelante. Todo el trámite se hace por este medio. ¿Quieres que iniciemos tu trámite?",
+    question_key: null,
+    add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
+  };
+}

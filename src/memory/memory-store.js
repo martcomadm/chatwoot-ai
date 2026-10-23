@@ -26,7 +26,7 @@ const EMPTY = {
 
 function deepMerge(base,patch){
   const out={...base,...patch};
-  for(const key of ["intereses","contexto_laboral","ventas","intent","caso_fallecimiento","caso_sujeto","pension_data","orchestration","judgment","handoff","flujo","slots","data_collection","experiencia"]){out[key]={...(base[key]||{}),...(patch[key]||{})};}
+  for(const key of ["intereses","contexto_laboral","ventas","intent","caso_fallecimiento","caso_sujeto","pension_data","orchestration","judgment","handoff","flujo","slots","data_collection","experiencia","operations"]){out[key]={...(base[key]||{}),...(patch[key]||{})};}
   return out;
 }
 

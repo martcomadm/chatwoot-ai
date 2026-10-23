@@ -1,0 +1,293 @@
+import fs from "node:fs";
+import path from "node:path";
+import { stopLabels } from "../chatwoot/labels.js";
+import { onboardingLabel } from "../operations/onboarding-service.js";
+import { SelfSenders } from "./self-senders.js";
+import { effectivePlan, discussedPlan } from "../sales/progressive-disclosure.js";
+
+// Seguimiento automático cuando el cliente deja de contestar.
+//
+// Después de cada respuesta de Mia se programa una serie de recordatorios (por defecto
+// a los 20 min, 3 h y 20 h). Si el cliente escribe, la serie se cancela y se vuelve a
+// programar con la siguiente respuesta de Mia. Todo ocurre dentro de la ventana de 24 h
+// de WhatsApp (contada desde el último mensaje del cliente). Al cerrarse la ventana sin
+// respuesta, Mia manda una vez la plantilla aprobada de seguimiento (saludodia3), en
+// horario de atención, pone la etiqueta "no_contesta" y deja de escribir.
+
+export const DEFAULT_FOLLOW_UP_MINUTES = [20, 180, 1200];
+const MINUTE = 60 * 1000;
+const WINDOW_MS = 24 * 60 * MINUTE;
+const WINDOW_SAFETY_MS = 15 * MINUTE;   // no apurar el último minuto de la ventana
+const MIN_GAP_MS = 60 * MINUTE;         // separación mínima entre dos seguimientos
+export const NO_RESPONSE_LABEL = "no_contesta";
+export const PAUSE_LABEL = "pausar_mia";
+
+export function parseFollowUpMinutes(text) {
+  if (!text) return DEFAULT_FOLLOW_UP_MINUTES;
+  const values = String(text).split(",").map(v => Number(v.trim()));
+  if (!values.length || values.some(v => !Number.isFinite(v) || v <= 0) || values.some((v, i) => i && v <= values[i - 1])) {
+    throw new Error(`FOLLOWUP_MINUTES inválido: "${text}" (ejemplo: 20,180,1200)`);
+  }
+  return values;
+}
+
+const TEMPLATE_GAP_MS = 12 * 60 * 60 * 1000;
+
+export class FollowUpStore {
+  constructor(file) {
+    this.file = file;
+    this.data = {};
+    try { this.data = JSON.parse(fs.readFileSync(file, "utf8")) || {}; }
+    catch (error) { if (error.code !== "ENOENT") console.error("NEXT: no se pudo leer la cola de seguimientos:", error.message); }
+  }
+
+  persist() {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    const tmp = `${this.file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
+    fs.renameSync(tmp, this.file);
+  }
+
+  get(id) { return this.data[String(id)] || null; }
+  set(id, entry) { this.data[String(id)] = entry; this.persist(); }
+  remove(id) { if (this.data[String(id)]) { delete this.data[String(id)]; this.persist(); } }
+  list() { return Object.entries(this.data).map(([id, entry]) => ({ ...entry, conversationId: Number(id) })); }
+}
+
+function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_1" ? "Plan 1" : null; }
+
+function currentPlan(memory = {}) {
+  // Solo si ya se le habló de un plan: tras la apertura del anuncio de pensión ("¿hace cuánto dejaste
+  // de cotizar?") salía "¿Te quedó alguna duda sobre el Plan 1?" sin haberle mencionado ningún plan
+  // (casos reales 20 y 21-oct).
+  const cycle = memory.sales_cycle || {};
+  const mentioned = cycle.selected_plan || cycle.recommended_plan || cycle.last_plan || (cycle.pitched_plans || []).length || (cycle.explained_plans || []).length
+    || /\bplan\s*[12]\b/i.test(String(memory.ultima_respuesta_agente || ""));
+  if (!mentioned) return null;
+  // Mismo criterio que el resto de Mia: plan elegido > AFORE/INFONAVIT > recomendado > necesidad.
+  return discussedPlan(memory) || (cycle.pitched_plans || []).at(-1) || null;
+}
+
+function pensionContext(memory = {}) {
+  return Boolean(memory.commercial_need?.retirement) || /dejaste de cotizar|empezaste a cotizar|tu pensi[oó]n/i.test(String(memory.ultima_respuesta_agente || ""));
+}
+
+// Mensaje según dónde se quedó la conversación. null = no corresponde dar seguimiento.
+export function followUpMessage(memory = {}, step = 0) {
+  const authorized = Boolean(memory.sales_cycle?.authorized);
+  if (authorized) {
+    const ops = memory.operations || {};
+    if (ops.documents_complete) return null; // ya lo atiende el equipo de Operaciones
+    const key = ops.onboarding_next || ops.documents_missing?.[0] || null;
+    const doc = key ? `tu ${onboardingLabel(key)}` : "la documentación pendiente";
+    return [
+      `¿Pudiste conseguir ${doc}? Cuando la tengas, envíamela por aquí y seguimos con tu trámite.`,
+      `Te recuerdo que tu expediente sigue abierto. Solo falta ${doc} para continuar; si tienes alguna dificultad para conseguirla, dime y te ayudo.`,
+      `Tu trámite sigue pendiente de ${doc}. Cuando la tengas a la mano, envíamela por aquí y continuamos sin problema.`,
+    ][Math.min(step, 2)];
+  }
+  const plan = planLabel(currentPlan(memory));
+  if (plan) {
+    return [
+      `¿Te quedó alguna duda sobre el ${plan}? Con gusto te la resuelvo.`,
+      `Hola de nuevo. ¿Te gustaría que iniciemos tu trámite con el ${plan}? Si tienes alguna duda, con gusto te la resuelvo.`,
+      `Te escribo para saber si aún te interesa el ${plan}. Si quieres iniciar o tienes alguna pregunta, aquí estoy para ayudarte.`,
+    ][Math.min(step, 2)];
+  }
+  if (pensionContext(memory)) {
+    return [
+      "¿Sigues por aquí? Si me dices hace cuánto dejaste de cotizar y en qué año empezaste, te explico cómo puedes seguir sumando semanas para tu pensión.",
+      "Hola de nuevo. Con nosotros puedes seguir sumando semanas para tu pensión y además tener servicio médico del IMSS. ¿Te gustaría que te explique cómo funciona?",
+      "Te escribo para saber si aún te interesa seguir sumando semanas para tu pensión. Si más adelante quieres retomarlo, aquí estaré para ayudarte.",
+    ][Math.min(step, 2)];
+  }
+  return [
+    "¿Sigues por aquí? Con gusto te ayudo a revisar qué plan se ajusta mejor a lo que buscas.",
+    "Hola de nuevo. Si te interesa contar con servicio médico del IMSS y seguir cotizando semanas, puedo explicarte las opciones en un momento. ¿Te gustaría?",
+    "Te escribo para saber si aún te interesa la información. Si más adelante quieres retomarla, aquí estaré para ayudarte.",
+  ][Math.min(step, 2)];
+}
+
+function labelNames(conversation) {
+  const raw = conversation?.labels || conversation?.meta?.labels || [];
+  return raw.map(label => (typeof label === "string" ? label : label?.title || label?.name)).filter(Boolean);
+}
+
+function publicMessages(conversation) {
+  const list = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  return list.filter(m => m && m.private !== true && [0, 1, "incoming", "outgoing"].includes(m.message_type))
+    .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0));
+}
+
+const isIncoming = m => m?.message_type === 0 || m?.message_type === "incoming";
+
+export class FollowUpService {
+  constructor({ store, chatwoot, labels, memories, config, inspectorEvents = null, isOpen = () => true, isMiaPaused = () => false, minutes = DEFAULT_FOLLOW_UP_MINUTES, sentTexts = new Set(), selfSenders = null, templates = null }) {
+    this.templates = templates;
+    this.store = store;
+    this.chatwoot = chatwoot;
+    this.labels = labels;
+    this.memories = memories;
+    this.config = config;
+    this.inspectorEvents = inspectorEvents;
+    this.isOpen = isOpen;
+    this.isMiaPaused = isMiaPaused;
+    this.offsets = minutes.map(m => m * MINUTE);
+    this.selfSenders = selfSenders || new SelfSenders();
+    this.sentTexts = sentTexts; // textos que manda Mia mientras espera (p.ej. aviso de horario)
+    this.running = false;
+  }
+
+  async record(id, type, data) {
+    try { await this.inspectorEvents?.record?.(id, type, data); } catch {}
+  }
+
+  // Mia acaba de contestar: empieza (o reinicia) la serie de seguimientos.
+  afterReply(conversationId, { customerAt = new Date(), now = new Date(), reply = "", notBefore = null } = {}) {
+    const texts = reply ? [String(reply).replace(/\s+/g, " ").trim()] : [];
+    this.store.set(conversationId, { mia_at: now.toISOString(), customer_at: new Date(customerAt).toISOString(), sent: 0, last_sent_at: null, texts, not_before: notBefore ? new Date(notBefore).toISOString() : null });
+  }
+
+  // El cliente escribió: se cancela lo pendiente.
+  customerWrote(conversationId) { this.store.remove(conversationId); }
+
+  // Cancelación explícita (rechazo, handoff, pausa por paciencia…).
+  cancel(conversationId) { this.store.remove(conversationId); }
+
+  dueAt(entry) {
+    const step = Number(entry.sent || 0);
+    if (step >= this.offsets.length) return null;
+    const base = Date.parse(entry.mia_at) + this.offsets[step];
+    const gap = entry.last_sent_at ? Date.parse(entry.last_sent_at) + MIN_GAP_MS : 0;
+    // El cliente dijo cuándo ("el lunes", "mañana"): no se le escribe antes.
+    return Math.max(base, gap, Date.parse(entry.not_before || "") || 0);
+  }
+
+  windowEnd(entry) { return Date.parse(entry.customer_at) + WINDOW_MS - WINDOW_SAFETY_MS; }
+
+  // ¿Sigue siendo un chat que Mia debe atender? Devuelve el motivo si no.
+  ineligible(conversation, entry) {
+    if (Number(conversation?.inbox_id || conversation?.inbox?.id) !== Number(this.config.chatwoot.inboxId)) return "other_inbox";
+    const assignee = Number(conversation?.meta?.assignee?.id || conversation?.assignee?.id || 0);
+    if (assignee && assignee !== Number(this.config.chatwoot.agentId)) return "reassigned";
+    if (["resolved", "closed"].includes(String(conversation?.status || "").toLowerCase())) return "closed";
+    const labels = labelNames(conversation);
+    if (labels.includes(PAUSE_LABEL)) return "paused_label";
+    if (labels.some(label => stopLabels.has(label))) return "stop_label";
+    const messages = publicMessages(conversation);
+    const last = messages.at(-1);
+    if (last && isIncoming(last)) return "customer_wrote";
+    // Si lo último que recibió el cliente es el aviso de horario, el chat lo retoma la apertura, no un seguimiento.
+    if (last && /^¡Gracias por escribir a MARTCOM! Nuestro horario de atención es/.test(String(last.content || "").trim())) return "after_hours_notice";
+    const since = Date.parse(entry.mia_at) / 1000 - 5;
+    const ignored = new Set([...this.sentTexts].map(t => String(t).replace(/\s+/g, " ").trim()));
+    const humanReplied = messages.some(m => !isIncoming(m)
+      && !this.selfSenders?.isOwn?.(m)
+      && Number(m.created_at || 0) >= since
+      && String(m.sender_type || m.sender?.type || "").toLowerCase() === "user"
+      && Number(m.sender_id || m.sender?.id || 0) !== Number(this.config.chatwoot.agentId)
+      && !ignored.has(String(m.content || "").replace(/\s+/g, " ").trim())
+      && !(entry.texts || []).includes(String(m.content || "").replace(/\s+/g, " ").trim()));
+    if (humanReplied) return "human_replied";
+    return null;
+  }
+
+  async tick(now = new Date()) {
+    if (this.running || this.isMiaPaused()) return { sent: 0 };
+    this.running = true;
+    let sent = 0;
+    try {
+      for (const entry of this.store.list()) {
+        const id = entry.conversationId;
+        // Antes del día que dijo el cliente no sale nada, ni la plantilla (caso real 22-oct: dijo "el lunes"
+        // y a los 20 minutos recibió "¿Pudiste conseguir tu CURP?").
+        if (entry.not_before && now.getTime() < Date.parse(entry.not_before)) continue;
+        const windowClosed = now.getTime() > this.windowEnd(entry);
+        const due = this.dueAt(entry);
+        if (!windowClosed && (due === null || now.getTime() < due || !this.isOpen(now))) continue;
+        // La plantilla de 24 h se manda en horario de atención; mientras tanto se espera.
+        const useTemplate = windowClosed && this.templates?.enabled?.("followUp24h");
+        if (useTemplate && !this.isOpen(now)) continue;
+        // La plantilla no sale pegada al último seguimiento (casos 19 y 20-oct: seguimiento a las
+        // 7:00 y plantilla a las 7:50): espera al menos 12 h desde el último mensaje de Mia.
+        const lastTouch = Math.max(Date.parse(entry.last_sent_at || "") || 0, Date.parse(entry.mia_at || "") || 0);
+        if (useTemplate && lastTouch && now.getTime() - lastTouch < TEMPLATE_GAP_MS) continue;
+
+        let conversation;
+        try { conversation = await this.chatwoot.getConversation(id); }
+        catch (error) { await this.record(id, "followup_error", { error: String(error?.message || error).slice(0, 300) }); continue; }
+        const reason = this.ineligible(conversation, entry);
+        if (reason) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason }); continue; }
+
+        if (windowClosed) {
+          // Se cerró la ventana de 24 h sin respuesta: etiqueta y fin de la serie.
+          this.store.remove(id);
+          let template = null;
+          // Solo si aún tiene sentido insistir (p. ej. no a quien ya entregó todo).
+          // Una sola plantilla de 24 h por día, la mande el seguimiento o Mia al contestar fuera de la ventana.
+          const memoryNow = this.memories.get(id) || {};
+          const templateRecently = now.getTime() - (Date.parse(memoryNow.reengage_template_at || "") || 0) < 24 * 60 * 60 * 1000;
+          if (useTemplate && !templateRecently && followUpMessage(memoryNow, 0) !== null) {
+            template = await this.templates.send(id, "followUp24h");
+            await this.record(id, template.sent ? "followup_template_sent" : "followup_template_failed", template);
+            if (template.sent) await this.memories.set(id, { ...memoryNow, reengage_template_at: now.toISOString() });
+          }
+          if (Number(entry.sent || 0) > 0 || template?.sent) {
+            await this.labels.mergeSafe(id, [NO_RESPONSE_LABEL], [], conversation);
+            await this.record(id, "followup_no_response", { sent: entry.sent, template: Boolean(template?.sent) });
+          }
+          continue;
+        }
+
+        const memory = this.memories.get(id);
+        // El cliente ya pospuso, se despidió o dijo "no gracias" después de programarse la serie:
+        // no se le vuelve a escribir (caso real: Silvia, 16-oct).
+        const deferredAt = Date.parse(memory?.sales_cycle?.deferral_at || "");
+        if (Number.isFinite(deferredAt) && deferredAt >= Date.parse(entry.mia_at) - 1000) {
+          this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "customer_deferred" }); continue;
+        }
+        // No repetir un seguimiento que el cliente ya recibió en esta conversación.
+        const used = new Set(memory.followups_sent || []);
+        let text = null;
+        for (let k = Number(entry.sent || 0); k < 3 && !text; k++) {
+          const candidate = followUpMessage(memory, k);
+          if (candidate === null) break;
+          if (!used.has(candidate)) text = candidate;
+        }
+        if (!text) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "not_applicable" }); continue; }
+        await this.chatwoot.sendMessage(id, text);
+        await this.memories.set(id, { ...memory, ultima_respuesta_agente: text, ultima_pregunta: null, followups_sent: [...used, text] });
+        const { conversationId: _omit, ...stored } = entry;
+        this.store.set(id, { ...stored, sent: Number(entry.sent || 0) + 1, last_sent_at: now.toISOString(), texts: [...(entry.texts || []), text.replace(/\s+/g, " ").trim()] });
+        await this.record(id, "followup_sent", { step: Number(entry.sent || 0) + 1, text });
+        sent++;
+      }
+    } finally { this.running = false; }
+    return { sent };
+  }
+
+  start(intervalMs = 60_000) {
+    const timer = setInterval(() => void this.tick().catch(error => console.error("NEXT seguimientos:", error?.message || error)), intervalMs);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }
+}
+
+// Cuándo dijo el cliente que retoma: "mañana", "el lunes", "en dos horas", "al rato". null si no lo dijo.
+// Hora del centro de México (UTC-6, sin horario de verano); los días se retoman a las 9:00.
+const DAYS = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
+export function customerResumeAt(text = "", now = new Date()) {
+  const v = String(text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+  const OFFSET = -6 * 3600 * 1000;
+  const localNow = new Date(now.getTime() + OFFSET);
+  const atNine = daysAhead => { const d = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate() + daysAhead, 9, 0)); return new Date(d.getTime() - OFFSET); };
+  const hours = v.match(/\ben (una|dos|tres|cuatro|\d+) horas?\b/);
+  if (hours) { const n = { una: 1, dos: 2, tres: 3, cuatro: 4 }[hours[1]] || Number(hours[1]); return new Date(now.getTime() + Math.min(n, 12) * 3600 * 1000); }
+  if (/\bpasado manana\b/.test(v)) return atNine(2);
+  if (/\bmanana\b/.test(v)) return atNine(1);
+  const day = v.match(/\b(?:el|este|el proximo|el siguiente)\s+(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/);
+  if (day) { let diff = (DAYS[day[1]] - localNow.getUTCDay() + 7) % 7; if (diff === 0) diff = 7; return atNine(diff); }
+  if (/\b(?:la (?:proxima|otra|siguiente) semana)\b/.test(v)) return atNine(((8 - localNow.getUTCDay()) % 7) || 7);
+  if (/\b(?:al rato|en un rato|mas tarde|en la tarde|en la noche|hoy voy a buscar|voy hoy a buscar|llegando a (?:la )?casa|cuando llegue)\b/.test(v)) return new Date(now.getTime() + 3 * 3600 * 1000);
+  return null;
+}
