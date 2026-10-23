@@ -45,7 +45,7 @@ export const DEFAULT_HANDOFF_AGENTS = "26:Pamela Montiel,31:Tonatiuh Ramirez,20:
 
 // 23-oct-2026: los casos que piden atención humana (no las llamadas) van a esta rotación.
 // Las solicitudes de llamada siguen con la rotación de asesores de arriba.
-export const DEFAULT_HUMAN_HANDOFF_AGENTS = "62:Jaqueline Juárez,61:Claudia Medina,60:Ricardo Guzman,59:Brenda Torres";
+export const DEFAULT_HUMAN_HANDOFF_AGENTS = "62:Jaqueline Juárez,58:Erika Balanzario,60:Ricardo Guzman,59:Brenda Torres";
 
 export function loadConfig() {
   for (const key of required) if (!process.env[key]) throw new Error(`Falta la variable obligatoria ${key}`);

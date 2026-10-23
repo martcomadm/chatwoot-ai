@@ -5,13 +5,13 @@ import { ConversationProcessor } from "../src/core/conversation-processor.js";
 import { HandoffRotationStore, HandoffRouter } from "../src/handoff/index.js";
 import { DEFAULT_HUMAN_HANDOFF_AGENTS } from "../src/config.js";
 
-// 23-oct: atención humana → Jaqueline (62), Claudia (61), Ricardo (60), Brenda (59).
+// 23-oct: atención humana → Jaqueline (62), Erika (58), Ricardo (60), Brenda (59).
 // Las solicitudes de llamada siguen con la rotación de asesores.
 function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "next-human-"));
   const assigned = [];
   const chatwoot = { async assignConversation(id, agent) { assigned.push([id, agent]); return { id: agent }; } };
-  const human = [{ id: 62, name: "Jaqueline Juárez" }, { id: 61, name: "Claudia Medina" }, { id: 60, name: "Ricardo Guzman" }, { id: 59, name: "Brenda Torres" }];
+  const human = [{ id: 62, name: "Jaqueline Juárez" }, { id: 58, name: "Erika Balanzario" }, { id: 60, name: "Ricardo Guzman" }, { id: 59, name: "Brenda Torres" }];
   const advisors = [{ id: 26, name: "Pamela Montiel" }, { id: 31, name: "Tonatiuh Ramirez" }];
   const cfg = agents => ({ ai: { timezone: "America/Mexico_City" }, handoff: { enabled: true, weekdayAgents: agents, saturdayAgents: agents, sundayAgents: agents } });
   const handoffRouter = new HandoffRouter({ config: cfg(advisors), store: new HandoffRotationStore(path.join(dir, "a.json")), chatwoot });
@@ -38,11 +38,11 @@ test("pide hablar con una persona → rotación de atención humana; pide llamad
   await processorFor(env, "Quiero una llamada con mi asesor", 3);
   await processorFor(env, "Le puedo marcar xfa", 4);
   const byConv = Object.fromEntries(env.assigned.map(([c, a]) => [c, a]));
-  assert.ok([62, 61, 60, 59].includes(byConv[1]) && [62, 61, 60, 59].includes(byConv[2]));
+  assert.ok([62, 58, 60, 59].includes(byConv[1]) && [62, 58, 60, 59].includes(byConv[2]));
   assert.notEqual(byConv[1], byConv[2], "rota entre las 4 personas");
   assert.ok([26, 31].includes(byConv[3]) && [26, 31].includes(byConv[4]), "las llamadas siguen con los asesores");
 });
 
 test("la rotación de atención humana por defecto son las 4 personas", () => {
-  assert.equal(DEFAULT_HUMAN_HANDOFF_AGENTS, "62:Jaqueline Juárez,61:Claudia Medina,60:Ricardo Guzman,59:Brenda Torres");
+  assert.equal(DEFAULT_HUMAN_HANDOFF_AGENTS, "62:Jaqueline Juárez,58:Erika Balanzario,60:Ricardo Guzman,59:Brenda Torres");
 });
