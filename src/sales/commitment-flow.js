@@ -1,3 +1,4 @@
+import { INFONAVIT_CREDIT_PLAN2_TEXT } from "./infonavit-credit.js";
 import { negatesCommitment } from "./commitment-negation.js";
 import { confirmsStart, genericInterest } from "./start-confirmation.js";
 import { detectDeferral } from "./customer-deferral.js";
@@ -20,6 +21,10 @@ export function commitmentDecision(memory = {}, combinedText = "") {
   const cycle = memory.sales_cycle || {};
   const plan = cycle.selected_plan || cycle.recommended_plan || null;
   if (!text || cycle.authorized || negatesCommitment(text) || detectDeferral(combinedText)) return null;
+  // Pide el Plan 2 teniendo crédito INFONAVIT activo: no aplica (22-oct).
+  if (cycle.infonavit_credit && /\bplan\s*(?:2|dos)\b|\bpaquete\s*(?:2|dos)\b/.test(text)) {
+    return { reply: INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", commitment: "plan2_blocked" };
+  }
 
   if ((START_RE.test(text) || confirmsStart(combinedText, memory)) && plan) {
     return {

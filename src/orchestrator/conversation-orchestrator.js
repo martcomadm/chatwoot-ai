@@ -1,3 +1,4 @@
+import { INFONAVIT_CREDIT_PRICE_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT } from '../sales/infonavit-credit.js';
 import { effectivePlan } from '../sales/progressive-disclosure.js';
 import { FACT_LOCKED_TYPES } from '../core/deterministic-decision-policy.js';
 
@@ -171,6 +172,8 @@ export function directAnswerText(request){
     const months=Math.max(1,Math.ceil(request.weeks/4.3));
     return `Con nosotros sumas alrededor de 4 semanas cotizadas por cada mes, así que ${request.weeks} semanas se completan en aproximadamente ${months} ${months===1?'mes':'meses'}.${request.pre1997?' Como empezaste a cotizar antes del 1 de julio de 1997 (Ley 73), además necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos.':' Si empezaste a cotizar antes del 1 de julio de 1997 (Ley 73), además necesitas al menos 13 meses de afiliación antes de tramitar tu pensión.'} El Plan 1 cuesta $1,100 MXN mensuales e incluye servicio médico del IMSS. ¿Quieres que iniciemos tu trámite?`;
   }
+  if(request.answerKey==='credit_price') return INFONAVIT_CREDIT_PRICE_TEXT;
+  if(request.answerKey==='credit_plan2') return INFONAVIT_CREDIT_PLAN2_TEXT;
   if(request.answerKey==='payment_method') return 'El pago es mensual y se hace hasta que tu alta esté vigente: primero te enviamos tu documento de vigencia y después nuestra área de Cobranza te comparte por aquí los datos para pagar por transferencia, depósito u OXXO.';
   if(request.answerKey==='retroactive') return 'Las altas con fecha retroactiva dependen de cada caso y esa parte te la confirma un asesor. Lo que sí hacemos es darte de alta ante el IMSS para que tengas servicio médico y sigas sumando semanas desde ahora (Plan 1 de $1,100 MXN mensuales). ¿Quieres que te comunique con un asesor para revisarlo?';
   if(request.answerKey==='needs_weeks') return 'Te podemos ayudar a seguir sumando las semanas que te faltan: te damos de alta ante el IMSS y sigues cotizando, además con servicio médico. Para revisar tu caso, ¿hace cuánto dejaste de cotizar y, más o menos, en qué año empezaste a cotizar?';
@@ -250,6 +253,13 @@ export function startedBefore1997(text=''){
 // Enriquecer una pregunta con el contexto del cliente (plan, Ley 73, si ya se le explicó, confianza).
 function enrich(direct,text,memory){
   if(!direct) return direct;
+  // Crédito INFONAVIT activo: no se ofrece el Plan 2 (22-oct).
+  if(memory?.sales_cycle?.infonavit_credit){
+    if(['price','payment_frequency','not_free','fees','payment_duration'].includes(direct.answerKey)) return {...direct,type:'credit_price',answerKey:'credit_price'};
+    if(['plan_2_contributions','disability'].includes(direct.answerKey)||(direct.answerKey==='services'&&direct.plan==='plan_2')) return {...direct,type:'credit_plan2',answerKey:'credit_plan2'};
+    if(direct.answerKey==='services') return {...direct,plan:'plan_1'};
+    if(direct.answerKey==='which_plan') return {...direct,plan:'plan_1'};
+  }
   if(direct.answerKey==='services'&&!direct.plan&&!asksPlanCatalog(text)){
     const plan=effectivePlan(memory);
     if(plan==='plan_1'||plan==='plan_2') direct={...direct,plan,planFrom:'conversation'};

@@ -1,3 +1,4 @@
+import { hasActiveInfonavitCredit } from "./infonavit-credit.js";
 import { negatesCommitment } from "./commitment-negation.js";
 import { confirmsStart, genericInterest } from "./start-confirmation.js";
 import { detectDeferral } from "./customer-deferral.js";
@@ -146,8 +147,11 @@ function commercialContextReady(memory = {}) {
 export function analyzeNextSale(text, memory = {}) {
   const value = norm(text);
   const previous = memory.sales_cycle || {};
-  const detectedPlan = detectPlanPreference(value);
-  const explicitSelection = detectExplicitPlanSelection(value);
+  // Con crédito INFONAVIT activo nunca se recomienda ni se elige el Plan 2.
+  const infonavitCredit = Boolean(previous.infonavit_credit) || hasActiveInfonavitCredit(text);
+  const noPlan2 = p => (infonavitCredit && p === "plan_2" ? "plan_1" : p);
+  const detectedPlan = noPlan2(detectPlanPreference(value));
+  const explicitSelection = noPlan2(detectExplicitPlanSelection(value));
   const plan = detectedPlan || previous.recommended_plan || previous.selected_plan || null;
   // "Sí" justo después de "¿Quieres que iniciemos tu trámite?" también es autorización.
   const authorizationPhrase = detectAuthorization(value) || confirmsStart(text, memory);
@@ -172,16 +176,17 @@ export function analyzeNextSale(text, memory = {}) {
   const lastQuestion = norm(String(memory?.ultima_respuesta_agente || "").split(/(?<=[.!])\s+/).filter(p => /\?/.test(p)).at(-1) || "");
   const askedPlans = [...new Set([...lastQuestion.matchAll(/\bplan\s*(1|uno|2|dos)\b/g)].map(m => /1|uno/.test(m[1]) ? "plan_1" : "plan_2"))];
   const askedPlan = authorized && askedPlans.length === 1 ? askedPlans[0] : null;
-  const selectedPlan = explicitSelection
+  const selectedPlan = noPlan2(explicitSelection
     || askedPlan
     || previous.selected_plan
-    || (authorized ? previous.recommended_plan || detectedPlan || (previous.explained_plans || []).at(-1) || (previous.pitched_plans || []).at(-1) || null : null);
+    || (authorized ? previous.recommended_plan || detectedPlan || (previous.explained_plans || []).at(-1) || (previous.pitched_plans || []).at(-1) || null : null));
 
   const patch = {
     sales_cycle: {
       ...previous,
       stage,
-      recommended_plan: detectedPlan || previous.recommended_plan || null,
+      recommended_plan: noPlan2(detectedPlan || previous.recommended_plan || null),
+      ...(infonavitCredit ? { infonavit_credit: true } : {}),
       selected_plan: selectedPlan,
       interested: Boolean(previous.interested || interest),
       authorized: Boolean(previous.authorized || authorized),

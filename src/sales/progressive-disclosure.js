@@ -75,10 +75,13 @@ function pendingQuestion(memory = {}) {
 // El plan del que se habló al último: para seguimientos y el "siguiente paso" (casos reales 19 y
 // 20-oct: "¿Te quedó alguna duda sobre el Plan 2?" a quien se le acababa de explicar el Plan 1).
 export function discussedPlan(memory = {}) {
+  if (memory?.sales_cycle?.infonavit_credit) return "plan_1";
   return memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.last_plan || effectivePlan(memory);
 }
 
 export function effectivePlan(memory = {}) {
+  // Crédito INFONAVIT activo: el Plan 2 no aplica (22-oct).
+  if (memory?.sales_cycle?.infonavit_credit) return "plan_1";
   if (memory?.sales_cycle?.selected_plan) return memory.sales_cycle.selected_plan;
   const need = memory?.commercial_need || {};
   // Si el cliente quiere AFORE/INFONAVIT es Plan 2 aunque antes se le haya sugerido el 1

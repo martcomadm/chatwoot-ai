@@ -136,6 +136,7 @@ const DEFERRAL_LABELS = { no_money: "Sin dinero por ahora", later: "Avisará des
 // Por qué se cambió lo que escribió la IA (reasons del processor y del quality-checker).
 const REPLACED_LABELS = {
   pregunta_repetida_muchas_veces: "Repetía por tercera vez la misma pregunta",
+  ofrecia_plan2_con_credito_infonavit: "Ofrecía el Plan 2 a un cliente con crédito INFONAVIT activo",
   da_por_iniciado_sin_autorizacion: "Daba por iniciado el trámite sin que el cliente aceptara",
   menciona_correo: "Mencionaba un correo electrónico",
   niega_llamadas: "Decía que no hay atención por llamada",

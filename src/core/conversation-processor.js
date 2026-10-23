@@ -29,6 +29,7 @@ import { resolveAnswer } from "../semantic/answer-resolver.js";
 import { ensureAuthorizedSale } from "../operations/sale-factory.js";
 import { discussedPlan } from "../sales/progressive-disclosure.js";
 import { featureRejectionDecision } from "../sales/feature-rejection.js";
+import { hasInfonavitCredit, INFONAVIT_CREDIT_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT } from "../sales/infonavit-credit.js";
 import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
@@ -650,6 +651,17 @@ export class ConversationProcessor {
     const commitment = commitmentDecision(memory, combinedText);
     // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
     // "No me interesa Infonavit" descarta una parte, no es despedida (caso real 19-oct).
+    // Dijo que tiene crédito INFONAVIT activo: se le explica que el Plan 2 no aplica y se ofrece el Plan 1.
+    const creditJustDetected = !memory.sales_cycle?.authorized && hasInfonavitCredit(memory) && !hasInfonavitCredit(base);
+    // Ya con trámite iniciado en Plan 2: se avisa a Operaciones para que lo cambien (Supervisión → Cambiar plan).
+    if (memory.sales_cycle?.authorized && hasInfonavitCredit(memory) && !hasInfonavitCredit(base)) {
+      const salePlan = this.workflow?.store?.findByConversationId?.(conversationId)?.sale?.plan || base.sales_cycle?.selected_plan;
+      if (salePlan === "plan_2") {
+        try { await this.chatwoot.sendMessage(conversationId, "MÍA → OPERACIONES\nEl cliente dice que tiene un crédito INFONAVIT activo y su trámite va con el Plan 2, que no aplica en su caso. Revisen y cambien a Plan 1 si corresponde (Supervisión → Cambiar plan).", true); } catch {}
+        await this.record(conversationId, "infonavit_credit_on_plan2", {});
+      }
+    }
+    const creditDecision = creditJustDetected ? { reply: INFONAVIT_CREDIT_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" } : null;
     const featureRejection = featureRejectionDecision(memory, combinedText);
     const deferral = featureRejection ? null : deferralDecision(memory, combinedText, { resumedAfterHours });
     // Notas de voz o archivos sin texto antes de iniciar el trámite: Mia no puede escucharlos
@@ -679,6 +691,7 @@ export class ConversationProcessor {
     const adOpening = adOpeningDecision(base, combinedText);
     if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
     else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
+    else if (creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
     else if (featureRejection) decision = protectDeterministicDecision(featureRejection, "feature_rejection");
     else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
     else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
@@ -710,6 +723,7 @@ export class ConversationProcessor {
     // toda respuesta de la IA se reemplazara por la pregunta de respaldo.
     const fallback = () => ({ ...fallbackDecision(memory, planner, combinedText), __source: "fallback" });
     const quality = reply => checkReply(reply, { memory, questionKey: decision?.question_key, maxChars: this.config.ai.maxReplyChars, customerText: combinedText });
+
     const applyCommercialGuards = () => {
       if (isDeterministicDecision(decision)) return;
       const before = decision?.reply;
@@ -751,6 +765,11 @@ export class ConversationProcessor {
     else if (!qualityCheck.ok && !isDeterministicDecision(decision)) { replacedReasons.push("reparacion_fallida"); decision = fallback(); }
     applyCommercialGuards();
     disclosureReasons = applyDisclosureGuard();
+    // Con crédito INFONAVIT activo, cualquier respuesta que ofrezca el Plan 2 (IA o regla) se cambia por la explicación.
+    if (hasInfonavitCredit(memory) && !memory.sales_cycle?.authorized && /\bplan\s*2\b/i.test(String(decision?.reply || "")) && !/no aplica/i.test(String(decision?.reply || ""))) {
+      if (decision?.__source === "llm" || decision?.__source === "llm_repair") replacedReasons.push("ofrecia_plan2_con_credito_infonavit");
+      decision = protectDeterministicDecision({ reply: INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "infonavit_credit");
+    }
     const decisionSource = decision?.__source || "unknown";
     const decisionState = { plan_change_request: decision?.plan_change_request || null, nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
     decision = stripDecisionMetadata(decision || {});
