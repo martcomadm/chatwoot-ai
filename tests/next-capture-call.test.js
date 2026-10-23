@@ -81,3 +81,11 @@ test("API: Validación puede solicitar la llamada en su cola; Captura ya no cuan
   const ana = await as("ana.captura");
   assert.notEqual((await ana(`/operations/api/sales/${sale.sale_id}/call`, {})).status, 200);
 });
+
+test("el motivo que escribe el área se le dice al cliente en el mensaje de la llamada", () => {
+  const sale = { sale: { plan: "plan_1" } };
+  assert.equal(renderCustomerMessage("capture.call_requested", { sale, details: { note: "confirmar los datos de tu INE." } }), "Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. Motivo: Confirmar los datos de tu INE. ¿En qué horario te podemos marcar a este número?");
+  assert.equal(renderCustomerMessage("capture.call_requested", { sale, details: {} }), "Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?");
+  // Mensaje personalizado en Admin sin {motivo}: el motivo se agrega antes de la pregunta.
+  assert.equal(renderCustomerMessage("capture.call_requested", { sale, details: { note: "revisar tu NSS" } }, { "capture.call_requested": "Necesitamos llamarte. ¿A qué hora te marcamos?" }), "Necesitamos llamarte. Motivo: Revisar tu NSS. ¿A qué hora te marcamos?");
+});

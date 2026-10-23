@@ -11,8 +11,8 @@ export const CUSTOMER_MESSAGE_DEFINITIONS = Object.freeze([
   {
     key: "capture.call_requested",
     label: "Solicitud de llamada",
-    help: "Se envía cuando un área (o Supervisión) presiona 'Solicitar llamada'. El expediente se queda en su etapa.",
-    text: "Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?",
+    help: "Se envía cuando un área (o Supervisión) presiona 'Solicitar llamada'. {motivo} se reemplaza por el motivo que escribió el área (si no escribió motivo, esa parte no se manda). El expediente se queda en su etapa.",
+    text: "Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. Motivo: {motivo}. ¿En qué horario te podemos marcar a este número?",
   },
   {
     key: "validation.correction.requested",
@@ -70,8 +70,16 @@ export function formatAmount(amount) {
 export function renderCustomerMessage(eventType, { sale, details } = {}, overrides = {}) {
   if (eventType === "validation.correction.requested" && details?.target !== "customer") return null;
   if (eventType === "supervision.plan_changed" && details?.notify_customer === false) return null;
-  const template = String(overrides?.[eventType] || "").trim() || DEFAULT_CUSTOMER_MESSAGES[eventType];
+  let template = String(overrides?.[eventType] || "").trim() || DEFAULT_CUSTOMER_MESSAGES[eventType];
   if (!template) return null;
+  // Solicitud de llamada: el motivo que escribió el área se le dice al cliente (23-oct).
+  if (eventType === "capture.call_requested") {
+    const motivo = String(details?.note || "").replace(/\s+/g, " ").trim().replace(/[.。]+$/, "");
+    const reason = motivo ? motivo.charAt(0).toUpperCase() + motivo.slice(1) : "";
+    if (!reason) template = template.replace(/\s*Motivo:\s*\{motivo\}\.?/, "").replace(/\s*\{motivo\}/, "");
+    else if (!template.includes("{motivo}")) template = template.replace(/(\s*¿[^?]*\?\s*)$/, ` Motivo: ${reason}.$1`) + (/\?\s*$/.test(template) ? "" : ` Motivo: ${reason}.`);
+    return template.replaceAll("{motivo}", reason).replace(/\s{2,}/g, " ").trim();
+  }
   return template
     .replaceAll("{monto}", formatAmount(sale?.payment?.amount ?? sale?.sale?.precio ?? ({ plan_1: 1100, plan_2: 1500 })[sale?.sale?.plan] ?? null))
     .replaceAll("{plan}", ({ plan_1: "Plan 1", plan_2: "Plan 2" })[sale?.sale?.plan] || "plan elegido")

@@ -840,7 +840,7 @@ async function saleAction(action) {
     }
     case "capture-call": {
       const sent = sale.capture?.call_requested_at ? `Ya se pidió una llamada el ${dateTime(sale.capture.call_requested_at)}. ` : "";
-      const data = await ask({ title: "Solicitar llamada al cliente", text: `${sent}Mia le enviará por WhatsApp: <em>“Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. ¿En qué horario te podemos marcar a este número?”</em> El expediente se queda en ${esc(QUEUE_LABEL_TEXT[sale.queue] || "su etapa")}.`, fields: [{ name: "note", label: "Motivo (interno, opcional)", type: "textarea", placeholder: "Ej. confirmar datos de la INE" }], confirm: "Enviar mensaje", area: hasArea(area) ? area : "supervision" });
+      const data = await ask({ title: "Solicitar llamada al cliente", text: `${sent}Mia le enviará por WhatsApp: <em>“Para continuar con tu trámite, un asesor de MARTCOM necesita comunicarse contigo por llamada. Motivo: <strong>(lo que escribas abajo)</strong>. ¿En qué horario te podemos marcar a este número?”</em> El expediente se queda en ${esc(QUEUE_LABEL_TEXT[sale.queue] || "su etapa")}.`, fields: [{ name: "note", label: "Motivo (se le envía al cliente)", type: "textarea", placeholder: "Ej. confirmar los datos de tu INE", help: "Escríbelo como se lo dirías al cliente. Si lo dejas vacío, el mensaje se manda sin motivo." }], confirm: "Enviar mensaje", area: hasArea(area) ? area : "supervision" });
       if (data) done = await post("call", { note: data.note }, "Mensaje enviado al cliente");
       break;
     }
