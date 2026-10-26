@@ -66,7 +66,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   }
 
   // ── Páginas ──────────────────────────────────────────────────────────────
-  router.get("/operations", (_req, res) => res.type("html").send(operationsAppPage()));
+  // Sin caché: después de cada despliegue todos (Admin incluido) ven los botones nuevos al recargar.
+  router.get("/operations", (_req, res) => res.set("Cache-Control", "no-store").type("html").send(operationsAppPage()));
   // Service worker y archivos para instalar la página en el celular (avisos con la página cerrada).
   router.get("/operations/sw.js", (_req, res) => {
     res.set("Service-Worker-Allowed", "/operations").set("Cache-Control", "no-cache").type("application/javascript");
@@ -77,7 +78,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!type) return res.status(404).end();
     res.set("Cache-Control", "public, max-age=86400").type(type).send(fs.readFileSync(new URL(req.params.file, PWA_DIR)));
   });
-  router.get("/operations/sales/:id", (_req, res) => res.type("html").send(operationsAppPage()));
+  router.get("/operations/sales/:id", (_req, res) => res.set("Cache-Control", "no-store").type("html").send(operationsAppPage()));
 
   // ── Sesión ───────────────────────────────────────────────────────────────
   router.get("/operations/api/auth/status", (req, res) => {

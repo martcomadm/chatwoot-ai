@@ -69,3 +69,9 @@ test("Mia atiende al cliente de un expediente cancelado aunque la memoria y las 
   assert.equal(state.memory.sales_cycle.authorized, false);
   assert.equal(memoryAfterCancellation({ sale_id: "X" }).sales_cycle.cancelled_sale_id, "X");
 });
+
+test("Admin puede todo: ver todas las colas y dar de baja, reactivar y cancelar", () => {
+  const admin = { areas: ["admin"] };
+  for (const action of ["supervision/drop", "supervision/reactivate", "supervision/cancel", "supervision/return", "supervision/plan", "payment/request"]) assert.equal(canRunAction(admin, action), true, action);
+  for (const queue of ["capture", "validation", "validity", "payment", "completed", "cancelled", "dropped"]) assert.ok(visibleQueues(admin).includes(queue), queue);
+});
