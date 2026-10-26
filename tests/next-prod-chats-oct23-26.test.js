@@ -150,3 +150,13 @@ test("expediente: rechazo, NSS que no tiene, 'te la envío' y prórroga de pago"
   assert.equal(ext.payment_extension_request, true);
   assert.ok(NSS_HELP_TEXT);
 });
+
+test("confirmado 26-oct: Modalidad 10, timbrado y otros precios", () => {
+  assert.match(directAnswerText(detectDirectRequest("Sabes algo de la modalidad 10")), /no es como la Modalidad 10: es mejor, porque quedas registrado con los beneficios de un trabajador/);
+  assert.match(directAnswerText(detectDirectRequest("¿Me timbran recibos de nómina?")), /no timbramos recibos de nómina/);
+  const both = detectDirectRequest("Pero también busco que no cambie de patrón y que se timbre");
+  assert.equal(both.answerKey, "same_company");
+  for (const t of ["A.mi.me dieron costo de 1000 mensuales", "Yo estaba pagando 950 pesos cada mes", "Subió el costo de ayer a hoy?"]) {
+    assert.match(directAnswerText(detectDirectRequest(t)), /gran calidad de nuestro servicio y nuestra atención al cliente/, t);
+  }
+});
