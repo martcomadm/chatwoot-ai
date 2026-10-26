@@ -93,7 +93,7 @@ const state = {
   saleId: null,
   sale: null,
   saleLinks: {},
-  filter: { assignee: "all", docs: "all", search: "", queue: "active" },
+  filter: { assignee: "all", docs: "all", search: "", queue: "active", cobranza: "queue" },
   overview: null,
   range: defaultRange(),
   adminTab: "users",
@@ -390,7 +390,9 @@ async function loadSales() {
   state.sales = result.items || [];
 }
 
-function salesForArea(area) {
+function salesForArea(area, { section = "queue" } = {}) {
+  // Cobranza: además de su cola, ve completados (para dar de baja a quien deja de pagar) y las bajas.
+  if (area === "cobranza" && ["completed", "dropped"].includes(section)) return state.sales.filter(sale => sale.queue === section);
   const queue = AREA_QUEUE[area];
   return state.sales.filter(sale => sale.queue === queue);
 }
@@ -574,7 +576,8 @@ function emptyQueue(area) {
 
 function renderWorkArea(view) {
   const area = state.view;
-  const all = salesForArea(area);
+  const section = area === "cobranza" ? state.filter.cobranza : "queue";
+  const all = salesForArea(area, { section });
   const items = filteredSales(all);
   const late = all.filter(sale => sale.urgency === "overdue").length;
   const issues = all.filter(sale => sale.urgency === "issue").length;
@@ -587,6 +590,7 @@ function renderWorkArea(view) {
     <div class="toolbar">
       ${segmented("assignee", state.filter.assignee, [["all", "Todos"], ["me", "Míos"], ["none", "Sin asignar"]])}
       ${area === "captura" ? segmented("docs", state.filter.docs, [["all", "Todos los datos"], ["complete", "Completos"], ["incomplete", "Incompletos"]]) : ""}
+      ${area === "cobranza" ? segmented("cobranza", state.filter.cobranza, [["queue", "Por cobrar"], ["completed", "Completados"], ["dropped", "Bajas por falta de pago"]]) : ""}
       <input class="input" type="search" placeholder="Buscar nombre, folio, CURP, NSS, teléfono" value="${esc(state.filter.search)}" data-search aria-label="Buscar expedientes">
     </div>
     <div class="queue" role="table" aria-label="Expedientes de ${esc(area)}">${items.length ? saleRows(items) : emptyQueue(area)}</div>`;
@@ -646,6 +650,11 @@ function areaActions(sale) {
   const add = (action, label, kind = "", disabled = "") => buttons.push(`<button class="btn ${kind}" data-sale-act="${action}" ${disabled ? `disabled title="${esc(disabled)}"` : ""}>${esc(label)}</button>`);
   // En Atención a Clientes: el área espera a que se lo regresen (Supervisión usa su sección).
   if (sale.service?.open) return buttons;
+  // Baja por falta de pago y reactivación: también Cobranza (Supervisión los tiene en su sección).
+  if (hasArea("cobranza") && !hasArea("supervision")) {
+    if (sale.status === "dropped_nonpayment") add("sup-reactivate", "Reactivar (ya pagó)", "primary");
+    else if (sale.status !== "cancelled" && (sale.validity?.confirmed || sale.status === "completed")) add("sup-drop", "Dar de baja por falta de pago", "danger");
+  }
   if (canAct(sale, "captura")) {
     if (sale.status === "waiting_capture") add("capture-start", "Iniciar captura", "primary");
     if (["waiting_capture", "capture_in_progress"].includes(sale.status)) {

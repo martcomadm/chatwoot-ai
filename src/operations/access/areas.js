@@ -54,8 +54,9 @@ export const ACTION_AREAS = Object.freeze({
   "supervision/cancel": "supervision",
   "supervision/assign": "supervision",
   "supervision/plan": "supervision",
-  "supervision/drop": "supervision",
-  "supervision/reactivate": "supervision",
+  // Baja por falta de pago y reactivación: Supervisión y Cobranza (26-oct).
+  "supervision/drop": ["supervision", "cobranza"],
+  "supervision/reactivate": ["supervision", "cobranza"],
 });
 
 export function normalizeAreas(input) {
@@ -75,7 +76,10 @@ export function seesAllQueues(user) {
 
 export function visibleQueues(user) {
   if (seesAllQueues(user)) return Object.keys(QUEUE_LABELS);
-  return WORK_AREAS.filter(area => (user?.areas || []).includes(area.key)).map(area => area.queue);
+  const queues = WORK_AREAS.filter(area => (user?.areas || []).includes(area.key)).map(area => area.queue);
+  // Cobranza también ve los completados (para dar de baja a quien deja de pagar) y las bajas por falta de pago.
+  if ((user?.areas || []).includes("cobranza")) queues.push("completed", "dropped");
+  return [...new Set(queues)];
 }
 
 export function canSeeSale(user, sale) {
@@ -92,7 +96,7 @@ export function canRequestCall(user, sale) {
 
 export function canRunAction(user, action) {
   const area = ACTION_AREAS[action];
-  return Boolean(area) && hasArea(user, area);
+  return Array.isArray(area) ? area.some(item => hasArea(user, item)) : Boolean(area) && hasArea(user, area);
 }
 
 export function areaForQueue(queue) {

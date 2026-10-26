@@ -329,7 +329,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   function areaAction(action, handler) {
     return (req, res) => {
       if (!canRunAction(req.opsUser, action)) {
-        const area = AREAS.find(item => item.key === ACTION_AREAS[action]);
+        const area = AREAS.find(item => item.key === [].concat(ACTION_AREAS[action])[0]);
         return res.status(403).json({ error: `Esta acción corresponde a ${area?.label || "otra área"}`, code: "forbidden" });
       }
       const sale = visibleSale(req, res);

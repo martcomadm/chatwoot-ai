@@ -46,7 +46,7 @@ test("flujo: solo con alta vigente; guarda el adeudo; reactivar regresa a donde 
   assert.match(renderCustomerMessage("supervision.debt_settled", { sale: back }), /Confirmamos tu pago pendiente/);
 });
 
-test("API: solo Supervisión da de baja y reactiva", async t => {
+test("API: Supervisión y Cobranza dan de baja y reactivan; otras áreas no", async t => {
   const env = setup();
   env.saleStore.update(env.sale.sale_id, { status: "completed", queue: "completed", validity: { confirmed: true } }, "x");
   const users = new UserStore(path.join(env.dir, "u.json"));
@@ -62,8 +62,16 @@ test("API: solo Supervisión da de baja y reactiva", async t => {
     const cookie = login.headers.get("set-cookie").split(";")[0];
     return async (p, body) => { const r = await fetch(base + p, { method: body ? "POST" : "GET", headers: { cookie, "content-type": "application/json", "x-ops-request": "1" }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
   };
-  const sup = await as("sergio.super"); const cob = await as("cobra.nza");
-  assert.equal((await cob(`/operations/api/sales/${env.sale.sale_id}/supervision/drop`, { reason: "x" })).status, 403);
+  users.create({ username: "vale.valida", name: "Vale", areas: ["validacion"], password: "clave-segura-123" });
+  const sup = await as("sergio.super"); const cob = await as("cobra.nza"); const val = await as("vale.valida");
+  assert.notEqual((await val(`/operations/api/sales/${env.sale.sale_id}/supervision/drop`, { reason: "x" })).status, 200);
+  // Cobranza ve los completados y las bajas.
+  const me = await cob("/operations/api/me");
+  assert.ok(me.body.visible_queues.includes("completed") && me.body.visible_queues.includes("dropped") && me.body.visible_queues.includes("payment"));
+  const byCob = await cob(`/operations/api/sales/${env.sale.sale_id}/supervision/drop`, { reason: "No pagó noviembre" });
+  assert.equal(byCob.status, 200);
+  assert.equal(byCob.body.sale.queue, "dropped");
+  assert.equal((await cob(`/operations/api/sales/${env.sale.sale_id}/supervision/reactivate`, { notes: "Pagó" })).body.sale.queue, "completed");
   const dropped = await sup(`/operations/api/sales/${env.sale.sale_id}/supervision/drop`, { reason: "No pagó", months: "1" });
   assert.equal(dropped.status, 200);
   assert.equal(dropped.body.sale.queue, "dropped");
