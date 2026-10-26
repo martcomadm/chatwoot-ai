@@ -29,7 +29,7 @@ const STATUS_LABELS = {
   waiting_validation: "Por validar", validation_in_progress: "En validación", validation_approved: "Validación aprobada", validation_rejected: "Rechazado en validación",
   waiting_validity: "Esperando vigencia", validity_confirmed: "Vigencia confirmada", payment_requested: "Pago solicitado", payment_received: "Comprobante recibido",
   payment_validated: "Pago validado", completed: "Completado", alta_issue: "Incidencia de alta", validity_issue: "Incidencia de vigencia",
-  payment_issue: "Incidencia de pago", cancelled: "Cancelado",
+  payment_issue: "Incidencia de pago", cancelled: "Cancelado", dropped_nonpayment: "Baja por falta de pago",
 };
 
 const EVENT_LABELS = {
@@ -65,6 +65,10 @@ const EVENT_LABELS = {
   "payment.validated": "Pago validado",
   "supervision.returned": "Regresado por Supervisión",
   "supervision.cancelled": "Cancelado por Supervisión",
+  "supervision.dropped_nonpayment": "Baja por falta de pago",
+  "supervision.debt_settled": "Reactivado: cubrió su adeudo",
+  "debt.customer_contacted": "El cliente dado de baja volvió a escribir",
+  "debt.proof_received": "El cliente dado de baja envió un comprobante",
   "assignment.changed": "Responsable cambiado",
   "lab.reset": "Conversación LAB reiniciada",
   "auth.login": "Inicio de sesión",
@@ -472,7 +476,7 @@ async function renderView() {
 // ── Observador: seguimiento de todas las ventas, solo lectura ──────────
 function renderObserver(view) {
   view.style.setProperty("--area", areaVar("observador"));
-  const active = state.sales.filter(sale => !["completed", "cancelled"].includes(sale.queue));
+  const active = state.sales.filter(sale => !["completed", "cancelled", "dropped"].includes(sale.queue));
   const flow = STAGES.filter(([queue]) => queue !== "completed").map(([queue, label]) => {
     const items = state.sales.filter(sale => sale.queue === queue);
     const late = items.filter(sale => sale.urgency === "overdue" || sale.urgency === "issue").length;
@@ -482,11 +486,11 @@ function renderObserver(view) {
       <ul>${late ? `<li class="bad">${plural(late, "atrasado o con incidencia", "atrasados o con incidencia")}</li>` : "<li>Al día</li>"}</ul>
     </button>`;
   }).join("");
-  const queueOptions = [["active", "Activos"], ["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completados"], ["cancelled", "Cancelados"]];
+  const queueOptions = [["active", "Activos"], ["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completados"], ["cancelled", "Cancelados"], ["dropped", "Bajas por falta de pago"]];
   const search = state.filter.search.toLowerCase();
-  const list = state.sales.filter(sale => (state.filter.queue === "active" ? !["completed", "cancelled"].includes(sale.queue) : sale.queue === state.filter.queue))
+  const list = state.sales.filter(sale => (state.filter.queue === "active" ? !["completed", "cancelled", "dropped"].includes(sale.queue) : sale.queue === state.filter.queue))
     .filter(sale => !search || [sale.sale_id, sale.customer?.nombre, sale.customer?.telefono, sale.customer?.curp, sale.customer?.nss, sale.conversation_id].some(value => String(value || "").toLowerCase().includes(search)))
-    .sort(state.filter.queue === "completed" || state.filter.queue === "cancelled" ? (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) : byUrgency);
+    .sort(["completed", "cancelled", "dropped"].includes(state.filter.queue) ? (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) : byUrgency);
   view.innerHTML = `
     ${pageHead("observador", "Seguimiento de ventas", AREA_INTRO.observador, `<p class="muted" style="margin:0">${plural(active.length, "venta en proceso", "ventas en proceso")}</p>`)}
     <div class="flow">${flow}</div>
@@ -529,7 +533,7 @@ function segmented(name, value, options) {
 }
 
 function clock(sale) {
-  if (["completed", "cancelled"].includes(sale.queue)) return `<span class="muted">${dateTime(sale.completed_at || sale.updated_at)}</span>`;
+  if (["completed", "cancelled", "dropped"].includes(sale.queue)) return `<span class="muted">${dateTime(sale.completed_at || sale.updated_at)}</span>`;
   const pct = sale.limit_hours ? Math.min(100, Math.round((sale.hours_in_queue / sale.limit_hours) * 100)) : 0;
   const hint = sale.urgency === "issue" ? "Incidencia" : sale.limit_hours ? `de ${duration(sale.limit_hours)}` : "";
   return `<span class="clock" data-urgency="${esc(sale.urgency)}" title="En el área desde ${esc(dateTime(sale.queue_entered_at))}"><span class="clock-ring" style="--pct:${sale.urgency === "issue" ? 100 : pct}"></span><span>${duration(sale.hours_in_queue)}<small>${esc(hint)}</small></span></span>`;
@@ -622,7 +626,7 @@ function markCurrentRow() {
 
 function stagesHtml(sale) {
   const order = STAGES.map(([queue]) => queue);
-  const currentIndex = sale.queue === "cancelled" ? -1 : order.indexOf(sale.queue);
+  const currentIndex = ["cancelled", "dropped"].includes(sale.queue) ? -1 : order.indexOf(sale.queue);
   return `<ol class="stages" aria-label="Etapas del expediente">${STAGES.map(([queue, label], index) => {
     const cls = sale.queue === "completed" || index < currentIndex ? "done" : index === currentIndex ? "current" : "";
     return `<li class="${cls}" ${index === currentIndex ? 'aria-current="step"' : ""}>${esc(label)}</li>`;
@@ -671,7 +675,7 @@ function areaActions(sale) {
     if (sale.status === "payment_issue") add("payment-reopen", "Reabrir pago", "primary");
   }
   // Solicitar llamada: el área que tiene el expediente o Supervisión, en cualquier etapa activa.
-  if (!["completed", "cancelled"].includes(sale.queue) && (canAct(sale, QUEUE_AREA[sale.queue]) || hasArea("supervision"))) {
+  if (!["completed", "cancelled", "dropped"].includes(sale.queue) && (canAct(sale, QUEUE_AREA[sale.queue]) || hasArea("supervision"))) {
     add("capture-call", "Solicitar llamada");
     add("send-service", "Enviar a Atención a Clientes");
   }
@@ -709,6 +713,8 @@ function stageInfo(sale) {
   if (sale.validation?.rejected) parts.push(`<div class="notice bad"><strong>Rechazado en validación:</strong> ${esc(sale.validation.notes || "")}</div>`);
   if (sale.validity?.issue?.open) parts.push(`<div class="notice bad"><strong>Incidencia de vigencia:</strong> ${esc(sale.validity.issue.reason)}</div>`);
   if (sale.payment?.issue?.open) parts.push(`<div class="notice bad"><strong>Incidencia de pago:</strong> ${esc(sale.payment.issue.reason)}</div>`);
+  if (sale.debt?.open) parts.push(`<div class="notice bad"><strong>Baja por falta de pago:</strong> adeuda ${esc(money(sale.debt.amount))} (${esc(String(sale.debt.months || 1))} ${Number(sale.debt.months || 1) === 1 ? "mes" : "meses"}). ${esc(sale.debt.reason || "")} <span class="muted">(${esc(dateTime(sale.debt.dropped_at))}${sale.debt.dropped_by ? `, ${esc(sale.debt.dropped_by)}` : ""})</span>${sale.debt.customer_contacted_at ? `<br>Volvió a escribir el ${esc(dateTime(sale.debt.customer_contacted_at))}; Mia le pidió cubrir su adeudo.` : "<br><span class=\"muted\">Si vuelve a escribir, Mia le pide cubrir su adeudo y avisa a Cobranza.</span>"}${sale.debt.proof_received_at ? `<br><strong>Envió un comprobante</strong> el ${esc(dateTime(sale.debt.proof_received_at))}${sale.debt.proof_name ? ` (${esc(sale.debt.proof_name)})` : ""}. Revisa la conversación y, si es correcto, reactívalo.` : ""}</div>`);
+  else if (sale.debt?.settled) parts.push(`<div class="notice"><strong>Reactivado tras cubrir su adeudo</strong> el ${esc(dateTime(sale.debt.settled_at))}${sale.debt.settled_by ? ` (${esc(sale.debt.settled_by)})` : ""}${sale.debt.settle_notes ? `: ${esc(sale.debt.settle_notes)}` : ""}</div>`);
   if (sale.cancellation) parts.push(`<div class="notice bad"><strong>Cancelado:</strong> ${esc(sale.cancellation.reason)} <span class="muted">(${esc(dateTime(sale.cancellation.at))})</span></div>`);
   const facts = [];
   if (sale.validity?.confirmed) facts.push(["Vigencia", `${sale.validity.document_name || "Documento"} (${sale.validity.delivered_to_customer ? "entregada al cliente" : sale.validity.delivery_error ? "no se pudo entregar; se reintentará" : "pendiente de entregar"})`]);
@@ -743,10 +749,14 @@ function renderPanel() {
   const supervision = [];
   if (hasArea("supervision")) {
     if (workArea) supervision.push(`<button class="btn" data-sale-act="sup-assign">Asignar a…</button>`);
-    if (sale.status !== "cancelled") supervision.push(`<button class="btn" data-sale-act="sup-plan">Cambiar plan</button>`);
+    const dropped = sale.status === "dropped_nonpayment";
+    if (dropped) supervision.push(`<button class="btn primary" data-sale-act="sup-reactivate">Reactivar (ya pagó)</button>`);
+    if (!["cancelled", "dropped_nonpayment"].includes(sale.status)) supervision.push(`<button class="btn" data-sale-act="sup-plan">Cambiar plan</button>`);
     if (sale.status !== "cancelled") supervision.push(`<button class="btn" data-sale-act="sup-name">Corregir nombre</button>`);
-    if (sale.status !== "completed") supervision.push(`<button class="btn" data-sale-act="sup-return">${sale.queue === "cancelled" ? "Reactivar en…" : "Regresar a…"}</button>`);
-    if (!["completed", "cancelled"].includes(sale.status)) supervision.push(`<button class="btn danger" data-sale-act="sup-cancel">Cancelar expediente</button>`);
+    if (!["completed", "dropped_nonpayment"].includes(sale.status)) supervision.push(`<button class="btn" data-sale-act="sup-return">${sale.queue === "cancelled" ? "Reactivar en…" : "Regresar a…"}</button>`);
+    // Baja por falta de pago: solo clientes con alta vigente (vigencia confirmada o completados).
+    if (!dropped && sale.status !== "cancelled" && (sale.validity?.confirmed || sale.status === "completed")) supervision.push(`<button class="btn danger" data-sale-act="sup-drop">Dar de baja por falta de pago</button>`);
+    if (!["completed", "cancelled", "dropped_nonpayment"].includes(sale.status)) supervision.push(`<button class="btn danger" data-sale-act="sup-cancel">Cancelar expediente</button>`);
   }
   const c = sale.customer || {};
   const facts = [
@@ -941,6 +951,17 @@ async function saleAction(action) {
       if (data) done = await post("supervision/plan", { plan: data.plan, reason: data.reason, notify_customer: (data.notify || []).includes("yes") }, "Plan actualizado");
       break;
     }
+    case "sup-drop": {
+      const monthly = Number(sale.sale?.precio || { plan_1: 1100, plan_2: 1500 }[sale.sale?.plan] || 0);
+      const data = await ask({ title: "Dar de baja por falta de pago", text: `El expediente se guarda en "Bajas por falta de pago" con su adeudo. Si el cliente vuelve a escribir, Mia lo reconoce, le pide cubrir lo que no pagó y avisa a Cobranza. Mensualidad: ${esc(money(monthly))}.`, fields: [{ name: "months", label: "Meses sin pagar", type: "number", value: "1", required: true }, { name: "amount", label: "Monto del adeudo (vacío = mensualidad × meses)", type: "number" }, { name: "reason", label: "Motivo", type: "textarea", required: true, placeholder: "Ej. no pagó la mensualidad de octubre" }], confirm: "Dar de baja", danger: true, area: "supervision" });
+      if (data) done = await post("supervision/drop", data, "Cliente dado de baja por falta de pago");
+      break;
+    }
+    case "sup-reactivate": {
+      const data = await ask({ title: "Reactivar cliente", text: `Confirma que el cliente ya cubrió su adeudo de ${esc(money(sale.debt?.amount))}. El expediente regresa a donde estaba y Mia le avisa que quedó reactivado.`, fields: [{ name: "notes", label: "Nota (referencia del pago, etc.)", type: "textarea" }], confirm: "Reactivar", area: "supervision" });
+      if (data) done = await post("supervision/reactivate", data, "Cliente reactivado");
+      break;
+    }
     case "sup-cancel": {
       const data = await ask({ title: "Cancelar expediente", text: "El expediente sale de todas las colas. Supervisión puede reactivarlo después.", fields: [{ name: "reason", label: "Motivo de la cancelación", type: "textarea", required: true }], confirm: "Cancelar expediente", danger: true, area: "supervision" });
       if (data) done = await post("supervision/cancel", data, "Expediente cancelado");
@@ -1015,11 +1036,11 @@ function drawSupervision(view) {
       </tr>`).join("")}</tbody></table></div>`
     : `<div class="empty"><strong>Sin actividad en el periodo</strong>Cambia las fechas para ver otro rango.</div>`;
 
-  const queueOptions = [["active", "Activos"], ["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completados"], ["cancelled", "Cancelados"]];
+  const queueOptions = [["active", "Activos"], ["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completados"], ["cancelled", "Cancelados"], ["dropped", "Bajas por falta de pago"]];
   const search = state.filter.search.toLowerCase();
-  const list = state.sales.filter(sale => (state.filter.queue === "active" ? !["completed", "cancelled"].includes(sale.queue) : sale.queue === state.filter.queue))
+  const list = state.sales.filter(sale => (state.filter.queue === "active" ? !["completed", "cancelled", "dropped"].includes(sale.queue) : sale.queue === state.filter.queue))
     .filter(sale => !search || [sale.sale_id, sale.customer?.nombre, sale.customer?.telefono, sale.customer?.curp, sale.customer?.nss, sale.conversation_id].some(value => String(value || "").toLowerCase().includes(search)))
-    .sort(state.filter.queue === "completed" || state.filter.queue === "cancelled" ? (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) : byUrgency);
+    .sort(["completed", "cancelled", "dropped"].includes(state.filter.queue) ? (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) : byUrgency);
 
   view.innerHTML = `
     ${pageHead("supervision", "Supervisión", AREA_INTRO.supervision, `<form class="range" id="range-form">

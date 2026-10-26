@@ -54,6 +54,21 @@ export class SaleStore extends EventEmitter {
     }
     return found ? clone(found) : null;
   }
+  // Baja por falta de pago del mismo cliente (por contacto de Chatwoot o teléfono), para reconocerlo
+  // aunque escriba desde otra conversación.
+  findDroppedByContact({ contactId = null, phone = null } = {}) {
+    const digits = value => String(value || "").replace(/\D/g, "").slice(-10);
+    const wanted = phone ? digits(phone) : "";
+    let found = null;
+    for (const item of Object.values(this.data.sales)) {
+      if (item.status !== "dropped_nonpayment") continue;
+      const sameContact = contactId && Number(item.contact_id) === Number(contactId);
+      const samePhone = wanted.length === 10 && digits(item.customer?.telefono) === wanted;
+      if (!sameContact && !samePhone) continue;
+      if (!found || String(item.updated_at).localeCompare(String(found.updated_at)) > 0) found = item;
+    }
+    return found ? clone(found) : null;
+  }
   deleteByConversationId(conversationId) {
     const id = Number(conversationId);
     const removed = Object.values(this.data.sales).filter(item => Number(item.conversation_id) === id).map(item => clone(item));

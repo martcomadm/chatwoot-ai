@@ -26,7 +26,12 @@ export const SALE_STATUSES = Object.freeze({
   VALIDITY_ISSUE: "validity_issue",
   PAYMENT_ISSUE: "payment_issue",
   CANCELLED: "cancelled",
+  // Cliente con alta vigente que dejó de pagar: Supervisión lo da de baja y el expediente se guarda en
+  // "Bajas por falta de pago" con su adeudo. Si vuelve a escribir, Mia le pide cubrirlo (26-oct).
+  DROPPED_NONPAYMENT: "dropped_nonpayment",
 });
+
+const PLAN_PRICES = Object.freeze({ plan_1: 1100, plan_2: 1500 });
 
 // Etapas a las que Supervisión puede regresar un expediente.
 export const RETURN_TARGETS = Object.freeze({
@@ -393,6 +398,7 @@ export class SaleWorkflowEngine {
     const target = RETURN_TARGETS[payload.target];
     if (!target) throw new Error("Etapa destino inválida");
     if (sale.status === SALE_STATUSES.COMPLETED) throw new Error("Un expediente completado no se puede regresar");
+    if (sale.status === SALE_STATUSES.DROPPED_NONPAYMENT) throw new Error("Es una baja por falta de pago; usa 'Reactivar (ya pagó)'");
     const reason = requireReason(payload);
     if (target.requiresValidation && sale.validation?.approved !== true) throw new Error("El expediente no tiene validación aprobada; regrésalo a Validación");
     if (target.requiresValidity && sale.validity?.confirmed !== true) throw new Error("El expediente no tiene vigencia confirmada; regrésalo a Vigencia");
@@ -424,7 +430,7 @@ export class SaleWorkflowEngine {
   // conserva su etapa, pero queda en pausa para el área hasta que Atención lo regrese.
   sendToService(id, payload = {}) {
     const sale = this.mustGet(id);
-    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED].includes(sale.status)) throw new Error("Este expediente ya no está en proceso");
+    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED, SALE_STATUSES.DROPPED_NONPAYMENT].includes(sale.status)) throw new Error("Este expediente ya no está en proceso");
     if (sale.service?.open) throw new Error("El expediente ya está en Atención a Clientes");
     const reason = requireReason(payload);
     const service = { open: true, reason, case_id: payload.case_id || null, from_area: payload.area || null, from_queue: sale.queue, from_status: sale.status, sent_at: new Date().toISOString(), sent_by: payload.by || null, returned_at: null, returned_to: null, return_note: null };
@@ -464,6 +470,48 @@ export class SaleWorkflowEngine {
     }, "supervision.cancelled", { reason, from_status: sale.status, from_queue: sale.queue });
   }
 
+  // ── Bajas por falta de pago ─────────────────────────────────────────
+  // Solo clientes con alta vigente (vigencia confirmada o proceso completado). El expediente conserva
+  // todo y guarda el adeudo: meses sin pagar y monto (por omisión, la mensualidad del plan por mes).
+  dropForNonPayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status === SALE_STATUSES.DROPPED_NONPAYMENT) throw new Error("El cliente ya está dado de baja por falta de pago");
+    if (sale.status === SALE_STATUSES.CANCELLED) throw new Error("Un expediente cancelado no se puede dar de baja");
+    if (sale.validity?.confirmed !== true && sale.status !== SALE_STATUSES.COMPLETED) throw new Error("Solo se da de baja a un cliente con alta vigente; si su alta no quedó, cancela el expediente");
+    const reason = requireReason(payload);
+    const months = Math.max(1, Math.min(24, Math.floor(Number(payload.months || 1)) || 1));
+    const monthly = Number(sale.sale?.precio || PLAN_PRICES[sale.sale?.plan] || 0) || null;
+    const typed = payload.amount === "" || payload.amount == null ? null : Number(payload.amount);
+    if (typed != null && (!Number.isFinite(typed) || typed <= 0)) throw new Error("El monto del adeudo no es válido");
+    const amount = typed ?? (monthly ? monthly * months : null);
+    if (!amount) throw new Error("Indica el monto del adeudo");
+    const droppedAt = new Date().toISOString();
+    const debt = { open: true, amount, months, plan: sale.sale?.plan || null, reason, dropped_at: droppedAt, dropped_by: payload.by || null, from_status: sale.status, from_queue: sale.queue, customer_contacted_at: null, proof_received_at: null, settled: false, settled_at: null, settled_by: null, settle_notes: null };
+    return this.store.update(id, { status: SALE_STATUSES.DROPPED_NONPAYMENT, queue: "dropped", debt, assignee: null }, "supervision.dropped_nonpayment", { reason, amount, months, from_status: sale.status, from_queue: sale.queue });
+  }
+
+  // Ya cubrió su adeudo: regresa a donde estaba (normalmente Completados) y se avisa al cliente.
+  reactivateAfterPayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status !== SALE_STATUSES.DROPPED_NONPAYMENT) throw new Error("El expediente no está dado de baja por falta de pago");
+    const notes = String(payload.notes || payload.reason || "").trim();
+    const fromStatus = sale.debt?.from_status && sale.debt.from_status !== SALE_STATUSES.DROPPED_NONPAYMENT ? sale.debt.from_status : SALE_STATUSES.COMPLETED;
+    const fromQueue = sale.debt?.from_queue && sale.debt.from_queue !== "dropped" ? sale.debt.from_queue : "completed";
+    const debt = { ...sale.debt, open: false, settled: true, settled_at: new Date().toISOString(), settled_by: payload.by || null, settle_notes: notes || null };
+    return this.store.update(id, { status: fromStatus, queue: fromQueue, debt }, "supervision.debt_settled", { notes, amount: sale.debt?.amount ?? null, to_status: fromStatus, to_queue: fromQueue });
+  }
+
+  // El cliente dado de baja volvió a escribir (Mia ya le pidió cubrir su adeudo). Si escribió desde otra
+  // conversación, el expediente se liga a la nueva para que los avisos le lleguen ahí.
+  debtCustomerContacted(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status !== SALE_STATUSES.DROPPED_NONPAYMENT) return sale;
+    const conversationId = Number(payload.conversation_id || 0) || sale.conversation_id;
+    const patch = { debt: { ...sale.debt, customer_contacted_at: new Date().toISOString(), ...(payload.proof ? { proof_received_at: new Date().toISOString(), proof_name: payload.proof_name || null } : {}) } };
+    if (conversationId !== sale.conversation_id) patch.conversation_id = conversationId;
+    return this.store.update(id, patch, payload.proof ? "debt.proof_received" : "debt.customer_contacted", { conversation_id: conversationId, previous_conversation_id: sale.conversation_id !== conversationId ? sale.conversation_id : null });
+  }
+
   // Corregir el nombre del cliente (Captura mientras captura; Supervisión en cualquier etapa).
   correctCustomerName(id, payload = {}, { anyStage = false } = {}) {
     const sale = this.mustGet(id);
@@ -478,7 +526,7 @@ export class SaleWorkflowEngine {
   // el monto se actualiza al nuevo precio.
   changePlan(id, payload = {}) {
     const sale = this.mustGet(id);
-    if (sale.status === SALE_STATUSES.CANCELLED) throw new Error("Un expediente cancelado no puede cambiar de plan");
+    if ([SALE_STATUSES.CANCELLED, SALE_STATUSES.DROPPED_NONPAYMENT].includes(sale.status)) throw new Error("Este expediente no puede cambiar de plan");
     const plan = String(payload.plan || "");
     const prices = { plan_1: 1100, plan_2: 1500 };
     if (!prices[plan]) throw new Error("Elige Plan 1 o Plan 2");
@@ -494,7 +542,7 @@ export class SaleWorkflowEngine {
   // assignee: {username,name} o null para dejarlo sin asignar.
   assign(id, assignee) {
     const sale = this.mustGet(id);
-    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED].includes(sale.status)) throw new Error("El expediente ya no está en una cola de trabajo");
+    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED, SALE_STATUSES.DROPPED_NONPAYMENT].includes(sale.status)) throw new Error("El expediente ya no está en una cola de trabajo");
     const next = assignee ? { username: assignee.username, name: assignee.name, assigned_at: new Date().toISOString() } : null;
     return this.store.update(id, { assignee: next }, "assignment.changed", { from: sale.assignee?.username || null, to: next?.username || null, to_name: next?.name || null });
   }

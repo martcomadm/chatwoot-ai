@@ -10,7 +10,7 @@ function normalizePhone(value) {
   return cleaned.startsWith("+") ? `+${digits}` : digits;
 }
 
-function extractContactPhone(conversation = {}) {
+export function extractContactPhone(conversation = {}) {
   const meta = conversation?.meta || {};
   const sender = meta.sender || conversation?.contact || {};
   const candidates = [

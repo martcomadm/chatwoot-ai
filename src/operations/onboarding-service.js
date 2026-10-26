@@ -60,13 +60,14 @@ export function operationsMemoryFromSale(sale = {}) {
     payment_received: Boolean(sale.payment?.received), payment_received_at: sale.payment?.received_at || null, payment_reference: sale.payment?.reference || null, payment_proof_name: sale.payment?.proof_name || null, payment_issue: sale.payment?.issue || null,
     payment_validated: Boolean(sale.payment?.validated), payment_validated_at: sale.payment?.validated_at || null, payment_validated_by: sale.payment?.validated_by || null,
     completed_at: sale.completed_at || null,
+    dropped_nonpayment: sale.status === "dropped_nonpayment", debt_amount: sale.debt?.open ? sale.debt.amount ?? null : null, debt_months: sale.debt?.open ? sale.debt.months ?? null : null,
     ...onboardingStateFromSale(sale),
     updated_at: sale.updated_at,
   };
 }
 
 // Estados en los que el expediente ya salió de Captura: el aviso de "expediente completo" ya no aplica.
-const PAST_CAPTURE = new Set(["alta_processed", "waiting_validation", "validation_in_progress", "validation_approved", "validation_rejected", "waiting_validity", "validity_confirmed", "validity_issue", "payment_requested", "payment_received", "payment_issue", "payment_validated", "completed", "cancelled"]);
+const PAST_CAPTURE = new Set(["alta_processed", "waiting_validation", "validation_in_progress", "validation_approved", "validation_rejected", "waiting_validity", "validity_confirmed", "validity_issue", "payment_requested", "payment_received", "payment_issue", "payment_validated", "completed", "cancelled", "dropped_nonpayment"]);
 
 export const CALL_ACK_TEXT = "Gracias, ya le pasé tu respuesta al asesor y te llamará a este número. Cualquier cosa, aquí sigo.";
 

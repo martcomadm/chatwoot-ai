@@ -45,6 +45,12 @@ export const CUSTOMER_MESSAGE_DEFINITIONS = Object.freeze([
     text: "Listo, actualizamos tu trámite al {plan} de {monto} MXN mensuales. Cualquier duda, con gusto te ayudo por aquí.",
   },
   {
+    key: "supervision.debt_settled",
+    label: "Adeudo cubierto (reactivación)",
+    help: "Se envía cuando Supervisión reactiva a un cliente dado de baja por falta de pago.",
+    text: "Confirmamos tu pago pendiente, gracias. Tu expediente quedó reactivado y nuestro equipo continúa con tu afiliación; te aviso por aquí cualquier novedad.",
+  },
+  {
     key: "payment.received",
     label: "Comprobante recibido",
     help: "Se envía cuando se registra el comprobante.",

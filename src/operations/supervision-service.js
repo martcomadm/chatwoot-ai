@@ -44,7 +44,7 @@ function inRange(at, from, to) {
 }
 
 export function buildOverview(sales = [], { alertHours = {}, from = null, to = null, now = Date.now() } = {}) {
-  const active = sales.filter(sale => !["completed", "cancelled"].includes(sale.queue));
+  const active = sales.filter(sale => !["completed", "cancelled", "dropped"].includes(sale.queue));
 
   const flow = WORK_AREAS.map(area => {
     const items = active.filter(sale => sale.queue === area.queue);

@@ -144,7 +144,7 @@ test("Observador ve todas las ventas y su avance, pero no puede modificar nada",
   assert.deepEqual(me.body.areas.map(a => a.key), ["observador"]);
   assert.equal(me.body.can.supervise, false);
   assert.equal(me.body.can.admin, false);
-  assert.deepEqual(new Set(me.body.visible_queues), new Set(["capture", "validation", "validity", "payment", "completed", "cancelled"]));
+  assert.deepEqual(new Set(me.body.visible_queues), new Set(["capture", "validation", "validity", "payment", "completed", "cancelled", "dropped"]));
 
   const list = await olga("/operations/api/sales");
   assert.deepEqual(list.body.items.map(s => s.sale_id).sort(), [captureSale.sale_id, paymentSale.sale_id].sort());

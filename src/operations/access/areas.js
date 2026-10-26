@@ -25,6 +25,7 @@ export const QUEUE_LABELS = Object.freeze({
   payment: "Cobranza",
   completed: "Completados",
   cancelled: "Cancelados",
+  dropped: "Bajas por falta de pago",
 });
 
 // Acción de la API → área que la ejecuta. Admin puede ejecutar cualquiera.
@@ -53,6 +54,8 @@ export const ACTION_AREAS = Object.freeze({
   "supervision/cancel": "supervision",
   "supervision/assign": "supervision",
   "supervision/plan": "supervision",
+  "supervision/drop": "supervision",
+  "supervision/reactivate": "supervision",
 });
 
 export function normalizeAreas(input) {
@@ -81,7 +84,7 @@ export function canSeeSale(user, sale) {
 
 // "Solicitar llamada": el área que tiene el expediente en su cola, o Supervisión/Admin (no Observador).
 export function canRequestCall(user, sale) {
-  if (!sale || ["completed", "cancelled"].includes(sale.queue)) return false;
+  if (!sale || ["completed", "cancelled", "dropped"].includes(sale.queue)) return false;
   if (hasArea(user, "supervision")) return true;
   const area = areaForQueue(sale.queue);
   return Boolean(area) && hasArea(user, area);

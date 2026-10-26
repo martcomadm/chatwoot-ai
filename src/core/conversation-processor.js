@@ -38,6 +38,8 @@ import { customerResumeAt } from "./follow-up.js";
 import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
+import { extractContactPhone } from "../operations/sale-factory.js";
+import { formatAmount } from "../operations/customer-messages.js";
 import { agentStartedConversation, mentionsOwnAdvisor, existingClient, ownAdvisorReply, EXISTING_CLIENT_TEXT } from "./agent-ownership.js";
 
 // Etiqueta de Chatwoot que pausa a Mia solo en esa conversación.
@@ -215,6 +217,51 @@ export class ConversationProcessor {
     return routed;
   }
 
+  // Cliente dado de baja por falta de pago que vuelve a escribir (26-oct): la primera vez se le explica que
+  // para reactivar su afiliación debe cubrir el adeudo y se avisa a Cobranza; si manda un archivo se toma como
+  // comprobante; después solo se le recuerda si pregunta algo. Mia no le vuelve a vender.
+  async handleDebtCustomer(conversationId, sale, batch, combinedText, messageIds) {
+    const memory = this.memories.get(conversationId) || {};
+    const debt = sale.debt || {};
+    const key = `${sale.sale_id}:${debt.dropped_at || ""}`;
+    const proof = batch.some(hasAttachments);
+    const proofName = batch.flatMap(m => m.attachments || []).map(a => a?.file_name || a?.filename || a?.name).find(Boolean) || null;
+    try { this.workflow?.debtCustomerContacted?.(sale.sale_id, { conversation_id: conversationId, proof, proof_name: proofName }); } catch (error) { console.error("NEXT baja por falta de pago:", error?.message || error); }
+    const amount = formatAmount(debt.amount ?? null);
+    const plan = debt.plan === "plan_2" ? "Plan 2" : debt.plan === "plan_1" ? "Plan 1" : "plan";
+    const first = String(sale.customer?.nombre || memory.primer_nombre || "").trim().split(/\s+/)[0];
+    const name = first && plausibleName(first) ? `, ${first.charAt(0).toUpperCase()}${first.slice(1).toLowerCase()}` : "";
+    const months = Number(debt.months || 1);
+    const pending = months > 1 ? `de ${months} mensualidades del ${plan} (${amount} en total)` : `de tu mensualidad del ${plan} (${amount})`;
+    const last = String(memory.ultima_respuesta_agente || "").trim();
+    let reply = "";
+    let note = "";
+    let kind = "silent";
+    if (proof && memory.debt_proof_ack !== key) {
+      reply = "Gracias, recibí tu comprobante. Nuestra área de Cobranza lo valida y te confirmo por aquí la reactivación de tu afiliación.";
+      note = `MÍA → COBRANZA\nEl cliente dado de baja por falta de pago envió un comprobante (${proofName || "archivo"}). Adeudo: ${amount}. Si es correcto, Supervisión lo reactiva en Operaciones (${sale.sale_id} → Reactivar).`;
+      kind = "proof";
+    } else if (memory.debt_notified !== key) {
+      reply = `Hola${name}. Tu afiliación con MARTCOM fue dada de baja por falta de pago ${pending}. Para reactivarla es necesario cubrir ese pago pendiente. Nuestra área de Cobranza te comparte por aquí los datos para pagar; cuando lo realices, envíame tu comprobante, por favor.`;
+      note = `MÍA → COBRANZA\nEl cliente ${sale.customer?.nombre || ""} (${sale.sale_id}) está dado de baja por falta de pago y volvió a escribir: «${String(combinedText || "(archivo)").slice(0, 200)}». Adeudo: ${amount} (${months} ${months === 1 ? "mes" : "meses"}, ${plan}). Compártanle los datos de pago; cuando pague, Supervisión lo reactiva en Operaciones.`;
+      kind = "notice";
+    } else if (/[?¿]/.test(combinedText) || /\b(?:pag\w*|deposit\w*|cuenta|cuentas|monto|cuanto|cuánto|reactiv\w*|baja|adeudo|debo)\b/i.test(combinedText)) {
+      const reminder = `Para reactivar tu afiliación falta cubrir tu pago pendiente ${pending}. Nuestra área de Cobranza te comparte por aquí los datos para pagar; cuando lo realices, envíame tu comprobante, por favor.`;
+      if (reminder !== last) { reply = reminder; kind = "reminder"; }
+    }
+    if (note) { try { await this.chatwoot.sendMessage(conversationId, note, true); } catch {} }
+    if (reply) await this.chatwoot.sendMessage(conversationId, reply);
+    await this.memories.set(conversationId, {
+      ...memory,
+      ...(reply ? { ultima_respuesta_agente: reply, presentacion_realizada: true } : {}),
+      ...(kind === "notice" ? { debt_notified: key } : {}),
+      ...(kind === "proof" ? { debt_proof_ack: key, debt_notified: key } : {}),
+    });
+    await this.memories.markProcessedMany(conversationId, messageIds);
+    this.followUps?.cancel?.(conversationId);
+    await this.record(conversationId, "debt_customer_reply", { sale_id: sale.sale_id, kind, amount: debt.amount ?? null, reply: reply || null });
+  }
+
   // Registra un comprobante de pago si el expediente lo espera. Devuelve true si lo registró.
   async registerPaymentProof(conversationId, batch, snapshot, combinedText) {
     const sale = this.workflow?.store?.findByConversationId?.(conversationId);
@@ -324,22 +371,25 @@ export class ConversationProcessor {
     const pendingSale = this.workflow?.store?.findByConversationId?.(conversationId);
     // También se procesa (sin que Mia responda) la respuesta a la plantilla de vigencia.
     const awaitingValidity = Boolean(pendingSale?.validity?.awaiting_customer_reply);
+    // Cliente dado de baja por falta de pago (aunque escriba desde otra conversación): Mia le pide cubrir su adeudo.
+    const debtSale = pendingSale?.status === "dropped_nonpayment" ? pendingSale
+      : (!pendingSale ? this.workflow?.store?.findDroppedByContact?.({ contactId: conversation?.meta?.sender?.id || conversation?.contact_id || conversation?.contact?.id || null, phone: extractContactPhone(conversation) }) || null : null);
     // Aviso a Operations: el cliente de un expediente en proceso escribió (aunque lo atienda una persona).
     {
       const incoming = [...(snapshot?.webhookMessages?.values?.() || [])].filter(m => isIncoming(m) && m?.private !== true);
       const text = incoming.map(m => m.content || ((m.attachments || []).length ? "📎 Envió un archivo" : "")).filter(Boolean).join(" · ");
-      if (incoming.length && pendingSale && this.onOperationsCustomerMessage) { try { await this.onOperationsCustomerMessage(pendingSale, text); } catch {} }
+      if (incoming.length && (pendingSale || debtSale) && this.onOperationsCustomerMessage) { try { await this.onOperationsCustomerMessage(pendingSale || debtSale, text); } catch {} }
       // Atención a Clientes: aviso a quien tiene el caso, o caso nuevo si el cliente ya completó su trámite.
       if (incoming.length && this.onCustomerServiceMessage) { try { await this.onCustomerServiceMessage(conversationId, text, pendingSale); } catch {} }
     }
     // Se registra para que el Inspector y el .txt digan por qué Mia no contestó (antes era silencio sin rastro).
-    if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity) {
+    if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity && !debtSale) {
       await this.record(conversationId, "reassigned_skip", { assignee_id: assigneeId, assignee_name: conversation?.meta?.assignee?.name || null, message_ids: (snapshot?.ids || []).map(String) });
       return;
     }
     let currentLabels = conversation?.labels || [];
     const stopped = currentLabels.some(label => stopLabels.has(typeof label === "string" ? label : label?.title));
-    if (stopped && !awaitingValidity) {
+    if (stopped && !awaitingValidity && !debtSale) {
       await this.record(conversationId, "stop_label_skip", { labels: currentLabels.map(l => typeof l === "string" ? l : l?.title).filter(Boolean), message_ids: (snapshot?.ids || []).map(String) });
       return;
     }
@@ -390,7 +440,7 @@ export class ConversationProcessor {
     const messageIds = batch.map(m => m.id);
     // El chat lo abrió un asesor desde el número de MARTCOM y Mia no ha participado: es suyo (casos reales
     // 23 al 26-oct, Isela Galicia: "Muchas gracias por recibir mi llamada…" y Mia le vendía a su cliente).
-    if (!pendingSale && agentStartedConversation(conversation, this.config.chatwoot.agentId, this.selfSenders)) {
+    if (!pendingSale && !debtSale && agentStartedConversation(conversation, this.config.chatwoot.agentId, this.selfSenders)) {
       await this.record(conversationId, "agent_owned_skip", { message_ids: messageIds.map(String) });
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
@@ -450,6 +500,10 @@ export class ConversationProcessor {
     if (isAutoReply(combinedText) && !batch.some(hasAttachments)) {
       await this.record(conversationId, "auto_reply_ignored", { customer_text: combinedText.slice(0, 300) });
       await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+    if (debtSale) {
+      await this.handleDebtCustomer(conversationId, debtSale, batch, combinedText, messageIds);
       return;
     }
     if (reassigned) {

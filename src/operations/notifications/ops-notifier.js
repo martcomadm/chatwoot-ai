@@ -93,6 +93,8 @@ export class OpsNotifier extends EventEmitter {
     const last = this.lastCustomerPing.get(sale.sale_id);
     if (last !== undefined && now - last < 10 * 60 * 1000) return null;
     this.lastCustomerPing.set(sale.sale_id, now);
+    // Cliente dado de baja por falta de pago que volvió a escribir: avisa a Cobranza y Supervisión.
+    if (sale.queue === "dropped") return this.notify({ sale_id: sale.sale_id, url: `/operations/sales/${encodeURIComponent(sale.sale_id)}`, kind: "payment", to: [...new Set([...this.areaUsers("cobranza"), ...this.areaUsers("supervision")])], title: `${who(sale)} (baja por falta de pago) volvió a escribir`, body: clip(text, 140) || "(adjunto)" });
     const area = AREA_OF_QUEUE[sale.queue];
     const to = sale.assignee?.username ? [sale.assignee.username] : area ? this.areaUsers(area) : [];
     return this.notify({ sale_id: sale.sale_id, url: `/operations/sales/${encodeURIComponent(sale.sale_id)}`, kind: "customer", to, title: `${who(sale)} escribió por WhatsApp`, body: clip(text, 140) || "(adjunto)" });
