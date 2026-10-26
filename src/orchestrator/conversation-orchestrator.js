@@ -24,6 +24,8 @@ export function detectDirectRequest(text){
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
   // "¿Cuánto sería la mensualidad y en cuánto tiempo duraría pagándolo?" (caso real 20-oct): precio y plazo de pago.
   if(/\b(mensualidad|cuanto (?:seria|serian|cuesta|cobran|pagaria)|costo|precio)\b/.test(v) && /\b(?:cuanto tiempo|en cuanto tiempo|hasta cuando|por cuanto tiempo)\b.{0,30}\b(?:pag\w*|duraria|dudaria|tendria que)\b/.test(v)) return {type:'payment_duration',priority:'high',answerKey:'payment_duration'};
+  // "¿Por cuánto tiempo tengo que pagar los 1500?", "1,100 x cuánto tiempo" (casos reales 23 y 25-oct).
+  if(/\b(?:por cuanto tiempo|cuanto tiempo|hasta cuando)\b.{0,25}\b(?:tengo|tendria|hay|debo|tendre) que (?:pagar|estar pagando|seguir pagando)\b.{0,25}\b(?:1[,.]?[15]00|mil (?:cien|quinientos)|mensualidad|el plan|los pagos)\b|\b1[,.]?[15]00\b.{0,12}\b(?:x|por) cuanto tiempo\b/.test(v)) return {type:'payment_duration',priority:'high',answerKey:'payment_duration'};
   if(/\b(cuanto tarda|cuanto tiempo tarda|cuanto demora|tiempo de proceso|tiempo del tramite|tiempo de(?:l)? alta|tiempo (?:de|para) (?:activacion|quedar activo|darme de alta)|cuanto tiempo (?:para|en) (?:el alta|darme de alta|quedar)|en cuanto (?:quedo|quedaria|estaria) (?:dado de alta|activo)|tramite cuanto tarda|en cuanto tiempo|cuantas horas tarda)\b/.test(v)) return {type:'process_time',priority:'high',answerKey:'process_time'};
   if(/\b(?:el )?acceso (?:al )?(?:servicio medico|imss).{0,25}(?:es )?(?:total|completo|completo al cien|100)|\b(?:tengo|tendre|tienes|tienen|incluye|da|dan)\b.{0,25}\b(?:acceso|servicio)\b.{0,20}\b(?:total|completo|100)\b/.test(v)) return {type:'medical_access_scope',priority:'high',answerKey:'medical_access_scope'};
   if(/\b(medicamento|medicamentos|medicina|medicinas|cirugia|cirugias|operacion|operaciones|hospitalizacion|hospitalizar|estudios|consulta|consultas|especialista|especialidad)\b/.test(v) && /\b(puedo|puede|podria|incluye|cubre|dan|dar|solicitar|recibir|hacerme|atienden|atender)\b/.test(v)) return {type:'medical_benefit_followup',priority:'high',answerKey:'medical_benefit_followup'};
@@ -49,12 +51,16 @@ export function detectDirectRequest(text){
   const mentionsPayment=/\b(deposit\w*|pag\w*|transferencia|transfiero|aportacion\w*|cuota|mensualidad)\b/.test(v);
   const mentionsAlta=/\b(alta|vigencia|verificar|verifica\w*|afiliacion|afiliarme|registr\w*)\b/.test(v);
   if(mentionsPayment && (/\b(primero|despues|antes|luego)\b/.test(v) && mentionsAlta || /\b(cuando|en que momento)\s+(?:se\s+|hago\s+(?:el\s+)?|realizo\s+(?:el\s+)?)?(?:pag\w*|deposit\w*)\b/.test(v) || /\b(se paga|pago) (?:antes|despues)\b/.test(v) || /\ba partir de cuando\b/.test(v))) return {type:'payment_order',priority:'high',answerKey:'payment_order',fixed:/\b(?:fija|fijo|variable|cambia|sube)\b/.test(v)};
+  // "¿Y cuándo tengo que pagar?", "El pago, ¿cuándo se realiza?", "El pago de los 1500 ¿en qué momento?" (23 y 25-oct).
+  if(/\b(?:cuando|en que momento)\s+(?:tengo|tendria|hay|debo|tendre)\s+que\s+(?:pagar|depositar|hacer el pago)\b|\b(?:el\s+)?(?:primer\s+)?pago\b.{0,30}\b(?:cuando se (?:realiza|hace)|en que momento|a partir de cuando|cuando seria)\b/.test(v)) return {type:'payment_order',priority:'high',answerKey:'payment_order',fixed:false};
   // Semanas que no aparecen en su historial: se aclaran en la clínica del IMSS ya activo con nosotros (20-oct).
   if(/\b(?:no (?:me )?(?:aparecen|salen|estan|reconocen|registraron|toman en cuenta)|perdi|se perdieron|me quitaron|desaparecieron)\b.{0,40}\bsemanas\b|\bsemanas\b.{0,60}\b(?:no (?:me )?(?:aparecen|salen|estan|reconocen|registraron|cuentan)|se perdieron|desaparecieron)\b/.test(v)) return {type:'missing_weeks',priority:'high',answerKey:'missing_weeks'};
   // "Me faltan semanas" (para pensionarse, caso real 20-oct): seguir sumando semanas con nosotros.
   if(/^(?:hola\s+)?(?:es que\s+|pues\s+)?(?:me|m|mi|nos)\s+faltan?\s+(?:unas?\s+|algunas\s+|mas\s+|pocas\s+|\d+\s+)?semanas\b/.test(v.replace(/[^a-z0-9n ]+/g,' ').replace(/\s+/g,' ').trim()) || /\b(?:me|m)\s+faltan?\s+(?:\d+\s+)?semanas\s+(?:para|pa)\s+(?:pensionarme|jubilarme|la pension|mi pension)\b/.test(v)) return {type:'needs_weeks',priority:'high',answerKey:'needs_weeks'};
   // "¿La empresa sería la misma de siempre? En donde estaba me la cambiaban cada mes" / "¿No cambian de empresa a cada rato?" (20-oct).
-  if(/\b(?:empresa|patron)\b.{0,60}\b(?:la misma|el mismo|misma de siempre|cambia\w*|cambian|cambio)\b|\b(?:cambian|cambiaban|cambia|cambiar)\s+(?:de\s+)?(?:empresa|patron)\b|\bme la cambiaban\b/.test(v)) return {type:'same_company',priority:'high',answerKey:'same_company'};
+  if(/\b(?:empresa|patron)\b.{0,60}\b(?:la misma|el mismo|misma de siempre|cambia\w*|cambian|cambio)\b|\b(?:cambian|cambiaban|cambia|cambiar)\s+(?:de\s+)?(?:empresa|patron)\b|\bme la cambiaban\b/.test(v)
+    // "¿Cada mes se da de baja y vuelve a incorporar?", "¿Qué permanencia se tiene con el mismo patrón?", "¿Me cambiarían de empresa cada rato?" (23 al 26-oct).
+    || /\b(?:mismo|misma)\s+(?:patron|empresa)\b|\bpermanencia\b|\bcambi\w*\s+(?:de\s+)?(?:empresa|patron)\b|\b(?:se\s+)?(?:da|dan|dar|doy)\s+de\s+baja\b.{0,40}\b(?:vuelv\w*|reincorpor\w*|incorpor\w*|de nuevo|otra vez)\b|\bcada mes se (?:actualiza|renueva|cambia)\b/.test(v)) return {type:'same_company',priority:'high',answerKey:'same_company'};
   // "¿Maneja altas con retroactivo?": no se manejan (confirmado 26-oct).
   if(/\bretroactiv\w*\b|\bfecha (?:anterior|atrasada|pasada)\b.{0,20}\balta\b|\balta\b.{0,20}\bfecha (?:anterior|atrasada|pasada)\b/.test(v)) return {type:'retroactive',priority:'high',answerKey:'retroactive'};
   // "¿El costo de la activación?", "me refiero a sus honorarios" (caso real 22-oct: recibió 4 veces la
@@ -75,13 +81,26 @@ export function detectDirectRequest(text){
     if(m && Number(m[1])>0 && Number(m[1])<=150) return {type:'few_weeks_left',priority:'high',answerKey:'few_weeks_left',weeks:Number(m[1]),pre1997:false};
   }
   // "¿Cuántas semanas necesito para pensionarme?": mínimo 500 (Ley 73) y 800 (Ley 97), confirmado 26-oct.
-  if(/\b(?:cuantas|minimo de|minimas?|cuantas son las) semanas\b.{0,50}\b(?:pension\w*|jubil\w*|retir\w*)\b|\b(?:pension\w*|jubil\w*)\b.{0,50}\b(?:cuantas semanas|semanas minimas|minimo de semanas|semanas se necesitan|semanas necesito)\b/.test(v)) return {type:'min_weeks',priority:'high',answerKey:'min_weeks'};
+  if(/\b(?:cuantas|minimo de|minimas?|cuantas son las) semanas\b.{0,50}\b(?:pension\w*|jubil\w*|retir\w*)\b|\b(?:pension\w*|jubil\w*)\b.{0,50}\b(?:cuantas semanas|semanas minimas|minimo de semanas|semanas se necesitan|semanas necesito)\b/.test(v)
+    // "¿Cuántos años debería cotizar para una pensión?", "por cuánto tiempo tendría que cotizar" (23-oct).
+    || /\b(?:cuantos anos|cuanto tiempo|por cuanto tiempo)\b.{0,25}\b(?:deberia|debo|tendria|tengo|hay) que cotizar\b|\bcuantos anos\b.{0,20}\bcotizar\b.{0,30}\b(?:pension\w*|jubil\w*)\b/.test(v.replace(/ñ/g,'n'))) return {type:'min_weeks',priority:'high',answerKey:'min_weeks'};
   // Guardería y carta patronal: MARTCOM la proporciona (confirmado 20-oct).
   if(/\bguarderia\b|\bcarta (?:del )?patr?on\w*\b|\bcarta patronal\b|\bconstancia (?:del )?patron\w*\b/.test(v)) return {type:'daycare',priority:'high',answerKey:'daycare'};
   // Ya cotiza con su trabajo (texto confirmado 20-oct). No si ya renunció o lo van a dar de baja.
   if(/\b(?:actualmente|ahorita|ahora|ya|si)?\s*(?:estoy|sigo|ando)\s+(?:laborando|trabajando|cotizando)\b.{0,40}\b(?:cuento con|tengo|me da|me dan)\s+(?:el\s+)?(?:seguro|imss)\b|\b(?:actualmente\s+|ya\s+)?(?:cotizo|estoy cotizando)\s+(?:actualmente\s+)?(?:en|con)\s+(?:el\s+)?(?:imss|seguro)\b|\bya estoy cotizando en el seguro\b/.test(v) && !/\b(?:renunci\w*|baja|ya no|dejare|voy a dejar|me corrieron|liquid\w*)\b/.test(v) && !/\bno (?:tengo|cuento con|me dan|me da)\b.{0,12}\b(?:seguro|imss)\b|\bsin (?:seguro|imss)\b/.test(v)) return {type:'employed',priority:'high',answerKey:'employed'};
+  // "Buenos días, aún estoy cotizando" a "¿hace cuánto dejaste de cotizar?" (caso real 25-oct: se le recomendó el Plan 1).
+  if(/^(?:(?:buenos dias|buen dia|buenas tardes|hola|si|pues)[ ,.]+)*(?:aun|todavia|actualmente|ahorita)?\s*(?:sigo|estoy|aun estoy|todavia estoy)\s+(?:cotizando|trabajando)(?:\s+(?:todavia|aun|actualmente|en (?:una|la) empresa|con (?:mi )?patron))?[ .!]*$/.test(v)) return {type:'employed',priority:'high',answerKey:'employed'};
   // "¿Cómo saber si estoy cotizando?" / "¿cómo veo mis semanas?" (casos reales 17-oct).
   if(/\bcomo (?:saber|se|sabria|puedo saber|veo|puedo ver|consulto|checo|reviso)\b.{0,20}\b(?:si estoy cotizando|si sigo cotizando|mis semanas|mis cotizaciones|cuantas semanas|semanas cotizadas)\b|\bcuantas semanas tengo\b/.test(v)) return {type:'check_weeks',priority:'high',answerKey:'check_weeks'};
+  // "¿Cómo puedo hacer beneficiaria a mi pareja? Vivimos en unión libre" (caso real 25-oct: recibió los pasos del trámite).
+  if(/\b(?:beneficiari\w*|asegurar a|dar de alta a|afiliar a|meter a)\s*(?:a\s+)?(?:mi|mis)?\s*(?:pareja|esposa|esposo|concubin\w*|novia|novio|mujer|marido|hijos?|hijas?|mama|papa|padres)\b|\b(?:mi|mis)\s+(?:pareja|esposa|esposo|concubin\w*|hijos?|hijas?|padres|mama|papa)\b.{0,40}\b(?:beneficiari\w*|asegurar\w*|union libre)\b|\blo de (?:mi|mis) (?:pareja|esposa|esposo|concubin\w*|hijos?|hijas?|padres)\b/.test(v)){
+    const employed=/\b(?:estoy|sigo|ando)\s+(?:empleado|empleada|trabajando|laborando|cotizando)\b|\bmi patron\b|\bmi trabajo me da\b/.test(v);
+    return {type:'beneficiary',priority:'high',answerKey:'beneficiary',employed,partner:/\b(?:pareja|esposa|esposo|concubin\w*|novia|novio|mujer|marido|union libre)\b/.test(v)};
+  }
+  // "¿Tiene un costo el que usted me dé información?" (caso real 24-oct: recibió los precios).
+  if(/\b(?:tiene|cobra|cobran|cuesta)\b.{0,25}\b(?:costo|algo|cobro)?\b.{0,25}\b(?:me (?:de|den|da|dan|proporcione\w*)|darme|dar)\s+(?:la\s+)?(?:informacion|info|asesoria)\b|\b(?:la\s+)?(?:informacion|asesoria)\s+(?:tiene\s+(?:algun\s+)?costo|cuesta|se cobra|es gratis)\b/.test(v)) return {type:'info_free',priority:'high',answerKey:'info_free'};
+  // "¿Y ese no aporta a AFORE, verdad?" sobre el Plan 1 (caso real 24-oct: recibió otra vez la explicación del Plan 1).
+  if(/\b(?:ese|este|el plan (?:1|uno))\s+(?:plan\s+)?no\s+(?:aporta|incluye|tiene|da|cubre)\s+(?:a\s+|al\s+|el\s+|la\s+)?(?:afore|infonavit)\b/.test(v)) return {type:'plan1_no_afore',priority:'high',answerKey:'plan1_no_afore'};
   // Ya tiene una pensión (invalidez, cesantía…): caso para un asesor.
   if(/\b(?:estoy|ya estoy|soy|ya soy)\s+pensionad[oa]\b|\bpensionad[oa]\s+por\b|\btengo (?:una )?pension (?:de|por)\b/.test(v)) return {type:'already_pensioned',priority:'high',answerKey:'already_pensioned'};
   // "¿Qué plan me conviene?" / "en tu experiencia, ¿cuál conviene más?"
@@ -101,10 +120,10 @@ export function detectDirectRequest(text){
     || /\b(?:ustedes\s+)?(?:estan|se encuentran|son|atienden|tienen (?:oficina|sucursal)\w*)\s+(?:de|en)\s+(?!el plan|la afiliacion|el imss|linea|horario|confianza|verdad|proceso|tramite|espera|acuerdo)[a-z]{4,}/.test(v) && /[?¿]|\b(?:ustedes|estan|sucursal|oficina)\b/.test(String(text))
     || /\b(?:hay|tienen)\s+(?:sucursal|oficina)\w*\b/.test(v)
     || /\b(?:en )?(?:toda la republica|todo el pais|todo mexico|toda la republica mexicana|cualquier estado|otro estado|mi estado|foraneos?)\b/.test(v);
-  const asksLegitimacy=/\b(es legal|son legales|legalidad|certeza|que tan seguro|seguro sea|es seguro hacerlo|que garantia|garantia tengo|es verdad|no es fraude|es legitimo|es real|son reales|estafa\w*|fraude|fraudes|confiable|confiables|es seguro esto|es de confianza|no me (?:van a )?(?:estafar|robar)|me (?:van a )?dar de baja|me dieron de baja)\b/.test(v);
+  const asksLegitimacy=/\b(es legal|son legales|legalidad|certeza|que tan seguro|seguro sea|es seguro hacerlo|que garantia|garantia tengo|es verdad|no es fraude|es legitimo|es real|son reales|estafa\w*|fraude|fraudes|confiable|confiables|es seguro esto|es de confianza|no me (?:van a )?(?:estafar|robar)|me (?:van a )?dar de baja)\b/.test(v) && !/\bmodalidad\b|\bm40\b/.test(v);
   const asksCompany=/\b(razon social|cual es la empresa|que empresa|con que empresa|nombre de la empresa|cuantos patrones|con cuantos patrones|quien (?:seria|es) (?:mi )?patron)\b/.test(v);
   if([asksLocation,asksLegitimacy,asksCompany].filter(Boolean).length>1) return {type:'trust',priority:'high',answerKey:'trust'};
-  if(asksLocation && !/\b(?:infonavit|afore|plan\s*[12]|semanas)\b/.test(v)) return {type:'location',priority:'high',answerKey:'location'};
+  if(asksLocation && !/\b(?:infonavit|afore|plan\s*[12]|semanas)\b/.test(v) && !/\b(?:mi direccion|direccion (?:en|de) (?:el|la|mi) (?:ine|credencial)|vivo en|estoy viviendo|vivia en)\b/.test(v)) return {type:'location',priority:'high',answerKey:'location'};
   if(asksLegitimacy) return {type:'legitimacy',priority:'high',answerKey:'legitimacy'};
   if(asksCompany) return {type:'operational_model',priority:'high',answerKey:'operational_model'};
   if(/\bmodalidad\s*(?:40|cuarenta)\b|\bm40\b/.test(v)) return {type:'modality_40',priority:'high',answerKey:'modality_40'};
@@ -146,6 +165,7 @@ export function detectDirectRequest(text){
   if(/\b(tengo que pagar|hay que pagar|se paga|tiene costo|tiene algun costo)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
   // "¿Te paso mi número de IMSS para que me cotice?" (caso real 20-oct): es el precio; no se necesita el NSS.
   if(/\b(?:me|nos|le)\s+cotic?(?:e|en|es|ce|cen)\b|\buna cotizacion\b|\bcotizarme\b|\bme (?:das|da|pasas|haces|hace) (?:una |la )?cotizacion\b/.test(v)) return {type:'price',priority:'high',answerKey:'price',quote:/\b(?:nss|numero (?:de )?(?:imss|seguro|afiliacion)|curp)\b/.test(v)};
+  if(/\bcuanto (?:seria|es|sale)\s+(?:en|de)\s+(?:tiempo|meses|anos|semanas|pension)\b|\bcuanto tiempo\b/.test(v) && !/\b(precio|costo|cuesta|cobran|mensualidad|pagar|pago)\b/.test(v)) return null;
   if(/\b(precio|precios|costos|honorarios|cuanto cuesta|que cuesta|cuanto cobra|cuanto cobran|mensualidad|costo|cuota|tarifa|cuanto sale|cuanto es|cuanto vale|cuanto seria|cuanto pagaria|cuanto pago|cuanto (?:tengo|tendria|hay) que (?:aportar|pagar|dar|depositar))\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
   if(/\b(quiero vender|quiero revender|quiero comercializar|quiero distribuir|quiero ofrecer (el|su) servicio|vender las afiliaciones|vender afiliaciones|ser distribuidor|ser proveedor|quiero ser asesor|ser asesor comercial|trabajar como asesor|integrarme como asesor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones|ofrecer afiliaciones a (mis )?clientes|generar afiliaciones para terceros)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
   return null;
@@ -174,6 +194,10 @@ export function directAnswerText(request){
     const months=Math.max(1,Math.ceil(request.weeks/4.3));
     return `Con nosotros sumas alrededor de 4 semanas cotizadas por cada mes, así que ${request.weeks} semanas se completan en aproximadamente ${months} ${months===1?'mes':'meses'}.${request.pre1997?' Como empezaste a cotizar antes del 1 de julio de 1997 (Ley 73), además necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos.':' Si empezaste a cotizar antes del 1 de julio de 1997 (Ley 73), además necesitas al menos 13 meses de afiliación antes de tramitar tu pensión.'} El Plan 1 cuesta $1,100 MXN mensuales e incluye servicio médico del IMSS. ¿Quieres que iniciemos tu trámite?`;
   }
+  if(request.answerKey==='beneficiary'&&request.employed) return 'Si ya estás cotizando con tu patrón, a tu pareja la registras como beneficiaria directamente en tu clínica del IMSS (en la ventanilla de Afiliación), aunque vivan en unión libre; ese trámite no lo hacemos nosotros. Si más adelante dejas de trabajar, con nosotros puedes seguir cotizando y mantener a tus beneficiarios. ¿Te puedo ayudar en algo más?';
+  if(request.answerKey==='beneficiary') return `Sí. Con tu alta con nosotros puedes registrar como beneficiarios a ${request.partner?'tu pareja (aunque vivan en unión libre)':'tu pareja'}, a tus hijos menores de 16 años y a tus padres, sujeto a validación del IMSS. Está incluido desde el Plan 1, de $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`;
+  if(request.answerKey==='info_free') return 'No, la información no tiene ningún costo: con gusto te resuelvo tus dudas por aquí. Solo pagas la mensualidad del plan si decides afiliarte: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes. ¿Qué te gustaría saber?';
+  if(request.answerKey==='plan1_no_afore') return 'Correcto: el Plan 1 ($1,100 MXN mensuales) incluye servicio médico del IMSS y semanas cotizadas, pero no aportaciones a AFORE ni puntos INFONAVIT. Si quieres que también se aporte a tu AFORE, eso lo incluye el Plan 2, de $1,500 MXN mensuales. ¿Cuál te interesa más?';
   if(request.answerKey==='credit_price') return INFONAVIT_CREDIT_PRICE_TEXT;
   if(request.answerKey==='credit_plan2') return INFONAVIT_CREDIT_PLAN2_TEXT;
   if(request.answerKey==='payment_method') return 'El pago es mensual y se hace hasta que tu alta esté vigente: primero te enviamos tu documento de vigencia y después nuestra área de Cobranza te comparte por aquí los datos para pagar por transferencia, depósito u OXXO.';
@@ -259,7 +283,7 @@ function enrich(direct,text,memory){
   // Crédito INFONAVIT activo: no se ofrece el Plan 2 (22-oct).
   if(memory?.sales_cycle?.infonavit_credit){
     if(['price','payment_frequency','not_free','fees','payment_duration'].includes(direct.answerKey)) return {...direct,type:'credit_price',answerKey:'credit_price'};
-    if(['plan_2_contributions','disability'].includes(direct.answerKey)||(direct.answerKey==='services'&&direct.plan==='plan_2')) return {...direct,type:'credit_plan2',answerKey:'credit_plan2'};
+    if(['plan_2_contributions','disability','plan1_no_afore'].includes(direct.answerKey)||(direct.answerKey==='services'&&direct.plan==='plan_2')) return {...direct,type:'credit_plan2',answerKey:'credit_plan2'};
     if(direct.answerKey==='services') return {...direct,plan:'plan_1'};
     if(direct.answerKey==='which_plan') return {...direct,plan:'plan_1'};
   }

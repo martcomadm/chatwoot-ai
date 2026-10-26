@@ -31,13 +31,14 @@ import { discussedPlan } from "../sales/progressive-disclosure.js";
 import { featureRejectionDecision } from "../sales/feature-rejection.js";
 import { hasInfonavitCredit, INFONAVIT_CREDIT_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT } from "../sales/infonavit-credit.js";
 import { isAudioAttachment } from "../ai/audio.js";
-import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT } from "../operations/onboarding-service.js";
+import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT, ONBOARDING_DECLINED_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { fixCommonTypos } from "../semantic/typos.js";
 import { customerResumeAt } from "./follow-up.js";
 import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
+import { agentStartedConversation, mentionsOwnAdvisor, existingClient, ownAdvisorReply, EXISTING_CLIENT_TEXT } from "./agent-ownership.js";
 
 // Etiqueta de Chatwoot que pausa a Mia solo en esa conversación.
 export const PAUSE_LABEL = "pausar_mia";
@@ -201,11 +202,11 @@ export class ConversationProcessor {
   }
 
   // Handoff especializado: canaliza la conversación al equipo de Atención a Clientes.
-  async transferToCustomerService(conversationId, conversation, reason, memory, specialized = {}) {
+  async transferToCustomerService(conversationId, conversation, reason, memory, specialized = {}, customerText = null) {
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
     const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, `MÍA → ATENCIÓN A CLIENTES\nMotivo: ${reason}\n\n${summary}`, true);
-    await this.chatwoot.sendMessage(conversationId, "Para revisar correctamente esa parte de tu caso necesito apoyo de nuestro equipo de Atención a Clientes. Voy a canalizar tu conversación y les dejaré el contexto de lo que ya revisamos para que no tengas que repetir la información.");
+    await this.chatwoot.sendMessage(conversationId, customerText || "Para revisar correctamente esa parte de tu caso necesito apoyo de nuestro equipo de Atención a Clientes. Voy a canalizar tu conversación y les dejaré el contexto de lo que ya revisamos para que no tengas que repetir la información.");
     const teamId = Number(this.config.operations.customerServiceTeamId);
     const routed = await this.chatwoot.assignTeam(conversationId, teamId);
     await this.record(conversationId, "specialized_advice_handoff", { reason, kind: specialized?.kind || "specialized_advice", team_id: teamId, routed });
@@ -387,6 +388,13 @@ export class ConversationProcessor {
       })),
     });
     const messageIds = batch.map(m => m.id);
+    // El chat lo abrió un asesor desde el número de MARTCOM y Mia no ha participado: es suyo (casos reales
+    // 23 al 26-oct, Isela Galicia: "Muchas gracias por recibir mi llamada…" y Mia le vendía a su cliente).
+    if (!pendingSale && agentStartedConversation(conversation, this.config.chatwoot.agentId, this.selfSenders)) {
+      await this.record(conversationId, "agent_owned_skip", { message_ids: messageIds.map(String) });
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
     // El cliente escribió: se cancelan los seguimientos pendientes.
     this.followUps?.customerWrote(conversationId);
     // El cliente contestó a la plantilla de vigencia: se le entrega su documento y listo.
@@ -509,8 +517,8 @@ export class ConversationProcessor {
     // ("quiero seguir sumando para pensionarme" y luego Mia volvía a preguntar qué buscaba).
     if (!llmPatch.commercial_need) llmPatch.commercial_need = deriveCommercialNeed(combinedText, base.commercial_need);
     // "Todo" a "¿qué es lo más importante para ti…?" = servicio médico, semanas y AFORE/INFONAVIT (caso real 15-oct).
-    const askedNeed = base.ultima_pregunta === "necesidad_principal" || /lo mas importante para ti|que te interesa principalmente|que buscas principalmente/.test(String(base.ultima_respuesta_agente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-    if (askedNeed && /^(?:(?:en si|pues|si|bueno)\s+)?(?:en\s+)?(?:todo|todos|todas|las tres|los tres|todo eso|todo lo anterior|de todo|me interesa todo|quiero todo|todo completo)\b|\b(?:requiero|necesito|quiero) todo\b|\btodos los (?:servicios|beneficios)\b|\bel (?:servicio|plan) completo\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z ]/g, " ").trim())) {
+    const askedNeed = base.ultima_pregunta === "necesidad_principal" || /lo mas importante para ti|que te interesa principalmente|que buscas principalmente|lo buscas principalmente|tambien te interesa aportar|necesidad principal|que necesitas principalmente/.test(String(base.ultima_respuesta_agente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+    if (askedNeed && /^(?:(?:en si|pues|si|bueno)\s+)?(?:en\s+)?(?:todo|todos|todas|las tres|los tres|las 3|los 3|las tres cosas|las 3 cosas|ambos|ambas|ambos cosas|ambas cosas|todo eso|todo lo anterior|todo lo mencionado|de todo|me interesa todo|quiero todo|todo completo)\b|\b(?:requiero|necesito|quiero) todo\b|\btodos los (?:servicios|beneficios)\b|\bel (?:servicio|plan) completo\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim())) {
       // "Todo menos Infonavit" (caso real 19-oct): todo salvo lo excluido.
       const excludes = /\b(?:menos|excepto|salvo|sin|pero no)\s+(?:el |la |lo de )?(?:infonavit|afore)\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
       llmPatch.commercial_need = { ...(llmPatch.commercial_need || {}), service_medical: true, weeks: true, afore_infonavit: !excludes, unknown: false };
@@ -560,6 +568,22 @@ export class ConversationProcessor {
     const specialized = specializedAdviceHandoff(combinedText, memory);
     const wantsCall = callRequest(combinedText);
     const wantsHuman = wantsCall || explicitHumanRequest(combinedText) || acceptsAdvisorOffer(combinedText, base.ultima_respuesta_agente);
+    // "Ya tengo asesora, es Isela Galicia" / "Ya estoy pagando el plan 2" (casos reales 23 al 25-oct): no es venta.
+    if (!wantsCall && !b2b && !memory.sales_cycle?.authorized) {
+      const ownAdvisor = mentionsOwnAdvisor(combinedText);
+      if (ownAdvisor) {
+        await this.transfer(conversationId, conversation, `El cliente indica que ya lo atiende ${typeof ownAdvisor === "string" ? ownAdvisor : "un asesor de MARTCOM"}: pasarle la conversación.`, memory, { customerText: ownAdvisorReply(ownAdvisor) });
+        await this.memories.markProcessedMany(conversationId, messageIds);
+        return;
+      }
+      if (existingClient(combinedText)) {
+        const reason = "El cliente indica que ya tiene el servicio con MARTCOM.";
+        if (Number(this.config.operations?.customerServiceTeamId) > 0) await this.transferToCustomerService(conversationId, conversation, reason, memory, { kind: "existing_client" }, EXISTING_CLIENT_TEXT);
+        else await this.transfer(conversationId, conversation, reason, memory, { customerText: EXISTING_CLIENT_TEXT });
+        await this.memories.markProcessedMany(conversationId, messageIds);
+        return;
+      }
+    }
     if (wantsHuman || b2b || frustrated || specialized) {
       if (b2b) await this.labels.mergeSafe(conversationId, ["proveedor", this.config.ai.validationLabel], [], conversation);
       const reason = wantsCall ? "El cliente pide que lo llamen por teléfono (este número no recibe llamadas): regresarle la llamada."
@@ -581,7 +605,7 @@ export class ConversationProcessor {
       // Documentos que mandó ANTES de aceptar (o "ya se la mandé"): se revisan ahora con la IA para
       // no volver a pedirlos (caso real 20-oct: Enedino mandó fotos y luego le pidieron la CURP).
       const justAuthorized = !base.sales_cycle?.authorized;
-      const claimsSent = /\b(?:ya\s+)?(?:se\s+|te\s+|le\s+)?(?:l[oa]s?\s+)?(?:mande|mandé|envie|envié|pase|pasé|comparti|compartí|adjunte|adjunté)\b|\bya (?:esta|están?|estan) (?:arriba|enviad[oa]s?|mandad[oa]s?)\b/i.test(combinedText);
+      const claimsSent = /\b(?:ya\s+)?(?:se\s+|te\s+|le\s+)?(?:l[oa]s?\s+)?(?:mande|mandé|envie|envié|pase|pasé|comparti|compartí|adjunte|adjunté)\b|\bya (?:esta|están?|estan) (?:arriba|enviad[oa]s?|mandad[oa]s?)\b|\b(?:tu|usted|ya)\s+(?:tienes|tiene)\s+(?:las\s+|mis\s+|los\s+)?(?:fotos|documentos|papeles|datos)\b/i.test(combinedText);
       if ((justAuthorized || claimsSent) && !memory.operations?.documents_complete) {
         const done = new Set((memory.analyzed_attachments || []).map(String));
         const batchIdsSet = new Set(messageIds.map(String));
@@ -681,8 +705,11 @@ export class ConversationProcessor {
           : "No pude escuchar bien tu nota de voz 🙏 ¿Me lo puedes escribir por mensaje o mandar otro audio?")
         // Con un plan ya platicado, mandar documentos es señal de compra: se guardan y se ofrece
         // iniciar; al aceptar se revisan (caso real 20-oct, Enedino).
-        : (discussedPlan(memory)
-          ? `Gracias, recibí tus documentos. Los usaremos para tu expediente en cuanto iniciemos tu trámite. ¿Quieres que iniciemos tu trámite con el ${discussedPlan(memory) === "plan_2" ? "Plan 2" : "Plan 1"}?`
+        // Si acaba de posponer o de decir que no, no se le vuelve a ofrecer iniciar (casos reales 24 y 25-oct).
+        : (["declined", "later", "no_money", "not_fit", "mistake"].includes(String(base.sales_cycle?.deferral || "")) && /escr[ií]beme|aqu[ií] estar[eé]|cuando quieras/i.test(String(base.ultima_respuesta_agente || ""))
+          ? "Gracias, recibí tu archivo. Cuando quieras continuar con tu trámite, escríbeme por aquí y lo revisamos."
+          : discussedPlan(memory)
+          ? `Gracias, recibí tu archivo. Lo usaremos para tu expediente en cuanto iniciemos tu trámite. ¿Quieres que iniciemos tu trámite con el ${discussedPlan(memory) === "plan_2" ? "Plan 2" : "Plan 1"}?`
           : "Gracias, recibí tu archivo. Por ahora no puedo revisar archivos por aquí antes de iniciar tu trámite. ¿Me cuentas por mensaje en qué te puedo ayudar?"),
       question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     } : null;
@@ -776,7 +803,7 @@ export class ConversationProcessor {
       decision = protectDeterministicDecision({ reply: INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "infonavit_credit");
     }
     const decisionSource = decision?.__source || "unknown";
-    const decisionState = { plan_change_request: decision?.plan_change_request || null, nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
+    const decisionState = { payment_extension_request: Boolean(decision?.payment_extension_request), onboarding_declined: Boolean(decision?.onboarding_declined), plan_change_request: decision?.plan_change_request || null, nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
     decision = stripDecisionMetadata(decision || {});
     decision.reply = String(decision.reply || "").trim().slice(0, this.config.ai.maxReplyChars || 850);
     // Mia no pone etiquetas que la callan (no_quiere_el_servicio, rechazado…): caso real 21-oct, la IA
@@ -814,9 +841,20 @@ export class ConversationProcessor {
     // Nunca la misma respuesta fija dos veces seguidas (Modalidad 40 repetida a Martín, 17-19 oct):
     // la segunda vez se ofrece un asesor.
     const CONSULTATIVE = /^direct:(modality_40|modality|pension_general|pension_orientation|pension_min_term|salary_pension|legitimacy|trust|operational_model|already_pensioned|disability)$/;
-    if (CONSULTATIVE.test(decisionSource) && decision.reply.trim() === String(memory.ultima_respuesta_agente || "").trim()) {
+    const repeatsLast = decision.reply.trim() === String(memory.ultima_respuesta_agente || "").trim();
+    if (CONSULTATIVE.test(decisionSource) && repeatsLast) {
       decision.reply = "Para revisar bien tu caso y resolver lo que me comentas, lo mejor es que lo vea un asesor. ¿Quieres que te comunique con uno?";
       await this.record(conversationId, "repeated_answer_replaced", { source: decisionSource });
+    } else if (repeatsLast && /^(?:direct:|need_discovery$|progressive_opening$|compact_plan_recommendation$|contextual_plan_explanation$|coverage_and_requirements$)/.test(decisionSource)) {
+      // Cualquier otra respuesta fija idéntica a la anterior (cirugía 3 veces a Julio, pregunta de necesidad
+      // repetida a Silvia; casos reales 23 y 25-oct): la redacta la IA con el contexto del cliente.
+      const regenerated = await this.safeAi(conversationId, "decision_repeat", () => this.ai.generateDecision(conversation, currentLabels, memory, { ...planner, avoid_repeating: decision.reply }, combinedText), null);
+      const candidate = regenerated?.reply ? fitLength(scrubOpeners(regenerated.reply), this.config.ai.maxReplyChars || 850) : "";
+      if (candidate && candidate.trim() !== decision.reply.trim() && quality(candidate).ok && !(hasInfonavitCredit(memory) && /\bplan\s*2\b/i.test(candidate))) {
+        decision.reply = candidate;
+        decision.question_key = regenerated.question_key || null;
+        await this.record(conversationId, "repeated_answer_regenerated", { source: decisionSource });
+      }
     }
 
     // ── 12. Presentarse, deduplicar y enviar ──
@@ -921,6 +959,15 @@ export class ConversationProcessor {
       try { await this.chatwoot.sendMessage(conversationId, `MÍA → OPERACIONES\nEl cliente pide cambiar su trámite al ${label}. Un supervisor puede cambiarlo desde el expediente (Cambiar plan).`, true); } catch {}
       await this.record(conversationId, "plan_change_requested", { plan: decisionState.plan_change_request });
     }
+    if (decisionState.payment_extension_request) {
+      try { await this.chatwoot.sendMessage(conversationId, `MÍA → COBRANZA\nEl cliente pide más tiempo para su pago: «${combinedText.slice(0, 300)}». Confírmenle por este chat si es posible.`, true); } catch {}
+      await this.record(conversationId, "payment_extension_requested", { text: combinedText.slice(0, 300) });
+    }
+    if (decisionState.onboarding_declined) {
+      try { await this.chatwoot.sendMessage(conversationId, "MÍA → OPERACIONES\nEl cliente indica que ya no quiere continuar con su trámite. Revisen el expediente y cancélenlo si corresponde.", true); } catch {}
+      this.followUps?.cancel?.(conversationId);
+      await this.record(conversationId, "onboarding_declined", {});
+    }
     memory = {
       ...memory,
       ...(decision.reply === ONBOARDING_COMPLETE_TEXT ? { onboarding_complete_notified: true } : {}),
@@ -960,7 +1007,7 @@ export class ConversationProcessor {
     await this.memories.markProcessedMany(conversationId, messageIds);
     // Programar seguimientos si el cliente deja de contestar (no si acaba de rechazar).
     // Quien quiere iniciar después ("el lunes", "mañana te mando los papeles") sí recibe recordatorio.
-    if (this.followUps && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later")) {
+    if (this.followUps && !decisionState.onboarding_declined && decision.reply !== ONBOARDING_DECLINED_TEXT && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later")) {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
       const notBefore = customerResumeAt(combinedText);
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply, notBefore });

@@ -15,6 +15,16 @@ const FIXES = [
   [/\bdevaja\b/gi, "de baja"],
   [/\bk\b(?=\s+(?:necesit|nesesit|ocup|incluye|cuesta|es|hay|tengo|debo|documentos))/gi, "que"],
   [/\bxq\b|\bporke\b|\bporq\b/gi, "porque"],
+  // Casos reales 23 al 26-oct: "Cuando cuesta", "onararios", "Gravias igualmente", "No grscias",
+  // "x cuánto tiempo tendría q cotizar", "pencion".
+  [/\bcuando (cuesta|cobran|sale|vale|seria el costo)\b/gi, "cuanto $1"],
+  [/\b(?:h?onorarios|onorarios|onararios|honararios)\b/gi, "honorarios"],
+  [/\b(?:gravias|grscias|grasias|graciaz|grax|gracia)\b/gi, "gracias"],
+  [/\bx\b(?=\s+(?:cu[aá]nto|favor|fa|el|la|mes|semana|tiempo|que))/gi, "por"],
+  [/\bq\b(?=\s+(?:cotizar|tener|pagar|hacer|aser|debo|tengo|necesito|es|implica|incluye|cuesta|onda))/gi, "que"],
+  [/\bpen[cs]i[oó][nm]\b/gi, "pensión"],
+  [/\bpen[cs]ionarme\b/gi, "pensionarme"],
+  [/\b(?:i fonavit|imfonavit|infonavid|infonabit|imfonabit)\b/gi, "infonavit"],
 ];
 
 export function fixCommonTypos(text = "") {

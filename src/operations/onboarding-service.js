@@ -74,6 +74,8 @@ export const PAYMENT_HOW_TEXT = "El pago se hace hasta que tu alta esté vigente
 
 export const NSS_HELP_TEXT = "El NSS es tu Número de Seguridad Social: un número de 11 dígitos que te asigna el IMSS. Lo encuentras en tu constancia de semanas cotizadas, en la app IMSS Digital o en papeles del IMSS de algún trabajo anterior. Si no lo tienes, no te preocupes: con tu CURP lo podemos localizar.";
 
+export const COBRANZA_EXTENSION_TEXT = "Le paso tu solicitud a nuestra área de Cobranza para que te confirme por aquí si es posible. En cuanto realices tu pago, envíame tu comprobante, por favor.";
+
 export const DOCS_LATER_TEXT = "Claro, sin problema. Cuando tengas tus documentos (CURP, NSS e INE), envíamelos por aquí y seguimos con tu trámite.";
 
 export const ONBOARDING_COMPLETE_TEXT = "Listo, ya tengo los datos y documentos requeridos. Tu expediente está completo y quedó listo para que el área de Captura proceda con el alta. Te avisaré por aquí conforme avance.";
@@ -95,8 +97,21 @@ function isCourtesyText(text = "") {
   return !v || /^(?:(?:ok|okey|okay|oki|oi|va|sale|vale|si|claro|listo|perfecto|bien|muy bien|de acuerdo|entendido|enterado|gracias|muchas gracias|mil gracias|que amable|quedo pendiente|quedo al pendiente|quedo atento|quedo atenta|pendiente|igualmente|bendiciones|buen dia|excelente|mia)\s*)+$/.test(v);
 }
 
+export const ONBOARDING_DECLINED_TEXT = "Entendido, gracias por avisarme. Le aviso al equipo para que no continúe con tu trámite. Si más adelante quieres retomarlo, escríbeme por aquí y con gusto te ayudo.";
+
+// "No necesitaré el servicio", "No quiero continuar con el trámite" (caso real 24-oct: se le contestó que el
+// asesor le llamaría y luego se le volvió a pedir la CURP dos veces).
+export function declinesOnboarding(text = "") {
+  const t = norm(text);
+  return /\b(?:no|ya no)\s+(?:necesitare|necesito|ocupo|ocupare|requiero|quiero)\s+(?:ya\s+)?(?:el|del|tu|su)\s+servicio\b|\bno\s+(?:quiero|deseo|voy a)\s+(?:continuar|seguir)\s+con\s+(?:el|mi)\s+tramite\b|\b(?:cancel\w*)\s+(?:el|mi)\s+tramite\b|\bya no (?:quiero|me interesa) (?:continuar|el tramite|seguir)\b/.test(t);
+}
+
 export function buildOnboardingDecision(memory = {}, combinedText = "") {
   if (!memory.sales_cycle?.authorized || !memory.operations?.sale_id) return null;
+  if (!memory.operations.payment_validated && declinesOnboarding(combinedText)) {
+    if (String(memory.ultima_respuesta_agente || "").trim() === ONBOARDING_DECLINED_TEXT) return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+    return { reply: ONBOARDING_DECLINED_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true, onboarding_declined: true };
+  }
   // Captura pidió una llamada: la respuesta del cliente (su horario) se agradece una vez.
   const callAt = Date.parse(memory.operations.call_requested_at || "");
   if (Number.isFinite(callAt) && Date.now() - callAt < 48 * 3600 * 1000 && !(Date.parse(memory.call_ack_at || "") > callAt)
@@ -126,6 +141,10 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
       const amount = plan === "plan_2" ? "$1,500 MXN, del Plan 2" : plan === "plan_1" ? "$1,100 MXN, del Plan 1" : null;
       if (amount && /\b(?:cuanto|monto|cantidad|importe|cuanto es|cuanto seria|cuanto pago|cuanto le deposito)\b/.test(t)) {
         return { reply: `Tu pago es de ${amount}. Cuando lo realices, envíame por aquí tu comprobante, por favor.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+      }
+      // "¿Hasta el lunes puedo?", "¿me pueden esperar al viernes?" (casos reales 23-oct): lo decide Cobranza.
+      if (/[?¿]/.test(combinedText) && /\b(?:hasta|para|el)\s+(?:el\s+)?(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|\d{1,2}|quincena|fin de mes)\b.{0,25}\b(?:puedo|podria|se puede|esta bien|hay problema|me esperan|me pueden esperar)\b|\b(?:puedo|podria|se puede)\s+(?:pagar|depositar|hacerlo|hacer el pago)\s+(?:hasta|el|para el)\b|\b(?:prorroga|me (?:pueden|podrian) esperar|me dan chance|me pueden dar chance|mas tiempo para pagar)\b/.test(t)) {
+        return { reply: COBRANZA_EXTENSION_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true, payment_extension_request: true };
       }
       if (/\b(?:no pude|no he podido|no alcance|lo hago|lo realizo|deposito|pago|hago el deposito|hago el pago)\b.{0,40}\b(?:ratito|rato|al rato|mas tarde|manana|hoy|en la tarde|en un momento|ahorita|despues|luego)\b|\b(?:ahorita|al rato|mas tarde|manana|en un ratito)\b.{0,25}\b(?:deposito|pago|lo hago|lo realizo)\b/.test(t)) {
         return { reply: "Claro, sin problema. Cuando lo realices, envíame por aquí tu comprobante, por favor.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
@@ -175,8 +194,10 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   }
   const nssResolution = memory?.operations?.nss_resolution || memory?.nss_resolution || null;
   const saysNoNss = /\b(no tengo|no cuento con|no se|no recuerdo|no conozco|no encuentro)\b.{0,30}\bnss\b/.test(text);
-  const saysNeverHadNss = /\b(nunca|jamas)\b.{0,25}\b(?:he tenido|tuve|he contado con|me han dado|me asignaron)?\s*nss\b|\bnunca he tenido seguro\b/.test(text);
-  if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && (saysNoNss || saysNeverHadNss)) {
+  const saysNeverHadNss = /\b(nunca|jamas)\b.{0,25}\b(?:he tenido|tuve|he contado con|me han dado|me asignaron)?\s*nss\b|\bnunca he tenido seguro\b|\bnunca lo (?:tuve|he tenido)\b/.test(text);
+  // "Habíamos quedado que no lo tengo", "si usted pudiera localizármelo" (caso real 25-oct: se le repitió la solicitud).
+  const saysNoItNss = /\b(?:no lo tengo|no lo se|no lo recuerdo|no lo encuentro|no se cual es|localiz\w*|buscarmelo|buscarlo)\b/.test(text) && !hasNssValue(combinedText);
+  if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && (saysNoNss || saysNeverHadNss || saysNoItNss)) {
     return {
       reply: saysNeverHadNss
         ? "No te preocupes. Si nunca has tenido NSS, podemos solicitar uno nuevo y continuar con tu trámite. Este proceso puede tardar aproximadamente de 3 a 7 días. Por ahora podemos seguir integrando tu expediente con tu CURP y los demás documentos para no retrasarlo."
@@ -209,6 +230,12 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   const nssPending = memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss";
   if (nssPending && /\b(?:que es (?:el |un )?(?:nss|numero de seguro)|que significa nss|cual (?:es el )?nss|a cual se refiere|cual numero|no se que es|que numero)\b/.test(text)) {
     return { reply: NSS_HELP_TEXT, question_key: "nss", add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: "nss", priority: true };
+  }
+  // "Ok te la envío" (caso real 23-oct: no recibió respuesta).
+  if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
+    && /\b(?:te|se|le)\s+(?:la|lo|las|los)\s+(?:envio|mando|paso|comparto)\b|^(?:ok\s+|si\s+|claro\s+)?(?:ahi|alli)\s+(?:te|le)\s+(?:va|van)\b|^(?:ok\s+|si\s+)?(?:ahorita|ya)\s+(?:te|se|le)\s+(?:la|lo|las|los)\s+(?:envio|mando|paso)\b/.test(text)
+    && String(memory.ultima_respuesta_agente || "").trim() !== "Perfecto, aquí la espero.") {
+    return { reply: "Perfecto, aquí la espero.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
   }
   const looksLikeQuestion = /\?|\b(cuanto|cuánto|como|cómo|cuando|cuándo|donde|dónde|por que|por qué|puedo|puede|incluye|cuesta|tarda|pago|proceso)\b/.test(text);
   const containsRequestedData = hasCurpValue(combinedText) || hasNssValue(combinedText);

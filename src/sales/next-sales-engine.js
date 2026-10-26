@@ -179,7 +179,9 @@ export function analyzeNextSale(text, memory = {}) {
   const selectedPlan = noPlan2(explicitSelection
     || askedPlan
     || previous.selected_plan
-    || (authorized ? previous.recommended_plan || detectedPlan || (previous.explained_plans || []).at(-1) || (previous.pitched_plans || []).at(-1) || null : null));
+    // Al aceptar vale el último plan del que se habló o se explicó, no el primero que se recomendó (caso real
+    // 23-oct: se platicó el Plan 2 y la venta se abrió con el Plan 1).
+    || (authorized ? detectedPlan || previous.last_plan || (previous.explained_plans || []).at(-1) || (previous.pitched_plans || []).at(-1) || previous.recommended_plan || null : null));
 
   const patch = {
     sales_cycle: {

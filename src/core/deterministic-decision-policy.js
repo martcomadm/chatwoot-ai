@@ -1,5 +1,8 @@
 export const FACT_LOCKED_TYPES = new Set([
   "missing_weeks",
+  "beneficiary",
+  "info_free",
+  "plan1_no_afore",
   "needs_weeks",
   "min_weeks",
   "credit_price",

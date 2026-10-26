@@ -73,7 +73,7 @@ test("la pregunta de necesidad no se repite encima de una pregunta del cliente",
   assert.ok(needGuardDecision(memory, "Trabajo de valet"));
   assert.equal(needGuardDecision(memory, "Que diferencia hay"), null);
   assert.equal(needGuardDecision({ ...memory, ultima_respuesta_agente: "Felipe, para orientarte mejor, ¿qué es lo más importante para ti con la afiliación: tener servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?" }, "ok"), null);
-  assert.match(needGuardDecision({ ...memory, nombre: "Deje Trabajar", primer_nombre: "Deje" }, "Comerciante").reply, /^para orientarte/);
+  assert.match(needGuardDecision({ ...memory, nombre: "Deje Trabajar", primer_nombre: "Deje" }, "Comerciante").reply, /^Para orientarte/);
 });
 
 test("tras ofrecer atención médica o requisitos, un 'sí' recibe ambos y la invitación a iniciar", () => {
@@ -153,7 +153,7 @@ test("una nota de voz sin texto recibe '¿me lo puedes escribir?'", async () => 
 
 test("la IA que repite una pregunta ya contestada conserva su respuesta sin la pregunta", async () => {
   const { state, run } = processorWith({
-    messages: [msg(700, "¿Y puedo meter a mi mamá?")],
+    messages: [msg(700, "¿Y eso cómo aplica con mi mamá?")],
     memory: { nombre: "Laura Perez", edad: 61, actividad: "costurera", tiene_imss: true, presentacion_realizada: true, ultima_respuesta_agente: "x", sales_cycle: { recommended_plan: "plan_1", stage: "explaining", pitched_plans: ["plan_1"], explained_plans: ["plan_1"] } },
     ai: { generateDecision: async () => ({ reply: "Sí, puedes registrar a tus padres como beneficiarios conforme a las reglas del IMSS. ¿A qué te dedicas actualmente?", question_key: "actividad" }) },
   });

@@ -15,8 +15,10 @@ const ACTIVE_RE = [
   /\bme\s+(?:descuentan|descontaban|estan descontando|cobran)\s+(?:el\s+|lo del\s+|del\s+)?(?:credito\s+(?:de\s+|del\s+)?)?infonavit\b/,
   /\b(?:tengo|tenemos)\s+(?:una\s+)?casa\s+(?:de|del|con)\s+infonavit\b(?!.{0,20}\b(?:ya (?:la )?pague|liquid\w*|ya termine))/,
   /\bdebo\s+(?:mi\s+|la\s+|el\s+)?(?:casa|credito)\b.{0,20}\binfonavit\b/,
+  // "Por tener un crédito vigente de Infonavit…" (caso real 23-oct).
+  /\b(?:por|al|como|ya que|porque)\s+(?:yo\s+)?(?:tener|tengo)\s+(?:un\s+)?credito\s+(?:activo|vigente)\b/,
 ];
-const NOT_ACTIVE_RE = /\b(?:no tengo|nunca he tenido|no cuento con|ya (?:lo |la )?(?:pague|liquide|termine de pagar)|liquid\w*|quiero (?:sacar|tener|un) credito|para (?:sacar|tener) (?:un )?credito|ya no tengo)\b/;
+const NOT_ACTIVE_RE = /\b(?:no tengo|nunca he tenido|no cuento con)\b.{0,25}\b(?:credito|infonavit|casa|fovissste)\b|\b(?:ya (?:lo |la )?(?:pague|liquide|termine de pagar)|liquid\w*|quiero (?:sacar|tener|un) credito|para (?:sacar|tener) (?:un )?credito|ya no tengo)\b/;
 
 export function hasActiveInfonavitCredit(text = "") {
   const v = norm(text);

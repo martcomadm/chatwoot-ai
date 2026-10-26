@@ -18,10 +18,13 @@ export function deriveCommercialNeed(text, previous = {}) {
     unknown: previous.unknown !== false,
   };
 
-  if (MEDICAL.test(value)) next.service_medical = true;
+  // "Solo quiero pensionarme, tengo servicio médico", "Servicio médico no ocupo" (casos reales 23 y 24-oct): lo que ya tiene.
+  const hasMedical = /\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:el\s+|mi\s+)?(?:servicio medico|seguro medico|servicing medico)\b|\b(?:servicio medico|seguro medico)\s+(?:no|ya no)\s+(?:ocupo|necesito|requiero)\b|\bno\s+(?:ocupo|necesito|requiero)\s+(?:el\s+)?(?:servicio medico|seguro medico)\b/.test(value);
+  if (MEDICAL.test(value.replace(/\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:el\s+|mi\s+)?(?:servicio medico|seguro medico)\b|\b(?:servicio medico|seguro medico)\s+(?:no|ya no)\s+(?:ocupo|necesito|requiero)\b|\bno\s+(?:ocupo|necesito|requiero)\s+(?:el\s+)?(?:servicio medico|seguro medico)\b/g, " "))) next.service_medical = true;
+  else if (hasMedical && !previous.service_medical) next.service_medical = false;
   if (WEEKS.test(value)) next.weeks = true;
   // "No Infonavit, no Afore, semanas ok" descarta el Plan 2 aunque mencione esas palabras.
-  const rejectsAforeInfonavit = /\b(?:no|sin|ni|menos|excepto|salvo)\s+(?:me interesa\s+|quiero\s+|necesito\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b|\b(?:afore|infonavit)\b.{0,20}\b(?:no me interesa|no quiero|no necesito)\b/.test(value);
+  const rejectsAforeInfonavit = /\b(?:no|sin|ni|menos|excepto|salvo)\s+(?:me interesa\s+|quiero\s+|necesito\s+)?(?:el\s+|la\s+)?(?:afore|infonavit)\b|\b(?:afore|infonavit)\b.{0,20}\b(?:no me interesa|no quiero|no necesito|ya no (?:alcanzo|me alcanza|aplica|me sirve))\b|\brenunci\w*\s+(?:a\s+|al\s+)?(?:mi\s+|la\s+)?afore\b/.test(value);
   // "Ya tengo mi afore y mi seguro" dice lo que tiene, no lo que busca (caso real 20-oct).
   // "Ya no tengo, me dieron el dinero y el aforé" (caso real 21-oct): ya retiró su AFORE.
   const mentionsOwn = /\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/.test(value)
@@ -66,7 +69,7 @@ export function needGuardDecision(memory = {}, combinedText = "") {
   const candidateName = memory?.primer_nombre || String(memory?.nombre || "").trim().split(/\s+/)[0] || null;
   const firstName = candidateName && plausibleName(candidateName) ? candidateName : null;
   return {
-    reply: `${firstName ? `${firstName}, ` : ""}para orientarte mejor, ¿qué es lo más importante para ti con la afiliación: tener servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?`,
+    reply: `${firstName ? `${firstName}, para` : "Para"} orientarte mejor, ¿qué es lo más importante para ti con la afiliación: tener servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?`,
     question_key: "necesidad_principal",
     add_labels: [],
     remove_labels: [],
@@ -80,5 +83,14 @@ export function suppressRecommendationWithoutNeed(decision, memory = {}, combine
   const text = String(decision?.reply || "");
   const recommendsPlan = /\b(te recomiendo|recomiendo|mejor opcion|mejor opción|plan\s*[12])\b/i.test(text);
   if (!recommendsPlan) return decision;
+  // El cliente preguntó por un plan, los precios o qué ofrecen ("El plan 1 q implica?", "Hello! Can I get more
+  // info?", "¿cómo se afilia uno trabajando por su cuenta?"; casos reales 23 al 25-oct): presentar los dos
+  // planes (o el que preguntó) no es recomendar sin necesidad.
+  const customer = norm(combinedText);
+  const asksPlan = /\bplan\s*(?:1|2|uno|dos)\b/.test(customer);
+  const asksInfo = /\b(?:informacion|info|more info|precio|precios|costo|costos|cuanto|planes|que ofrecen|que servicios|que manejan|como funciona|que implica|como se afilia|como me afilio|como me aseguro|como se asegura|diferencia)\b/.test(customer);
+  const bothPlans = /\bplan\s*1\b/i.test(text) && /\bplan\s*2\b/i.test(text) && !/\b(?:te recomiendo|recomiendo|mejor opcion|mejor opción|te conviene)\b/i.test(text);
+  if (asksPlan && !/\b(?:te recomiendo|recomiendo|te conviene)\b/i.test(text)) return decision;
+  if (asksInfo && bothPlans) return decision;
   return needGuardDecision(memory, combinedText) || { ...decision, reply: "Con gusto te ayudo. Para recomendarte la mejor opción, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?", question_key: "necesidad_principal" };
 }

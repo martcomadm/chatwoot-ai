@@ -168,6 +168,9 @@ export function priceObjectionDecision(memory = {}, combinedText = "") {
 
 export function compactPlanRecommendation(memory = {}, combinedText = "") {
   if (memory?.sales_cycle?.authorized) return null;
+  // "Hola buenos días" a "¿hace cuánto dejaste de cotizar…?" (caso real 24-oct) no responde nada: no se
+  // recomienda el plan sobre un saludo.
+  if (/^(?:(?:hola|buenos dias|buen dia|buenas tardes|buenas noches|buenas|que tal|saludos|hola que tal)[ ,.!]*)+$/.test(norm(combinedText).replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim())) return null;
   // Never turn a price objection back into a generic plan pitch. This guard is
   // intentionally duplicated at the recommendation boundary so future changes
   // in processor priority cannot regress this behavior.

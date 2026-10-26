@@ -52,7 +52,9 @@ export function analyzePatience(text,memory={}){
     slot:sensitive,state,waitRequest,pressure,
     // "Tómate tu tiempo, cuando lo tengas me lo envías" solo aplica si se está pidiendo un dato o documento.
     // "Permítame un momento" / "deme un momento" sin pregunta: esperar sin pedir otro dato (caso Víctor, 17-oct).
-    shouldPause:Boolean((waitRequest&&(sensitive||memory?.sales_cycle?.authorized))||pressure||(state==="searching"&&!/[?¿]/.test(String(text))&&v.length<=60)),
+        // "Ya le dije que me interesan los tres" a la pregunta de necesidad (caso real 24-oct) no es presión por
+    // un documento: lo contesta la conversación, no "cuando lo tengas a la mano continuamos".
+    shouldPause:Boolean((waitRequest&&(sensitive||memory?.sales_cycle?.authorized))||(pressure&&(sensitive||memory?.sales_cycle?.authorized))||(state==="searching"&&!/[?¿]/.test(String(text))&&v.length<=60)),
     reply:pressure
       ?"Tienes razón, no es necesario que te lo vuelva a pedir. Cuando lo tengas a la mano continuamos."
       :waitRequest&&!sensitive&&!memory?.sales_cycle?.authorized&&state==="searching"

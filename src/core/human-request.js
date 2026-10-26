@@ -48,6 +48,9 @@ const CALL_PATTERNS = [
   /\b(?:prefiero|quiero|quisiera|me gustaria)\s+(?:una\s+)?(?:llamada|por telefono|que me (?:llamen|marquen|hablen))\b/,
   /\b(?:a que|que|cual)\s+(?:numero|telefono)\s+(?:les?|te)?\s*(?:puedo\s+)?(?:marco|llamo|marcar|llamar)\b/,
   /\bllamenme\b|\bmarqueme\b|\bmarcame\b|\bllamame\b/,
+  // "Su tel. Cel.", "Tel", "¿Me da su número de teléfono?" (casos reales 25 y 26-oct): quiere llamar.
+  /^(?:(?:su|tu|un|el|me da su|me das tu|me pasa su|me pasas tu|cual es su|cual es tu)\s+)?(?:tel|telefono|cel|celular|numero de telefono|numero telefonico|whats para llamar)(?:\s+(?:cel|celular|por favor|porfa|para llamar))*$/,
+  /\b(?:me (?:da|das|pasa|pasas|comparte|compartes|proporciona)|cual es)\s+(?:su|tu|el|un)\s+(?:numero de )?(?:telefono|tel|celular|cel)\b/,
 ];
 
 export function callRequest(text) {
