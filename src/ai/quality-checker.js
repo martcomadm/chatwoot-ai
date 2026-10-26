@@ -78,6 +78,8 @@ export function checkReply(reply,{memory,questionKey,maxChars=850,customerText="
   // Caso real 21-oct: "inicio tu trámite… el área de validación (validacion@martcom.com.mx) te pedirá CURP, NSS e INE"
   // sin que el sistema abriera el expediente. En la venta no se dan correos ni se da por iniciado el trámite.
   if(/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) reasons.push("menciona_correo");
+  // Formas de pago: solo transferencia, depósito u OXXO (confirmado 26-oct); antes la IA ofrecía efectivo.
+  if(/(?:,|\bo\b|\by\b)\s+(?:en\s+)?efectivo\b/i.test(text) && !/\bno\b.{0,25}\befectivo\b/i.test(text)) reasons.push("ofrece_pago_efectivo");
   // Solo afirmaciones ("Inicio tu trámite", "Ya registré tu caso"), no preguntas ni ofertas
   // ("¿Quieres que inicie el trámite?", caso real 21-oct: se tiraban respuestas buenas).
   if(!memory?.sales_cycle?.authorized && String(text).split(/(?<=[.!?¿])\s+/).some(sentence=>!/[?¿]/.test(sentence) && !/\b(?:que|si|cuando|para|puedo|podemos|quieres|deseas|gustas)[\s,]+(?:[\w,]+\s+){0,2}(?:inicio|registro|abro|doy)\b/i.test(sentence) && /(?:^|[\s,;:])(?:inicio|inici[ée]|registro|registr[ée]|abr[ií]|abro|di de alta|doy de alta)\s+(?:tu|el|su)\s+(?:tr[aá]mite|caso|expediente|alta)\b|\bya (?:qued[oó]|est[aá]) (?:iniciado|registrado) tu (?:tr[aá]mite|caso)\b/i.test(sentence) && !/\binicie\b/i.test(sentence.match(/inici\S*/i)?.[0]||""))) reasons.push("da_por_iniciado_sin_autorizacion");

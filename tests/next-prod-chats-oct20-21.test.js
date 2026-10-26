@@ -70,7 +70,7 @@ test("misma empresa, beneficios del Plan 2 y altas retroactivas", () => {
   assert.match(directAnswerText(b), /^El Plan 2 tiene un costo de \$1,500/);
   const r = detectDirectRequest("Maneja altas con retroactivo?");
   assert.equal(r.answerKey, "retroactive");
-  assert.match(directAnswerText(r), /te comunique con un asesor/);
+  assert.match(directAnswerText(r), /^No manejamos altas con fecha retroactiva/);
 });
 
 test("'Pues iniciar trámite' y 'Si cuando Curp y nss ine ok' aceptan iniciar", () => {

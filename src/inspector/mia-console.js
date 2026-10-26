@@ -139,6 +139,7 @@ const REPLACED_LABELS = {
   ofrecia_plan2_con_credito_infonavit: "Ofrecía el Plan 2 a un cliente con crédito INFONAVIT activo",
   da_por_iniciado_sin_autorizacion: "Daba por iniciado el trámite sin que el cliente aceptara",
   menciona_correo: "Mencionaba un correo electrónico",
+  ofrece_pago_efectivo: "Ofrecía pago en efectivo (no se acepta)",
   niega_llamadas: "Decía que no hay atención por llamada",
   fallo_ia: "La IA no respondió (error o tiempo agotado)",
   pide_frase_terminos: "Pedía escribir una frase exacta de términos y condiciones",

@@ -55,7 +55,7 @@ export function detectDirectRequest(text){
   if(/^(?:hola\s+)?(?:es que\s+|pues\s+)?(?:me|m|mi|nos)\s+faltan?\s+(?:unas?\s+|algunas\s+|mas\s+|pocas\s+|\d+\s+)?semanas\b/.test(v.replace(/[^a-z0-9n ]+/g,' ').replace(/\s+/g,' ').trim()) || /\b(?:me|m)\s+faltan?\s+(?:\d+\s+)?semanas\s+(?:para|pa)\s+(?:pensionarme|jubilarme|la pension|mi pension)\b/.test(v)) return {type:'needs_weeks',priority:'high',answerKey:'needs_weeks'};
   // "¿La empresa sería la misma de siempre? En donde estaba me la cambiaban cada mes" / "¿No cambian de empresa a cada rato?" (20-oct).
   if(/\b(?:empresa|patron)\b.{0,60}\b(?:la misma|el mismo|misma de siempre|cambia\w*|cambian|cambio)\b|\b(?:cambian|cambiaban|cambia|cambiar)\s+(?:de\s+)?(?:empresa|patron)\b|\bme la cambiaban\b/.test(v)) return {type:'same_company',priority:'high',answerKey:'same_company'};
-  // "¿Maneja altas con retroactivo?" (caso real 20-oct, sin respuesta): lo confirma un asesor.
+  // "¿Maneja altas con retroactivo?": no se manejan (confirmado 26-oct).
   if(/\bretroactiv\w*\b|\bfecha (?:anterior|atrasada|pasada)\b.{0,20}\balta\b|\balta\b.{0,20}\bfecha (?:anterior|atrasada|pasada)\b/.test(v)) return {type:'retroactive',priority:'high',answerKey:'retroactive'};
   // "¿El costo de la activación?", "me refiero a sus honorarios" (caso real 22-oct: recibió 4 veces la
   // misma respuesta de precios).
@@ -74,6 +74,8 @@ export function detectDirectRequest(text){
     const m=v.match(/\b(?:me|m|nos)\s+faltan?\s+(?:como\s+|unas\s+|solo\s+)?(\d{1,3})\s+semanas\b/);
     if(m && Number(m[1])>0 && Number(m[1])<=150) return {type:'few_weeks_left',priority:'high',answerKey:'few_weeks_left',weeks:Number(m[1]),pre1997:false};
   }
+  // "¿Cuántas semanas necesito para pensionarme?": mínimo 500 (Ley 73) y 800 (Ley 97), confirmado 26-oct.
+  if(/\b(?:cuantas|minimo de|minimas?|cuantas son las) semanas\b.{0,50}\b(?:pension\w*|jubil\w*|retir\w*)\b|\b(?:pension\w*|jubil\w*)\b.{0,50}\b(?:cuantas semanas|semanas minimas|minimo de semanas|semanas se necesitan|semanas necesito)\b/.test(v)) return {type:'min_weeks',priority:'high',answerKey:'min_weeks'};
   // Guardería y carta patronal: MARTCOM la proporciona (confirmado 20-oct).
   if(/\bguarderia\b|\bcarta (?:del )?patr?on\w*\b|\bcarta patronal\b|\bconstancia (?:del )?patron\w*\b/.test(v)) return {type:'daycare',priority:'high',answerKey:'daycare'};
   // Ya cotiza con su trabajo (texto confirmado 20-oct). No si ya renunció o lo van a dar de baja.
@@ -175,7 +177,8 @@ export function directAnswerText(request){
   if(request.answerKey==='credit_price') return INFONAVIT_CREDIT_PRICE_TEXT;
   if(request.answerKey==='credit_plan2') return INFONAVIT_CREDIT_PLAN2_TEXT;
   if(request.answerKey==='payment_method') return 'El pago es mensual y se hace hasta que tu alta esté vigente: primero te enviamos tu documento de vigencia y después nuestra área de Cobranza te comparte por aquí los datos para pagar por transferencia, depósito u OXXO.';
-  if(request.answerKey==='retroactive') return 'Las altas con fecha retroactiva dependen de cada caso y esa parte te la confirma un asesor. Lo que sí hacemos es darte de alta ante el IMSS para que tengas servicio médico y sigas sumando semanas desde ahora (Plan 1 de $1,100 MXN mensuales). ¿Quieres que te comunique con un asesor para revisarlo?';
+  if(request.answerKey==='min_weeks') return `Para pensionarte se necesitan como mínimo 500 semanas cotizadas si eres Ley 73 (empezaste a cotizar antes del 1 de julio de 1997) y 800 semanas si eres Ley 97.${request.pre1997?' Como empezaste a cotizar antes de 1997, tu caso es Ley 73: además necesitas al menos 13 meses de afiliación antes de tramitar tu pensión.':''} Con nosotros sigues sumando semanas y tienes servicio médico del IMSS; el Plan 1 cuesta $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`;
+  if(request.answerKey==='retroactive') return 'No manejamos altas con fecha retroactiva: tu alta cuenta a partir de que se realiza. Lo que sí hacemos es darte de alta ante el IMSS para que tengas servicio médico y sigas sumando semanas desde ahora; el Plan 1 cuesta $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?';
   if(request.answerKey==='needs_weeks') return 'Te podemos ayudar a seguir sumando las semanas que te faltan: te damos de alta ante el IMSS y sigues cotizando, además con servicio médico. Para revisar tu caso, ¿hace cuánto dejaste de cotizar y, más o menos, en qué año empezaste a cotizar?';
   if(request.answerKey==='daycare') return 'Sí. Con tu alta vigente puedes usar la guardería del IMSS cuando corresponda, y nosotros te proporcionamos la carta patronal que el IMSS pide para el trámite de la guardería. El Plan 1, de $1,100 MXN mensuales, incluye servicio médico del IMSS y guardería. ¿Quieres que te explique cómo funciona?';
   if(request.answerKey==='employed') return 'Mientras trabajes, tu patrón te da el IMSS. Cuando dejes de trabajar, con nosotros puedes seguir cotizando sin perder tu servicio médico. ¿Te gustaría que te explique cómo funciona para cuando lo necesites?';
@@ -200,8 +203,8 @@ export function directAnswerText(request){
   if(request.answerKey==='services') return 'Tenemos dos opciones: Plan 1 por $1,100 MXN mensuales, enfocado en servicio médico, semanas cotizadas y beneficiarios; y Plan 2 por $1,500 MXN mensuales, que además contempla AFORE, INFONAVIT e incapacidades conforme al caso. Ambos manejan un salario diario registrado de $480 MXN.';
   if(request.answerKey==='payment_frequency') return 'Sí, el pago es mensual: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes.';
   if(request.answerKey==='price'&&request.quote) return 'No necesito tu número de IMSS para darte el precio: los planes tienen un costo fijo. El Plan 1 cuesta $1,100 MXN mensuales (servicio médico del IMSS y semanas cotizadas) y el Plan 2 $1,500 MXN mensuales (además AFORE, INFONAVIT e incapacidades conforme al caso). Ambos manejan un salario diario registrado de $480 MXN.';
-  if(request.answerKey==='payment_duration') return 'El Plan 1 cuesta $1,100 MXN mensuales y el Plan 2 $1,500 MXN mensuales. Se paga mes a mes, por el tiempo que quieras mantener tu afiliación.';
-  if(request.answerKey==='same_company') return 'Tu alta se mantiene con la misma empresa mientras tu pago mensual esté al corriente; no te cambiamos de empresa cada mes. Además contamos con una empresa de respaldo, y cuando tu alta esté vigente puedes comprobarla tú mismo en la app IMSS Digital o en tu clínica.';
+  if(request.answerKey==='payment_duration') return 'El Plan 1 cuesta $1,100 MXN mensuales y el Plan 2 $1,500 MXN mensuales. Se paga mes a mes, sin plazo mínimo ni forzoso: mantienes tu afiliación el tiempo que quieras.';
+  if(request.answerKey==='same_company') return 'Tu alta se mantiene con la misma empresa mientras realices tu pago mensual en tiempo y forma, en día hábil; no te cambiamos de empresa cada mes. Además contamos con una empresa de respaldo, y cuando tu alta esté vigente puedes comprobarla tú mismo en la app IMSS Digital o en tu clínica.';
   if(request.answerKey==='price') return 'El Plan 1 tiene un costo de $1,100 MXN mensuales y el Plan 2 de $1,500 MXN mensuales. Ambos manejan un salario diario registrado de $480 MXN; el Plan 2 además contempla AFORE, INFONAVIT e incapacidades conforme al caso.';
   if(request.answerKey==='disability') return `Las incapacidades se contemplan en el Plan 2, de $1,500 MXN mensuales, conforme a las reglas del IMSS y a tu caso. El Plan 1, de $1,100 MXN mensuales, se enfoca en servicio médico y semanas cotizadas.${request.maternity ? " Para la incapacidad por maternidad, el IMSS pide haber cotizado cierto número de semanas antes del parto, así que conviene revisarlo con anticipación." : ""} No manejamos incapacidades permanentes ni por riesgo de trabajo. ¿Quieres que te explique cómo funciona el Plan 2?`;
   if(request.answerKey==='how_to_start') return 'Es sencillo y todo se hace por este medio: eliges tu plan (Plan 1 de $1,100 MXN mensuales o Plan 2 de $1,500 MXN mensuales), nos compartes CURP, NSS e INE del titular y, cuando se confirme tu expediente, realizas tu pago mensual. Con la documentación completa, el alta suele quedar en aproximadamente 48 horas hábiles. ¿Quieres que iniciemos tu trámite?';
@@ -275,6 +278,7 @@ function enrich(direct,text,memory){
   }
   // Vuelve a preguntar el precio justo después de recibirlo ("Sus honorarios", caso real 22-oct): no se repite.
   if(direct.answerKey==='price'&&!direct.quote&&/^El Plan 1 tiene un costo de \$1,100/.test(String(memory?.ultima_respuesta_agente||''))) direct={...direct,type:'fees',answerKey:'fees'};
+  if(direct.answerKey==='min_weeks') direct={...direct,pre1997:Boolean(memory?.pension_data?.cotizo_antes_1997)||startedBefore1997(String(text||''))};
   if(direct.answerKey==='few_weeks_left') direct={...direct,pre1997:Boolean(memory?.pension_data?.cotizo_antes_1997)||startedBefore1997(String(text||''))};
   // Ya quiere iniciar ("puedo enviarle papeles mañana", "podemos iniciar el lunes", caso real 21-oct).
   if(direct.answerKey==='requirements'&&/\b(?:envi\w*|mand\w*|pas\w*|busc\w*|iniciar|empezar|comenzar)\b.{0,30}\b(?:papeles|documentos|tramite|lunes|manana)\b|\b(?:papeles|documentos)\b.{0,20}\b(?:manana|luego|despues|al rato)\b/.test(norm(text))) direct={...direct,intent:true};
