@@ -80,7 +80,8 @@ export class SaleWorkflowEngine {
   // Una conversación tiene un solo expediente: si ya existe, se devuelve ese.
   openAuthorizedSale(input) {
     const existing = input.conversation_id ? this.store.findByConversationId(input.conversation_id) : null;
-    if (existing) return existing;
+    // Si el expediente anterior se canceló y el cliente vuelve a aceptar, se abre uno nuevo (el cancelado se queda guardado).
+    if (existing && existing.status !== SALE_STATUSES.CANCELLED) return existing;
     return this.store.create({ ...input, status: SALE_STATUSES.WAITING_CAPTURE, queue: "capture" });
   }
 

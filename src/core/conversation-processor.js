@@ -40,6 +40,7 @@ import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
 import { extractContactPhone } from "../operations/sale-factory.js";
 import { formatAmount } from "../operations/customer-messages.js";
+import { memoryAfterCancellation, SALE_STOP_LABELS } from "../operations/cancelled-sale.js";
 import { agentStartedConversation, mentionsOwnAdvisor, existingClient, ownAdvisorReply, EXISTING_CLIENT_TEXT } from "./agent-ownership.js";
 
 // Etiqueta de Chatwoot que pausa a Mia solo en esa conversación.
@@ -388,7 +389,9 @@ export class ConversationProcessor {
       return;
     }
     let currentLabels = conversation?.labels || [];
-    const stopped = currentLabels.some(label => stopLabels.has(typeof label === "string" ? label : label?.title));
+    // Expediente cancelado: las etiquetas del trámite (venta, validación, completado) ya no callan a Mia.
+    const cancelledSale = pendingSale?.status === "cancelled";
+    const stopped = currentLabels.some(label => { const name = typeof label === "string" ? label : label?.title; return stopLabels.has(name) && !(cancelledSale && SALE_STOP_LABELS.has(name)); });
     if (stopped && !awaitingValidity && !debtSale) {
       await this.record(conversationId, "stop_label_skip", { labels: currentLabels.map(l => typeof l === "string" ? l : l?.title).filter(Boolean), message_ids: (snapshot?.ids || []).map(String) });
       return;
@@ -516,6 +519,12 @@ export class ConversationProcessor {
 
     // ── 4. Análisis determinista del turno ──
     let base = recoverCommercialContext(conversation, this.memories.get(conversationId));
+    // Si la memoria aún dice "en trámite" con un expediente cancelado, se atiende como prospecto.
+    if (cancelledSale && (base.sales_cycle?.authorized || base.operations?.sale_id)) {
+      base = memoryAfterCancellation(base);
+      await this.memories.set(conversationId, base);
+      await this.record(conversationId, "cancelled_sale_memory_reset", { sale_id: pendingSale.sale_id });
+    }
     // Nombres mal capturados en versiones anteriores ("Deje Trabajar", "Claro Que Si") se descartan.
     if (base.nombre && !plausibleName(base.nombre)) base = { ...base, nombre: null, primer_nombre: null };
     // Si lo último que vio el cliente fue una pregunta de una persona del equipo ("¿Te gustaría

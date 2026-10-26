@@ -1,4 +1,5 @@
 import { onboardingStateFromSale, operationsMemoryFromSale } from "./onboarding-service.js";
+import { memoryAfterCancellation, SALE_STOP_LABELS } from "./cancelled-sale.js";
 import { renderCustomerMessage } from "./customer-messages.js";
 import { replyWindowOpen, TEMPLATE_TEXTS } from "../chatwoot/whatsapp-templates.js";
 
@@ -24,7 +25,7 @@ const ATTACHMENT_DELIVERIES = Object.freeze({
 });
 
 export class ChatwootWorkflowBridge{
-  constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0,settings=null,templates=null}){this.templates=templates;this.saleStore=saleStore;this.settings=settings;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
+  constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0,settings=null,templates=null,miaAgentId=0}){this.miaAgentId=Number(miaAgentId||0);this.templates=templates;this.saleStore=saleStore;this.settings=settings;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
   start(){this.saleStore.on("sale",this.listener)}
   stop(){this.saleStore.off("sale",this.listener)}
   async reconcileCompletedSales(){
@@ -49,6 +50,20 @@ export class ChatwootWorkflowBridge{
   async record(conversationId,type,details={}){try{await this.inspectorEvents?.record(conversationId,type,details)}catch{}}
   // Texto configurado en Admin (o el predeterminado) para el evento; null si no notifica.
   customerMessage(event){return renderCustomerMessage(event.type,{sale:event.sale,details:event.details},this.settings?.customerMessages?.()||{})}
+  async releaseCancelledConversation(conversationId, sale) {
+    try {
+      await this.memories.set(conversationId, memoryAfterCancellation(this.memories.get(conversationId) || {}));
+      if (this.miaAgentId && typeof this.chatwoot?.assignConversation === "function") await this.chatwoot.assignConversation(conversationId, this.miaAgentId);
+      if (typeof this.chatwoot?.getLabels === "function" && typeof this.chatwoot?.setLabels === "function") {
+        const current = (await this.chatwoot.getLabels(conversationId))?.payload || [];
+        const next = current.filter(label => !SALE_STOP_LABELS.has(label));
+        if (next.length !== current.length) await this.chatwoot.setLabels(conversationId, next);
+      }
+      await this.record(conversationId, "cancelled_sale_released", { sale_id: sale.sale_id });
+    } catch (error) {
+      await this.record(conversationId, "cancelled_sale_release_failed", { sale_id: sale.sale_id, error: String(error?.message || error).slice(0, 200) });
+    }
+  }
   async completeHumanHandoff(conversationId,sale){
     if(!this.customerServiceTeamId){await this.record(conversationId,"completed_handoff_skipped",{sale_id:sale.sale_id,reason:"customer_service_team_not_configured"});console.warn("NEXT completó expediente pero CUSTOMER_SERVICE_TEAM_ID no está configurado.");return;}
     try{
@@ -176,6 +191,13 @@ export class ChatwootWorkflowBridge{
     if (event.type === "supervision.plan_changed" && sale.sale?.plan) {
       const current = this.memories.get(conversationId) || {};
       await this.memories.merge(conversationId, { sales_cycle: { ...(current.sales_cycle || {}), selected_plan: sale.sale.plan, recommended_plan: sale.sale.plan, last_plan: sale.sale.plan } });
+    }
+    // Expediente cancelado: Mia vuelve a atender al cliente como prospecto si escribe de nuevo (26-oct).
+    if (event.type === "supervision.cancelled") await this.releaseCancelledConversation(conversationId, sale);
+    // Supervisión reactivó un expediente cancelado: vuelve a estar en trámite para Mia.
+    if (event.type === "supervision.returned" && event.details?.from_queue === "cancelled") {
+      const current = this.memories.get(conversationId) || {};
+      await this.memories.merge(conversationId, { sales_cycle: { ...(current.sales_cycle || {}), authorized: true, stage: "authorized", selected_plan: sale.sale?.plan || current.sales_cycle?.selected_plan || null } });
     }
     await this.record(conversationId, "operations_state_changed", { sale_id: sale.sale_id, event: event.type, status: sale.status, queue: sale.queue, ...onboarding });
 

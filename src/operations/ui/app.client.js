@@ -392,7 +392,7 @@ async function loadSales() {
 
 function salesForArea(area, { section = "queue" } = {}) {
   // Cobranza: además de su cola, ve completados (para dar de baja a quien deja de pagar) y las bajas.
-  if (area === "cobranza" && ["completed", "dropped"].includes(section)) return state.sales.filter(sale => sale.queue === section);
+  if (area === "cobranza" && ["completed", "dropped", "cancelled"].includes(section)) return state.sales.filter(sale => sale.queue === section);
   const queue = AREA_QUEUE[area];
   return state.sales.filter(sale => sale.queue === queue);
 }
@@ -590,7 +590,7 @@ function renderWorkArea(view) {
     <div class="toolbar">
       ${segmented("assignee", state.filter.assignee, [["all", "Todos"], ["me", "Míos"], ["none", "Sin asignar"]])}
       ${area === "captura" ? segmented("docs", state.filter.docs, [["all", "Todos los datos"], ["complete", "Completos"], ["incomplete", "Incompletos"]]) : ""}
-      ${area === "cobranza" ? segmented("cobranza", state.filter.cobranza, [["queue", "Por cobrar"], ["completed", "Completados"], ["dropped", "Bajas por falta de pago"]]) : ""}
+      ${area === "cobranza" ? segmented("cobranza", state.filter.cobranza, [["queue", "Por cobrar"], ["completed", "Completados"], ["dropped", "Bajas por falta de pago"], ["cancelled", "Cancelados"]]) : ""}
       <input class="input" type="search" placeholder="Buscar nombre, folio, CURP, NSS, teléfono" value="${esc(state.filter.search)}" data-search aria-label="Buscar expedientes">
     </div>
     <div class="queue" role="table" aria-label="Expedientes de ${esc(area)}">${items.length ? saleRows(items) : emptyQueue(area)}</div>`;
@@ -654,6 +654,8 @@ function areaActions(sale) {
   if (hasArea("cobranza") && !hasArea("supervision")) {
     if (sale.status === "dropped_nonpayment") add("sup-reactivate", "Reactivar (ya pagó)", "primary");
     else if (sale.status !== "cancelled" && (sale.validity?.confirmed || sale.status === "completed")) add("sup-drop", "Dar de baja por falta de pago", "danger");
+    // Cancelar: los que están en su cola o dados de baja (los completados no se cancelan).
+    if (["payment", "dropped"].includes(sale.queue)) add("sup-cancel", "Cancelar expediente", "danger");
   }
   if (canAct(sale, "captura")) {
     if (sale.status === "waiting_capture") add("capture-start", "Iniciar captura", "primary");
@@ -972,7 +974,7 @@ async function saleAction(action) {
       break;
     }
     case "sup-cancel": {
-      const data = await ask({ title: "Cancelar expediente", text: "El expediente sale de todas las colas. Supervisión puede reactivarlo después.", fields: [{ name: "reason", label: "Motivo de la cancelación", type: "textarea", required: true }], confirm: "Cancelar expediente", danger: true, area: "supervision" });
+      const data = await ask({ title: "Cancelar expediente", text: "El expediente pasa a Cancelados y sale de las colas de trabajo. Si el cliente vuelve a escribir, Mia lo atiende como a un prospecto nuevo. Supervisión puede reactivarlo después.", fields: [{ name: "reason", label: "Motivo de la cancelación", type: "textarea", required: true }], confirm: "Cancelar expediente", danger: true, area: "supervision" });
       if (data) done = await post("supervision/cancel", data, "Expediente cancelado");
       break;
     }

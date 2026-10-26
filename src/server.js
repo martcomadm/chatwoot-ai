@@ -69,7 +69,7 @@ try {
   const opsSettings = new OpsSettingsStore(config.storage.opsSettingsFile, config.storage.opsAccountsImageFile);
   const opsAudit = new OpsAuditStore(config.storage.opsAuditFile);
   const templates = new WhatsAppTemplates({ chatwoot, inboxId: config.chatwoot.inboxId, names: config.whatsappTemplates });
-  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId, settings: opsSettings, templates });
+  const workflowBridge = new ChatwootWorkflowBridge({ saleStore, chatwoot, labels, memories, inspectorEvents, customerServiceTeamId: config.operations.customerServiceTeamId, settings: opsSettings, templates, miaAgentId: config.chatwoot.agentId });
   workflowBridge.start();
   // Avisos para la gente de Operations (página + Web Push al celular o la computadora).
   const opsPush = new PushStore(path.join(config.storage.dataDir, "ops-push.json"), { publicKey: process.env.OPS_VAPID_PUBLIC_KEY || "", privateKey: process.env.OPS_VAPID_PRIVATE_KEY || "" });

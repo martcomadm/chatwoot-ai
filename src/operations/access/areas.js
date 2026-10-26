@@ -51,7 +51,8 @@ export const ACTION_AREAS = Object.freeze({
   "payment/reopen": "cobranza",
   "payment/validate": "cobranza",
   "supervision/return": "supervision",
-  "supervision/cancel": "supervision",
+  // Cancelar: Supervisión y Cobranza (26-oct).
+  "supervision/cancel": ["supervision", "cobranza"],
   "supervision/assign": "supervision",
   "supervision/plan": "supervision",
   // Baja por falta de pago y reactivación: Supervisión y Cobranza (26-oct).
@@ -78,7 +79,7 @@ export function visibleQueues(user) {
   if (seesAllQueues(user)) return Object.keys(QUEUE_LABELS);
   const queues = WORK_AREAS.filter(area => (user?.areas || []).includes(area.key)).map(area => area.queue);
   // Cobranza también ve los completados (para dar de baja a quien deja de pagar) y las bajas por falta de pago.
-  if ((user?.areas || []).includes("cobranza")) queues.push("completed", "dropped");
+  if ((user?.areas || []).includes("cobranza")) queues.push("completed", "dropped", "cancelled");
   return [...new Set(queues)];
 }
 
