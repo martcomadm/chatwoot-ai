@@ -61,3 +61,14 @@ test("un mensaje de solo puntos no se contesta", async () => {
   assert.deepEqual(s.sent, []);
   assert.ok(s.events.includes("punctuation_only_skipped"));
 });
+
+import { directAnswerText } from "../src/orchestrator/conversation-orchestrator.js";
+test("incapacidad por enfermedad en ambos planes; nunca por riesgo de trabajo (confirmado 27-oct)", () => {
+  const plan1 = directAnswerText(detectDirectRequest(fixCommonTypos("En el 1 no contempla incapacidades?")));
+  assert.match(plan1, /Plan 1 .*sí incluye incapacidad por enfermedad/);
+  assert.match(plan1, /no trabajas para nosotros/);
+  const dis = directAnswerText(detectDirectRequest(fixCommonTypos("¿Las incapacidades las pagan?")));
+  assert.match(dis, /Los dos planes incluyen incapacidad por enfermedad/);
+  assert.match(dis, /riesgo de trabajo/);
+  assert.doesNotMatch(dis, /se contemplan en el Plan 2/);
+});
