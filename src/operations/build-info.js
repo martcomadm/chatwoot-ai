@@ -1,3 +1,3 @@
 // Versión visible en Operations (debajo de "Operations NEXT") para confirmar qué quedó desplegado.
 // Se actualiza con cada entrega.
-export const BUILD_LABEL = "27-oct · Incapacidad en ambos planes";
+export const BUILD_LABEL = "27-oct · Respuestas confirmadas (simulación, salario, ISSSTE)";

@@ -72,3 +72,18 @@ test("incapacidad por enfermedad en ambos planes; nunca por riesgo de trabajo (c
   assert.match(dis, /riesgo de trabajo/);
   assert.doesNotMatch(dis, /se contemplan en el Plan 2/);
 });
+
+test("respuestas confirmadas 27-oct: simulación, preexistentes, salario mayor, ISSSTE", () => {
+  const ans = t => directAnswerText(detectDirectRequest(fixCommonTypos(t)));
+  assert.match(ans("Que tenga elementos para demostrar que no es una simulación (nómina, contrato, estabilidad del patrón, domicilio del patrón)"), /no es posible.*rentas el servicio/s);
+  assert.equal(key("Si, mi nombre es Leonardo Tapia Camargo y necesito estar dos años con la misma empresa"), "employment_proof");
+  assert.match(ans("Existe alguna limitación respecto a enfermedades? en la modalidad 10 hay enfermedades que no aplican el primer año"), /^No, no hay ningún problema/);
+  const salary = ans("Hay otro monto q supere este salario");
+  assert.match(salary, /dos planes.*\$480.*comunique con un asesor/s);
+  assert.equal(acceptsAdvisorOffer("Sí", salary), true);
+  assert.equal(key("Yo quisiera cotizar en el seguro con 22 UMAS"), "higher_salary");
+  assert.equal(key("Puedo pasar mis semanas del ISSSTE?"), "advisor_topic");
+  assert.equal(key("Me interesa la incorporación voluntaria"), "advisor_topic");
+  assert.equal(key("Trabajé en el ISSSTE hace años"), null);
+  assert.equal(key("¿La empresa sería la misma de siempre?"), "same_company");
+});

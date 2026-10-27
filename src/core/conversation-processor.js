@@ -935,10 +935,10 @@ export class ConversationProcessor {
     // respuesta de la empresa): ya no se repite la respuesta fija; se ofrece un asesor que lo explique a fondo.
     {
       const key = { "direct:same_company": "same_company", "direct:modality": "modality" }[decisionSource];
-      if (key && Number(memory.direct_answer_counts?.[key] || 0) >= 1 && !/te comunique con uno/.test(String(memory.ultima_respuesta_agente || ""))) {
+      if (key && Number(memory.direct_answer_counts?.[key] || 0) >= 1 && !/te comunique con (?:uno|un asesor)/.test(String(memory.ultima_respuesta_agente || ""))) {
         decision.reply = key === "same_company"
-          ? "Entiendo que para ti es muy importante la estabilidad con la misma empresa. Para darte el detalle de la empresa con la que quedarías registrado y resolver esa duda a fondo, lo mejor es que te lo explique un asesor. ¿Quieres que te comunique con uno?"
-          : "Para explicarte a detalle cómo queda tu alta frente a las modalidades del IMSS, lo mejor es que lo revise contigo un asesor. ¿Quieres que te comunique con uno?";
+          ? "Entiendo que para ti es muy importante la estabilidad con la misma empresa. Para darte el detalle de la empresa con la que quedarías registrado y resolver esa duda a fondo, lo mejor es que te lo explique un asesor. ¿Quieres que te comunique con un asesor?"
+          : "Para explicarte a detalle cómo queda tu alta frente a las modalidades del IMSS, lo mejor es que lo revise contigo un asesor. ¿Quieres que te comunique con un asesor?";
         decision.question_key = null;
         await this.record(conversationId, "repeated_topic_to_advisor", { topic: key });
       }
