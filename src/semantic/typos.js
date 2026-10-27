@@ -25,6 +25,9 @@ const FIXES = [
   [/\bpen[cs]i[oó][nm]\b/gi, "pensión"],
   [/\bpen[cs]ionarme\b/gi, "pensionarme"],
   [/\b(?:i fonavit|imfonavit|infonavid|infonabit|imfonabit)\b/gi, "infonavit"],
+  // "Solo servicuo", "Solo segurk medici" (caso real 27-oct).
+  [/\bservicuo\b/gi, "servicio"],
+  [/\bsegur[ko]\s+medic[io]\b/gi, "seguro medico"],
 ];
 
 export function fixCommonTypos(text = "") {

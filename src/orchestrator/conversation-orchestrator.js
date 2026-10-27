@@ -5,6 +5,7 @@ import { FACT_LOCKED_TYPES } from '../core/deterministic-decision-policy.js';
 function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
 
 function isRequirementsQuestion(v){
+  if(/\b(?:cumplo|ya cumplo|tengo|ya tengo) (?:con )?(?:los |todos los |los demas )?requisitos\b|\brequisitos los cumplo\b/.test(v)) return false;
   const cleaned=String(v||"").replace(/[¿?¡!.,;:()[\]{}]/g," ").replace(/\s+/g," ").trim();
   const hasRequirements=/\brequisitos?\b/.test(cleaned);
   const hasDocuments=/\b(documentos?|documentacion|papeles?|papeleria)\b/.test(cleaned);
@@ -22,6 +23,14 @@ export const OPERATIONAL_MODEL_ANSWER='Tu alta se realiza con una empresa y, ade
 export function detectDirectRequest(text){
   const v=norm(text);
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
+  // Proveedores que ofrecen su servicio ("ofrezco la siguiente plataforma… costo $350", caso real 26-oct).
+  if(/\b(?:ofrezco|ofrecemos|vendo|vendemos)\b.{0,40}\b(?:plataforma|servicio de|sistema|documentos|tramites)\b|\bcosto de la plataforma\b|\bcuento con referencias\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
+  // "Eres IA" (caso real 27-oct: recibió "¿Tienes IMSS actualmente?").
+  if(/^(?:y\s+)?(?:eres|es|usted es|tu eres)\s+(?:una\s+|un\s+)?(?:ia|ai|i\.a\.?|inteligencia artificial|robot|bot|maquina|persona real|humano|humana|una persona)\b/.test(v)) return {type:'are_you_ai',priority:'high',answerKey:'are_you_ai'};
+  // "Tengo dudas" (caso real 27-oct: se le recomendó el Plan 2).
+  if(/^(?:si\s+|pero\s+|aun\s+)?(?:tengo|tengo unas|tengo una|tengo algunas|tengo mas)\s+(?:dudas?|preguntas?)\s*[.!]*$/.test(v)) return {type:'has_doubts',priority:'high',answerKey:'has_doubts'};
+  // "Solo necesito recuperar la vigencia de derechos" (casos reales 27-oct: recibió los requisitos).
+  if(/\b(?:recuperar|reactivar|conservar|necesito|ocupo)\s+(?:la\s+|mi\s+)?(?:vigencia|conservacion) de (?:mis )?derechos\b/.test(v)) return {type:'rights_recovery',priority:'high',answerKey:'rights_recovery'};
   // "¿Cuánto sería la mensualidad y en cuánto tiempo duraría pagándolo?" (caso real 20-oct): precio y plazo de pago.
   if(/\b(mensualidad|cuanto (?:seria|serian|cuesta|cobran|pagaria)|costo|precio)\b/.test(v) && /\b(?:cuanto tiempo|en cuanto tiempo|hasta cuando|por cuanto tiempo)\b.{0,30}\b(?:pag\w*|duraria|dudaria|tendria que)\b/.test(v)) return {type:'payment_duration',priority:'high',answerKey:'payment_duration'};
   // "¿Por cuánto tiempo tengo que pagar los 1500?", "1,100 x cuánto tiempo" (casos reales 23 y 25-oct).
@@ -29,7 +38,7 @@ export function detectDirectRequest(text){
   if(/\b(cuanto tarda|cuanto tiempo tarda|cuanto demora|tiempo de proceso|tiempo del tramite|tiempo de(?:l)? alta|tiempo (?:de|para) (?:activacion|quedar activo|darme de alta)|cuanto tiempo (?:para|en) (?:el alta|darme de alta|quedar)|en cuanto (?:quedo|quedaria|estaria) (?:dado de alta|activo)|tramite cuanto tarda|en cuanto tiempo|cuantas horas tarda)\b/.test(v)) return {type:'process_time',priority:'high',answerKey:'process_time'};
   if(/\b(?:el )?acceso (?:al )?(?:servicio medico|imss).{0,25}(?:es )?(?:total|completo|completo al cien|100)|\b(?:tengo|tendre|tienes|tienen|incluye|da|dan)\b.{0,25}\b(?:acceso|servicio)\b.{0,20}\b(?:total|completo|100)\b/.test(v)) return {type:'medical_access_scope',priority:'high',answerKey:'medical_access_scope'};
   if(/\b(medicamento|medicamentos|medicina|medicinas|cirugia|cirugias|operacion|operaciones|hospitalizacion|hospitalizar|estudios|consulta|consultas|especialista|especialidad)\b/.test(v) && /\b(puedo|puede|podria|incluye|cubre|dan|dar|solicitar|recibir|hacerme|atienden|atender)\b/.test(v)) return {type:'medical_benefit_followup',priority:'high',answerKey:'medical_benefit_followup'};
-  if(/\b(operar|operen|opere|operacion|cirugia|cirugia mayor|apendice|apendicitis|vesicula|hernia|rodilla|cadera|catarata|parto|cesarea)\b/.test(v) && /\b(quiero|necesito|requiero|me van|puedo|podrian|hacerme|realizarme|tratar|atiendan)\b/.test(v)) return {type:'medical_specific_procedure',priority:'high',answerKey:'medical_specific_procedure'};
+  if(/\b(operar|operen|opere|operacion|cirugia|cirugia mayor|apendice|apendicitis|vesicula|hernia|rodilla|cadera|catarata|parto|cesarea)\b/.test(v) && /\b(quiero|necesito|requiero|me van|puedo|podrian|hacerme|realizarme|tratar|atiendan)\b/.test(v) && !/\b(?:no puedo trabajar|ya no puedo|pension\w*|invalidez|semanas|incapacidad)\b/.test(v)) return {type:'medical_specific_procedure',priority:'high',answerKey:'medical_specific_procedure'};
   const asksAforeAmount=/\b(?:cuanto|cuanta|cuantas|que porcentaje|porcentaje de|de cuanto)\b.{0,45}\b(?:aportacion(?:es)?|afore)\b|\b(?:aportacion(?:es)?|afore)\b.{0,45}\b(?:cuanto|cuanta|cuantas|que porcentaje|porcentaje)\b/.test(v);
   const asksInfonavitPoints=/\b(?:cuantos?|cuantas?)\b.{0,30}\bpuntos?\b|\bpuntos?\b.{0,30}\b(?:cuantos?|cuantas?)\b/.test(v);
   if(asksAforeAmount||asksInfonavitPoints) return {type:'plan_2_contributions',priority:'high',answerKey:'plan_2_contributions'};
@@ -51,6 +60,8 @@ export function detectDirectRequest(text){
   const mentionsPayment=/\b(deposit\w*|pag\w*|transferencia|transfiero|aportacion\w*|cuota|mensualidad)\b/.test(v);
   const mentionsAlta=/\b(alta|vigencia|verificar|verifica\w*|afiliacion|afiliarme|registr\w*)\b/.test(v);
   if(mentionsPayment && (/\b(primero|despues|antes|luego)\b/.test(v) && mentionsAlta || /\b(cuando|en que momento)\s+(?:se\s+|hago\s+(?:el\s+)?|realizo\s+(?:el\s+)?)?(?:pag\w*|deposit\w*)\b/.test(v) || /\b(se paga|pago) (?:antes|despues)\b/.test(v) || /\ba partir de cuando\b/.test(v))) return {type:'payment_order',priority:'high',answerKey:'payment_order',fixed:/\b(?:fija|fijo|variable|cambia|sube)\b/.test(v)};
+  // "Al iniciar el trámite tengo que pagar de inmediato" (caso real 27-oct: recibió "el pago es mensual").
+  if(/\b(?:al iniciar|desde el inicio|por adelantado|de inmediato|antes de (?:la alta|el alta|iniciar|que me den de alta))\b.{0,40}\b(?:pag\w*|deposit\w*)\b|\b(?:pag\w*|deposit\w*)\b.{0,30}\b(?:de inmediato|por adelantado|al iniciar|antes del alta|antes de la alta)\b/.test(v)) return {type:'payment_order',priority:'high',answerKey:'payment_order',fixed:false};
   // "¿Y cuándo tengo que pagar?", "El pago, ¿cuándo se realiza?", "El pago de los 1500 ¿en qué momento?" (23 y 25-oct).
   if(/\b(?:cuando|en que momento)\s+(?:tengo|tendria|hay|debo|tendre)\s+que\s+(?:pagar|depositar|hacer el pago)\b|\b(?:el\s+)?(?:primer\s+)?pago\b.{0,30}\b(?:cuando se (?:realiza|hace)|en que momento|a partir de cuando|cuando seria)\b/.test(v)) return {type:'payment_order',priority:'high',answerKey:'payment_order',fixed:false};
   // Semanas que no aparecen en su historial: se aclaran en la clínica del IMSS ya activo con nosotros (20-oct).
@@ -62,7 +73,7 @@ export function detectDirectRequest(text){
     // "¿Cada mes se da de baja y vuelve a incorporar?", "¿Qué permanencia se tiene con el mismo patrón?", "¿Me cambiarían de empresa cada rato?" (23 al 26-oct).
     || /\b(?:mismo|misma)\s+(?:patron|empresa)\b|\bpermanencia\b|\bcambi\w*\s+(?:de\s+)?(?:empresa|patron)\b|\b(?:se\s+)?(?:da|dan|dar|doy)\s+de\s+baja\b.{0,40}\b(?:vuelv\w*|reincorpor\w*|incorpor\w*|de nuevo|otra vez)\b|\bcada mes se (?:actualiza|renueva|cambia)\b/.test(v)) return {type:'same_company',priority:'high',answerKey:'same_company'};
   // "¿Maneja altas con retroactivo?": no se manejan (confirmado 26-oct).
-  if(/\bretroactiv\w*\b|\bfecha (?:anterior|atrasada|pasada)\b.{0,20}\balta\b|\balta\b.{0,20}\bfecha (?:anterior|atrasada|pasada)\b/.test(v)) return {type:'retroactive',priority:'high',answerKey:'retroactive'};
+  if(/\bretroactiv\w*\b|\bextemporane\w*\b|\bfecha (?:anterior|atrasada|pasada)\b.{0,20}\balta\b|\balta\b.{0,20}\bfecha (?:anterior|atrasada|pasada)\b/.test(v)) return {type:'retroactive',priority:'high',answerKey:'retroactive'};
   // "¿El costo de la activación?", "me refiero a sus honorarios" (caso real 22-oct: recibió 4 veces la
   // misma respuesta de precios).
   if(/\b(?:activacion|inscripcion|apertura|comision\w*|me refiero a (?:sus |los |tus )?honorarios|cuota (?:de )?(?:inicial|de entrada)|costo (?:extra|adicional|aparte|inicial)|pago (?:inicial|unico|de entrada))\b/.test(v) && /\b(?:costo|cuanto|cobran|son|sus|honorarios|activacion|me refiero|hay)\b/.test(v)) return {type:'fees',priority:'high',answerKey:'fees'};
@@ -100,9 +111,13 @@ export function detectDirectRequest(text){
   // "¿Tiene un costo el que usted me dé información?" (caso real 24-oct: recibió los precios).
   if(/\b(?:tiene|cobra|cobran|cuesta)\b.{0,25}\b(?:costo|algo|cobro)?\b.{0,25}\b(?:me (?:de|den|da|dan|proporcione\w*)|darme|dar)\s+(?:la\s+)?(?:informacion|info|asesoria)\b|\b(?:la\s+)?(?:informacion|asesoria)\s+(?:tiene\s+(?:algun\s+)?costo|cuesta|se cobra|es gratis)\b/.test(v)) return {type:'info_free',priority:'high',answerKey:'info_free'};
   // "¿Y ese no aporta a AFORE, verdad?" sobre el Plan 1 (caso real 24-oct: recibió otra vez la explicación del Plan 1).
-  if(/\b(?:ese|este|el plan (?:1|uno))\s+(?:plan\s+)?no\s+(?:aporta|incluye|tiene|da|cubre)\s+(?:a\s+|al\s+|el\s+|la\s+)?(?:afore|infonavit)\b/.test(v)) return {type:'plan1_no_afore',priority:'high',answerKey:'plan1_no_afore'};
+  {
+    // "Y ese no aporta a AFORE, ¿verdad?", "En el 1 no contempla incapacidades" (casos reales 24 y 27-oct).
+    const m=v.match(/\b(?:ese|este|el plan (?:1|uno)|en el (?:plan )?(?:1|uno)|el (?:1|uno))\s+(?:plan\s+)?no\s+(?:aporta|incluye|tiene|da|cubre|contempla|maneja)\s+(?:a\s+|al\s+|el\s+|la\s+|las\s+)?(afore|infonavit|incapacidad\w*)\b/);
+    if(m) return {type:'plan1_no_afore',priority:'high',answerKey:'plan1_no_afore',feature:/incapacidad/.test(m[1])?'incapacidades':'afore'};
+  }
   // Ya tiene una pensión (invalidez, cesantía…): caso para un asesor.
-  if(/\b(?:estoy|ya estoy|soy|ya soy)\s+pensionad[oa]\b|\bpensionad[oa]\s+por\b|\btengo (?:una )?pension (?:de|por)\b/.test(v)) return {type:'already_pensioned',priority:'high',answerKey:'already_pensioned'};
+  if(!/\bno (?:estoy|soy)\s+pensionad/.test(v) && /\b(?:estoy|ya estoy|soy|ya soy)\s+pensionad[oa]\b|\bpensionad[oa]\s+por\b|\btengo (?:una )?pension (?:de|por)\b/.test(v)) return {type:'already_pensioned',priority:'high',answerKey:'already_pensioned'};
   // "¿Qué plan me conviene?" / "en tu experiencia, ¿cuál conviene más?"
   if(/\b(?:que|cual)\s+(?:plan\s+)?(?:me\s+)?(?:conviene|recomiendas|recomienda|sugieres|es mejor)\b|\ben tu experiencia\b|\bcual (?:de los dos|plan) (?:me )?(?:conviene|recomiendas)\b/.test(v)) return {type:'which_plan',priority:'high',answerKey:'which_plan'};
   // "¿Me podrías proporcionar una página?" (caso 17-oct): la página oficial de MARTCOM.
@@ -129,9 +144,9 @@ export function detectDirectRequest(text){
   // "¿Me timbran recibos de nómina?" (caso real 24-oct): no timbramos (confirmado 26-oct).
   if(/\btimbr\w*\b|\brecibos? de nomina\b/.test(v)) return {type:'payroll_receipts',priority:'high',answerKey:'payroll_receipts'};
   // "A mí me dieron costo de 1000", "yo estaba pagando 950", "en otro lado cobran menos" (casos reales 24 y 25-oct).
-  if(/\b(?:me (?:dieron|dijeron|cobraban|cobran|ofrecieron)|estaba pagando|pagaba|yo pago|en otro lado|en otra parte|otra empresa|otro asesor|de otro telefono)\b.{0,40}\b(?:\$?\s?\d{3,4}|precio|costo|mas barato|menos)\b|\b(?:otro precio|precio diferente|mas barato|subio el (?:costo|precio)|me dieron otro precio)\b/.test(v) && !/\bno (?:tengo|puedo|me alcanza)\b/.test(v)) return {type:'other_price',priority:'high',answerKey:'other_price'};
+  if(!/\bde baja\b/.test(v) && /\b(?:me (?:dieron|dijeron|cobraban|cobran|ofrecieron)|estaba pagando|pagaba|yo pago|en otro lado|en otra parte|otra empresa|otro asesor|de otro telefono)\b.{0,40}(?:\$\s?\d{3,4}|\b(?!(?:19|20)\d\d\b)\d{3,4}\s*(?:pesos|mensuales|al mes|mxn)?\b|\b(?:precio|costo|mas barato|menos)\b)|\b(?:otro precio|precio diferente|mas barato|subio el (?:costo|precio)|me dieron otro precio)\b/.test(v) && !/\bno (?:tengo|puedo|me alcanza)\b/.test(v)) return {type:'other_price',priority:'high',answerKey:'other_price'};
   if(/\bmodalidad\s*(?:40|cuarenta)\b|\bm40\b/.test(v)) return {type:'modality_40',priority:'high',answerKey:'modality_40'};
-  if(/\b(que modalidad|cual modalidad|en que modalidad|alguna modalidad|por modalidad|es modalidad|modalidad (?:10|40|diez|cuarenta)|modalidad (?:manejan|atienden|es|o como))\b/.test(v)){
+  if(/\b(que modalidad|cual modalidad|en que modalidad|alguna modalidad|por modalidad|es modalidad|modalidad (?:10|40|diez|cuarenta)|modalidad (?:manejan|atienden|es|o como))\b/.test(v) && !/\b(?:enfermedad\w*|preexistent\w*|padecimiento\w*|limitacion\w*|no aplican|primer ano)\b/.test(v.replace(/ñ/g,'n'))){
     return {type:'modality',priority:'high',answerKey:'modality'};
   }
   if(/\bincapacidad(?:es)?\b/.test(v) && /\b(cobrar|cobro|cobran|cobra|pagan|paga|pagarian|cubre|cubren|incluye|agarr\w*|agarias|dan|tengo derecho|aplica|manejan|tienen|saber|requiere|se requiere)\b/.test(v)){
@@ -169,6 +184,12 @@ export function detectDirectRequest(text){
   if(/\b(tengo que pagar|hay que pagar|se paga|tiene costo|tiene algun costo)\b/.test(v)) return {type:'payment_frequency',priority:'high',answerKey:'payment_frequency'};
   // "¿Te paso mi número de IMSS para que me cotice?" (caso real 20-oct): es el precio; no se necesita el NSS.
   if(/\b(?:me|nos|le)\s+cotic?(?:e|en|es|ce|cen)\b|\buna cotizacion\b|\bcotizarme\b|\bme (?:das|da|pasas|haces|hace) (?:una |la )?cotizacion\b/.test(v)) return {type:'price',priority:'high',answerKey:'price',quote:/\b(?:nss|numero (?:de )?(?:imss|seguro|afiliacion)|curp)\b/.test(v)};
+  // "El plan uno, ¿qué costo tiene?", "¿Cuánto me saldría el Plan 2?" (casos reales 26 y 27-oct): solo ese plan.
+  {
+    const asksPrice=/\b(precio|costo|cuanto cuesta|que cuesta|cuanto sale|cuanto saldria|cuanto me saldria|cuanto es|cuanto seria|cuanto vale)\b/.test(v);
+    const one=/\bplan\s*(?:1|uno)\b/.test(v), two=/\bplan\s*(?:2|dos)\b/.test(v);
+    if(asksPrice && one!==two) return {type:'services',priority:'high',answerKey:'services',plan:one?'plan_1':'plan_2'};
+  }
   if(/\bcuanto (?:seria|es|sale)\s+(?:en|de)\s+(?:tiempo|meses|anos|semanas|pension)\b|\bcuanto tiempo\b/.test(v) && !/\b(precio|costo|cuesta|cobran|mensualidad|pagar|pago)\b/.test(v)) return null;
   if(/\b(precio|precios|costos|honorarios|cuanto cuesta|que cuesta|cuanto cobra|cuanto cobran|mensualidad|costo|cuota|tarifa|cuanto sale|cuanto es|cuanto vale|cuanto seria|cuanto pagaria|cuanto pago|cuanto (?:tengo|tendria|hay) que (?:aportar|pagar|dar|depositar))\b/.test(v)) return {type:'price',priority:'high',answerKey:'price'};
   if(/\b(quiero vender|quiero revender|quiero comercializar|quiero distribuir|quiero ofrecer (el|su) servicio|vender las afiliaciones|vender afiliaciones|ser distribuidor|ser proveedor|quiero ser asesor|ser asesor comercial|trabajar como asesor|integrarme como asesor|alianza comercial|trabajar con ustedes vendiendo|comercializar afiliaciones|ofrecer afiliaciones a (mis )?clientes|generar afiliaciones para terceros)\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
@@ -181,7 +202,7 @@ export function directAnswerText(request){
   if(request.answerKey==='process_time') return 'Una vez que recibimos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. El tiempo puede variar según la revisión del caso.';
   if(request.answerKey==='medical_access_scope') return 'Sí. Una vez que tu alta esté vigente, tienes acceso al servicio médico del IMSS como trabajador asegurado: consultas, atención médica, medicamentos, estudios, hospitalización y cirugías cuando sean indicados por el personal médico del IMSS, conforme a sus procesos y reglas. También puedes registrar beneficiarios cuando corresponda. Si tienes una atención específica en mente, dime cuál y te explico cómo aplica.';
   if(request.answerKey==='medical_benefit_followup') return 'Sí. Una vez que tu alta esté vigente, puedes recibir medicamentos y también atención quirúrgica a través del IMSS. En el caso de una cirugía, primero debes ser valorado por el personal médico del Instituto y la cirugía debe ser indicada y programada conforme a sus procesos médicos. Los medicamentos igualmente se entregan cuando son prescritos dentro de la atención del IMSS. Si ya tienes un diagnóstico o sabes qué cirugía necesitas, puedo orientarte sobre el siguiente paso.';
-  if(request.answerKey==='medical_specific_procedure') return 'Sí, ese tipo de atención puede realizarse a través del IMSS una vez que tu alta esté vigente. En un caso como una operación de apéndice, el IMSS debe valorarte y determinar médicamente la atención necesaria; si se trata de una urgencia, debes acudir directamente a Urgencias para valoración. La indicación y realización del procedimiento dependen del personal médico del Instituto. Si actualmente tienes dolor intenso o síntomas de una posible apendicitis, no esperes a completar un trámite: busca atención médica de urgencia.';
+  if(request.answerKey==='medical_specific_procedure') return 'Sí, ese tipo de atención puede realizarse a través del IMSS una vez que tu alta esté vigente. El IMSS te valora y determina médicamente la atención necesaria; la indicación y realización del procedimiento dependen del personal médico del Instituto. Si se trata de una urgencia, no esperes a completar un trámite: acude directamente a Urgencias.';
   if(request.answerKey==='plan_2_contributions') return 'En el Plan 2, la aportación a AFORE se maneja de forma alternada: un mes es de 5.5% y el siguiente de 10%, repitiendo ese esquema. En INFONAVIT, la acumulación estimada es de entre 200 y 250 puntos. Si quieres, también puedo explicarte cómo se integra este beneficio con el resto del Plan 2.';
   if(request.answerKey==='are_you_imss') return 'No, no somos el IMSS. Soy Mia de MARTCOM, una consultoría que realiza tu afiliación ante el IMSS: tu alta queda registrada en el IMSS y, cuando esté vigente, puedes verificarla tú mismo en la app IMSS Digital o en tu clínica.';
   if(request.answerKey==='website') return 'Claro, nuestra página es https://martcom-econtact.mx/ y ahí encuentras nuestros datos de contacto. Además, cuando tu alta esté vigente puedes comprobarla tú mismo directamente con el IMSS, en la app IMSS Digital o en tu clínica.';
@@ -201,7 +222,11 @@ export function directAnswerText(request){
   if(request.answerKey==='beneficiary'&&request.employed) return 'Si ya estás cotizando con tu patrón, a tu pareja la registras como beneficiaria directamente en tu clínica del IMSS (en la ventanilla de Afiliación), aunque vivan en unión libre; ese trámite no lo hacemos nosotros. Si más adelante dejas de trabajar, con nosotros puedes seguir cotizando y mantener a tus beneficiarios. ¿Te puedo ayudar en algo más?';
   if(request.answerKey==='beneficiary') return `Sí. Con tu alta con nosotros puedes registrar como beneficiarios a ${request.partner?'tu pareja (aunque vivan en unión libre)':'tu pareja'}, a tus hijos menores de 16 años y a tus padres, sujeto a validación del IMSS. Está incluido desde el Plan 1, de $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`;
   if(request.answerKey==='info_free') return 'No, la información no tiene ningún costo: con gusto te resuelvo tus dudas por aquí. Solo pagas la mensualidad del plan si decides afiliarte: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes. ¿Qué te gustaría saber?';
+  if(request.answerKey==='plan1_no_afore'&&request.feature==='incapacidades') return 'Correcto: el Plan 1 ($1,100 MXN mensuales) incluye servicio médico del IMSS y semanas cotizadas, pero no incapacidades. Las incapacidades, conforme a las reglas del IMSS, las contempla el Plan 2, de $1,500 MXN mensuales, que además suma AFORE e INFONAVIT. ¿Cuál te interesa más?';
   if(request.answerKey==='plan1_no_afore') return 'Correcto: el Plan 1 ($1,100 MXN mensuales) incluye servicio médico del IMSS y semanas cotizadas, pero no aportaciones a AFORE ni puntos INFONAVIT. Si quieres que también se aporte a tu AFORE, eso lo incluye el Plan 2, de $1,500 MXN mensuales. ¿Cuál te interesa más?';
+  if(request.answerKey==='are_you_ai') return 'Sí, soy Mia, la asistente virtual de MARTCOM 😊 Con gusto te resuelvo tus dudas por aquí, y si prefieres hablar con una persona del equipo, también te puedo comunicar con un asesor. ¿En qué te ayudo?';
+  if(request.answerKey==='has_doubts') return 'Claro, dime tus dudas y con gusto te las resuelvo.';
+  if(request.answerKey==='rights_recovery') return 'Para recuperar tu vigencia de derechos con la Ley 73 necesitas mantener tu afiliación al menos 13 meses antes de tramitar tu pensión. Con nosotros quedas dado de alta ante el IMSS, sigues sumando semanas y además tienes servicio médico; el Plan 1 cuesta $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?';
   if(request.answerKey==='credit_price') return INFONAVIT_CREDIT_PRICE_TEXT;
   if(request.answerKey==='credit_plan2') return INFONAVIT_CREDIT_PLAN2_TEXT;
   if(request.answerKey==='payment_method') return 'El pago es mensual y se hace hasta que tu alta esté vigente: primero te enviamos tu documento de vigencia y después nuestra área de Cobranza te comparte por aquí los datos para pagar por transferencia, depósito u OXXO.';
@@ -323,7 +348,9 @@ function enrich(direct,text,memory){
 // Varias preguntas en un mensaje ("¿qué incluye el plan 2? / ¿cuánto tengo que aportar? / ¿qué
 // garantía tengo?"): se contestan todas, en orden, con una sola pregunta al final.
 function multiQuestion(text,memory){
-  const parts=String(text||'').split(/\n+|(?<=\?)\s+/).map(p=>p.trim()).filter(p=>p.length>=4);
+  // "¿Cuánto cuesta, cambian de patrón?" (caso real 27-oct): dos preguntas separadas por coma.
+  const raw=String(text||'');
+  const parts=raw.split(/\n+|(?<=\?)\s+/).flatMap(p=>/[?¿]/.test(raw)?p.split(/,\s+(?=[¿a-záéíóúñ])/i):[p]).map(p=>p.trim()).filter(p=>p.length>=4);
   if(parts.length<2) return null;
   const seen=new Set(); const answers=[];
   for(const part of parts){

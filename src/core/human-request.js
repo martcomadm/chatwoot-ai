@@ -32,6 +32,8 @@ export function explicitHumanRequest(text) {
 
 // Mia ofreció "¿Quieres que te comunique con un asesor?" y el cliente dijo que sí.
 export function acceptsAdvisorOffer(text, lastReply = "") {
+  // "¿…o prefieres que un asesor revise tu caso primero?" → "Sí, revisarlo por favor" (caso real 27-oct).
+  if (/prefieres que un asesor revise tu caso/.test(norm(lastReply)) && /\b(?:asesor|revis\w*|que lo revise|que lo vea)\b/.test(norm(text)) && !/\b(?:iniciemos|iniciar|no)\b/.test(norm(text))) return true;
   if (!/quieres que te comunique con un asesor/.test(norm(lastReply))) return false;
   const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
   // "Ok, voy a buscar la hoja rosa y te envío foto" (caso real 21-oct) no es aceptar al asesor.
@@ -51,6 +53,9 @@ const CALL_PATTERNS = [
   // "Su tel. Cel.", "Tel", "¿Me da su número de teléfono?" (casos reales 25 y 26-oct): quiere llamar.
   /^(?:(?:su|tu|un|el|me da su|me das tu|me pasa su|me pasas tu|cual es su|cual es tu)\s+)?(?:tel|telefono|cel|celular|numero de telefono|numero telefonico|whats para llamar)(?:\s+(?:cel|celular|por favor|porfa|para llamar))*$/,
   /\b(?:me (?:da|das|pasa|pasas|comparte|compartes|proporciona)|cual es)\s+(?:su|tu|el|un)\s+(?:numero de )?(?:telefono|tel|celular|cel)\b/,
+  // "¿Algún teléfono para poder marcar?", "comunicación vía telefónica", "no puedo hablar con nadie" (caso real 27-oct).
+  /\b(?:algun|un|su|otro)\s+(?:numero|telefono|tel)\s+(?:para|donde|al que|a donde)\s+(?:pode\w*\s+|pueda\s+|les\s+)?(?:marcar|llamar|hablar|comunicarme)\b/,
+  /\b(?:comunicacion|hablar|platicar)\s+(?:via|por)\s+(?:telefonica|telefono|llamada)\b|\bno puedo hablar con nadie\b/,
 ];
 
 export function callRequest(text) {

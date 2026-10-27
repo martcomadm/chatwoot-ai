@@ -59,7 +59,7 @@ const LATER_RE = [
 const ANSWERS_STATE_RE = /^(?:por el momento|de momento|por ahora|ahorita|en este momento|por lo pronto)\s+no\s+(?:estoy|tengo|cuento|trabajo|cotizo|soy|me dan)\b/;
 
 const THANKS_RE = /\b(?:gracias|grasias|graciaz|todo bien|igualmente|saludos|bendiciones|que amable|agradezco|agradecid[oa]|muy amable)\b/;
-const CLOSING_ONLY_RE = /^(?:(?:a|ah|ahh|oh|ok|okay|okey|si|no|ninguna|ninguno|nada|vale|va|bueno|muy bien|todo bien|esta bien|perfecto|listo|de acuerdo|entendido|gracias|grasias|graciaz|muchas gracias|mil gracias|muchisimas gracias|que amable|igualmente|saludos|bendiciones|excelente|por la informacion|por todo|y|bien|buenas noches|buenas tardes|buen dia|buenos dias|bonito dia|feliz dia|que descanse|te agradezco|le agradezco|agradezco|muchisimo|mucho|muy amable|muy valiosa (?:tu|su) informacion|muy valiosa)[ ,.!]*)+$/;
+const CLOSING_ONLY_RE = /^(?:(?:a|ah|ahh|oh|ok|okay|okey|si|no|ninguna|ninguno|nada|vale|va|bueno|muy bien|todo bien|esta bien|perfecto|listo|de acuerdo|entendido|gracias|grasias|graciaz|muchas gracias|mil gracias|muchisimas gracias|que amable|igualmente|saludos|bendiciones|excelente|por la informacion|por todo|y|bien|buenas noches|buenas tardes|buen dia|buenos dias|bonito dia|feliz dia|que descanse|te agradezco|le agradezco|agradezco|se lo agradezco|te lo agradezco|lo agradezco|les agradezco|pendientes|pendiente|buena tarde|buen dia a usted|muchisimo|mucho|muy amable|muy valiosa (?:tu|su) informacion|muy valiosa)[ ,.!]*)+$/;
 
 function asksSomething(text) {
   return /[?¿]/.test(String(text || "")) || /\b(?:cuanto|cuando abren|que documentos|cuales|como le hago|donde)\b/.test(norm(text)) && !/\bcuando (?:yo )?(?:pueda|tenga)\b/.test(norm(text));
@@ -73,6 +73,8 @@ export function detectDeferral(text) {
   if (/\b(?:cuanto|costos?|precios?|cuesta|cobran|mensualidad)\b/.test(value) && !NO_MONEY_RE.some(re => re.test(value))) return null;
   if (NO_MONEY_RE.some(re => re.test(value))) return "no_money";
   if (ANSWERS_STATE_RE.test(value)) return null;
+  // "Soy ley 73, en qué año no me acuerdo, necesito checar mis papeles" (caso real 27-oct) responde la pregunta.
+  if (/\b(?:no me acuerdo|no recuerdo)\b/.test(value)) return null;
   if (LATER_RE.some(re => re.test(value))) return "later";
   return null;
 }
@@ -114,7 +116,7 @@ function planLabel(memory = {}) {
 const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^(?:muchas |mil )?gracias[ ,.!]*(?:pero )?no (?:me )?interesa\b|^no[ ,.!]*(?:me interesa(?! (?:el |la |lo de )?(?:infonavit|afore|credito|plan))|por ahora|por el momento|de momento)\b/;
 
 // "Disculpe no haré trámite", "No necesito ya el servicio", "No quiero continuar con el trámite" (24-oct).
-const DECLINE_ANY_RE = /\bno (?:hare|voy a hacer|realizare|voy a realizar) (?:el |ningun )?tramite\b|\b(?:no|ya no) (?:necesitare|necesito|ocupo|requiero|quiero) (?:ya )?(?:el |del |tu |su )?servicio\b|\bno (?:quiero|deseo|voy a) (?:continuar|seguir) con el tramite\b/;
+const DECLINE_ANY_RE = /\bsi no(?: es posible| se puede| esta bien)?,? (?:ni modo,? )?(?:muchas )?gracias\b|\bno (?:hare|voy a hacer|realizare|voy a realizar) (?:el |ningun )?tramite\b|\b(?:no|ya no) (?:necesitare|necesito|ocupo|requiero|quiero) (?:ya )?(?:el |del |tu |su )?servicio\b|\bno (?:quiero|deseo|voy a) (?:continuar|seguir) con el tramite\b/;
 // "No, me equivoqué, perdón" (caso real 24-oct): escribió por error.
 const MISTAKE_RE = /^(?:no[ ,.!]*)?(?:me equivoque|me equivoque de (?:chat|numero|contacto)|fue un error|era para otra persona|no era para ustedes|disculpe? me equivoque|perdon me equivoque)\b/;
 const NOT_FIT_RE = /\bno (?:es|era) (?:lo que|el (?:servicio|plan) que) (?:busco|buscaba|necesito|necesitaba|quiero|queria|ocupo)\b|\bno (?:es|era) (?:para mi|lo mio)\b|\bno me (?:sirve|funciona)\b(?! (?:el|la) (?:plan|horario))/;

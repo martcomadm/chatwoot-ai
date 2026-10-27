@@ -3,7 +3,7 @@ function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
 
-const MEDICAL = /\b(servicio medico|seguro medico|atencion medica|consultas|medicinas|hospital|maternidad|guarderia|beneficiarios?)\b/;
+const MEDICAL = /\b(servicio medico|seguro medico|atencion medica|consultas|medicinas|hospital|maternidad|guarderia|beneficiarios?)\b|^(?:solo\s+)?(?:el\s+)?(?:servicio|seguro)(?:\s+(?:solo|nada mas|nomas))?$/;
 const WEEKS = /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas|continuar semanas)\b/;
 const AFORE_INFONAVIT = /\b(afore|infonavit|credito de vivienda|credito infonavit|puntos infonavit|vivienda)\b/;
 const RETIREMENT = /\b(pension\w*|pensionar\w*|retiro|jubilar\w*|jubilacion)\b/;

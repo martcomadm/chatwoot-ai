@@ -246,7 +246,8 @@ export class ConversationProcessor {
       reply = `Hola${name}. Tu afiliación con MARTCOM fue dada de baja por falta de pago ${pending}. Para reactivarla es necesario cubrir ese pago pendiente. Nuestra área de Cobranza te comparte por aquí los datos para pagar; cuando lo realices, envíame tu comprobante, por favor.`;
       note = `MÍA → COBRANZA\nEl cliente ${sale.customer?.nombre || ""} (${sale.sale_id}) está dado de baja por falta de pago y volvió a escribir: «${String(combinedText || "(archivo)").slice(0, 200)}». Adeudo: ${amount} (${months} ${months === 1 ? "mes" : "meses"}, ${plan}). Compártanle los datos de pago; cuando pague, Supervisión lo reactiva en Operaciones.`;
       kind = "notice";
-    } else if (/[?¿]/.test(combinedText) || /\b(?:pag\w*|deposit\w*|cuenta|cuentas|monto|cuanto|cuánto|reactiv\w*|baja|adeudo|debo)\b/i.test(combinedText)) {
+    } else if (/[?¿]/.test(combinedText) || /\b(?:cuenta|cuentas|datos para (?:pagar|el pago|depositar)|monto|cuanto|cuánto|como (?:le )?(?:pago|deposito)|donde (?:le )?(?:pago|deposito)|cuanto debo|reactivar\w*)\b/i.test(combinedText)) {
+      // Antes bastaba con que mencionara "pago" ("me pagan por honorarios…", caso real 27-oct) y se le repetía.
       const reminder = `Para reactivar tu afiliación falta cubrir tu pago pendiente ${pending}. Nuestra área de Cobranza te comparte por aquí los datos para pagar; cuando lo realices, envíame tu comprobante, por favor.`;
       if (reminder !== last) { reply = reminder; kind = "reminder"; }
     }
@@ -496,6 +497,12 @@ export class ConversationProcessor {
     // "Si.laberdad.tengo.apenas.55.años." (caso real 19-oct): puntos en lugar de espacios.
     const combinedText = fixCommonTypos(undotted(batch.map(m => m.content || "").filter(Boolean).join("\n").trim()));
     if (!combinedText && !batch.some(hasAttachments)) {
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
+    }
+    // Solo signos ("." o "...", caso real 27-oct: recibió otra vez la recomendación del Plan 2): no se contesta.
+    if (/^[\s.,;:…·_-]+$/.test(combinedText) && !batch.some(hasAttachments)) {
+      await this.record(conversationId, "punctuation_only_skipped", { customer_text: combinedText.slice(0, 40) });
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
@@ -917,6 +924,23 @@ export class ConversationProcessor {
         decision.reply = candidate;
         decision.question_key = regenerated.question_key || null;
         await this.record(conversationId, "repeated_answer_regenerated", { source: decisionSource });
+      } else if (/\b(?:gracias|agradezco|buena tarde|buen dia|buenas noches|saludos)\b/i.test(combinedText.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))) {
+        // "Gracias, pero si no hay oficina… les agradezco, buena tarde" (caso real 26-oct): se despide.
+        decision.reply = "Con gusto. Quedo al pendiente; cuando quieras continuar, escríbeme por aquí.";
+        decision.question_key = null;
+        await this.record(conversationId, "repeated_answer_closing", { source: decisionSource });
+      }
+    }
+    // La misma duda de la empresa o de la modalidad por segunda vez (caso real 27-oct: Leonardo recibió 4 veces la
+    // respuesta de la empresa): ya no se repite la respuesta fija; se ofrece un asesor que lo explique a fondo.
+    {
+      const key = { "direct:same_company": "same_company", "direct:modality": "modality" }[decisionSource];
+      if (key && Number(memory.direct_answer_counts?.[key] || 0) >= 1 && !/te comunique con uno/.test(String(memory.ultima_respuesta_agente || ""))) {
+        decision.reply = key === "same_company"
+          ? "Entiendo que para ti es muy importante la estabilidad con la misma empresa. Para darte el detalle de la empresa con la que quedarías registrado y resolver esa duda a fondo, lo mejor es que te lo explique un asesor. ¿Quieres que te comunique con uno?"
+          : "Para explicarte a detalle cómo queda tu alta frente a las modalidades del IMSS, lo mejor es que lo revise contigo un asesor. ¿Quieres que te comunique con uno?";
+        decision.question_key = null;
+        await this.record(conversationId, "repeated_topic_to_advisor", { topic: key });
       }
     }
 
@@ -1037,6 +1061,7 @@ export class ConversationProcessor {
       ...(decision.reply === CALL_ACK_TEXT ? { call_ack_at: new Date().toISOString() } : {}),
       ultima_respuesta_agente: decision.reply,
       ultima_pregunta: decision.question_key || null,
+      ...(/^direct:(?:same_company|modality)$/.test(decisionSource) ? { direct_answer_counts: { ...(memory.direct_answer_counts || {}), [decisionSource.slice(7)]: Number(memory.direct_answer_counts?.[decisionSource.slice(7)] || 0) + 1 } } : {}),
       asked_counts: (() => { const k = decision.question_key || (asksImssStatus(decision.reply) ? "tiene_imss" : null); return k ? { ...(memory.asked_counts || {}), [k]: Number(memory.asked_counts?.[k] || 0) + 1 } : memory.asked_counts; })(),
       preguntas_realizadas: decision.question_key ? arrays(memory.preguntas_realizadas, [decision.question_key]) : memory.preguntas_realizadas,
       presentacion_realizada: true,
