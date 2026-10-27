@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { BUILD_LABEL } from "./build-info.js";
 import express from "express";
 import { operationsAppPage } from "./ui/operations-app.js";
 import { publicSale } from "./sale-store.js";
@@ -144,6 +145,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       alert_hours: alertHours(),
       accounts_image_configured: Boolean(settings.accountsImage()),
       mia: settings.miaStatus(),
+      build: BUILD_LABEL,
     });
   });
 
@@ -336,7 +338,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       const sale = visibleSale(req, res);
       if (!sale) return;
       // Mientras Atención a Clientes lo tiene, el área no lo mueve (Supervisión sí puede).
-      if (sale.service?.open && !String(action).startsWith("supervision/")) return res.status(409).json({ error: "El expediente está en Atención a Clientes; espera a que lo regresen", code: "in_service" });
+      if (sale.service?.open && !String(action).startsWith("supervision/") && !(req.opsUser?.areas || []).includes("admin")) return res.status(409).json({ error: "El expediente está en Atención a Clientes; espera a que lo regresen", code: "in_service" });
       try {
         const body = { ...(req.body || {}), by: req.opsUser.name };
         const result = saleStore.runAs(actorOf(req.opsUser), () => handler(req, body, sale));

@@ -411,7 +411,7 @@ function renderShell() {
   }).join("");
   app.innerHTML = `<div class="shell">
     <nav class="rail" aria-label="Áreas">
-      <div class="brand"><strong>MARTCOM</strong><span>Operations NEXT</span></div>
+      <div class="brand"><strong>MARTCOM</strong><span>Operations NEXT</span>${me.build ? `<small class="muted" style="display:block;font-size:11px">Versión ${esc(me.build)}</small>` : ""}</div>
       <div class="nav">${nav}</div>
       <div class="rail-foot">
         ${miaStatusHtml()}
@@ -649,7 +649,7 @@ function areaActions(sale) {
   const buttons = [];
   const add = (action, label, kind = "", disabled = "") => buttons.push(`<button class="btn ${kind}" data-sale-act="${action}" ${disabled ? `disabled title="${esc(disabled)}"` : ""}>${esc(label)}</button>`);
   // En Atención a Clientes: el área espera a que se lo regresen (Supervisión usa su sección).
-  if (sale.service?.open) return buttons;
+  if (sale.service?.open && !(state.me?.user?.areas || []).includes("admin")) return buttons;
   // Baja por falta de pago y reactivación: también Cobranza (Supervisión los tiene en su sección).
   if (hasArea("cobranza") && !hasArea("supervision")) {
     if (sale.status === "dropped_nonpayment") add("sup-reactivate", "Reactivar (ya pagó)", "primary");
