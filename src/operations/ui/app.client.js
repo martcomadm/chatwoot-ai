@@ -150,7 +150,8 @@ function todayISO(offsetDays = 0) {
   return date.toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
 }
 function defaultRange() { return { from: todayISO(-6), to: todayISO(0) }; }
-function hasArea(area) { const areas = state.me?.user?.areas || []; return areas.includes("admin") || areas.includes(area); }
+// Supervisión ve y trabaja todas las áreas operativas y Atención a Clientes (27-oct); Admin, todo.
+function hasArea(area) { const areas = state.me?.user?.areas || []; return areas.includes("admin") || areas.includes(area) || (areas.includes("supervision") && ["captura", "validacion", "vigencia", "cobranza", "atencion"].includes(area)); }
 function actorName(actor) {
   if (!actor) return "Sistema";
   return actor.name || actor.username;

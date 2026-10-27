@@ -65,9 +65,12 @@ export function normalizeAreas(input) {
   return [...new Set(list.map(value => String(value || "").trim().toLowerCase()).filter(value => AREA_KEYS.includes(value)))];
 }
 
+// Supervisión ve y trabaja todas las áreas operativas y Atención a Clientes (27-oct); Admin, todo.
+export const SUPERVISED_AREAS = Object.freeze(["captura", "validacion", "vigencia", "cobranza", "atencion"]);
+
 export function hasArea(user, area) {
   const areas = user?.areas || [];
-  return areas.includes("admin") || areas.includes(area);
+  return areas.includes("admin") || areas.includes(area) || (areas.includes("supervision") && SUPERVISED_AREAS.includes(area));
 }
 
 // Supervisión, Admin y Observador ven todas las colas, incluidos completados y cancelados.

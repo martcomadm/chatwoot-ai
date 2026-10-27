@@ -131,7 +131,11 @@ test("cada área solo ve y opera su propia cola", async t => {
 
   const supList = await team["sergio.super"]("/operations/api/sales");
   assert.equal(supList.body.items.length, 2, "Supervisión ve todas las colas");
-  assert.equal((await team["sergio.super"](`/operations/api/sales/${captureSale.sale_id}/capture/start`, { method: "POST" })).status, 403, "Supervisión no ejecuta acciones de área");
+  // Desde el 27-oct Supervisión ve y trabaja todas las áreas.
+  assert.equal((await team["sergio.super"](`/operations/api/sales/${captureSale.sale_id}/capture/start`, { method: "POST" })).status, 200, "Supervisión ejecuta acciones de área");
+  const supMe = await team["sergio.super"]("/operations/api/me");
+  assert.deepEqual(supMe.body.areas.map(a => a.key).filter(k => !["supervision", "observador", "admin"].includes(k)).sort(), ["atencion", "captura", "cobranza", "validacion", "vigencia"]);
+  assert.ok(!supMe.body.areas.some(a => a.key === "admin"), "Supervisión no entra a Admin");
 });
 
 test("Observador ve todas las ventas y su avance, pero no puede modificar nada", async t => {
