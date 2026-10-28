@@ -41,6 +41,7 @@ import { paymentProofAttachment } from "../operations/payment-proof.js";
 import { extractContactPhone } from "../operations/sale-factory.js";
 import { formatAmount } from "../operations/customer-messages.js";
 import { memoryAfterCancellation, SALE_STOP_LABELS } from "../operations/cancelled-sale.js";
+import { serviceSaleActive } from "../operations/customer-service/service-sale.js";
 import { agentStartedConversation, mentionsOwnAdvisor, existingClient, ownAdvisorReply, EXISTING_CLIENT_TEXT } from "./agent-ownership.js";
 
 // Etiqueta de Chatwoot que pausa a Mia solo en esa conversación.
@@ -383,6 +384,11 @@ export class ConversationProcessor {
       if (incoming.length && (pendingSale || debtSale) && this.onOperationsCustomerMessage) { try { await this.onOperationsCustomerMessage(pendingSale || debtSale, text); } catch {} }
       // Atención a Clientes: aviso a quien tiene el caso, o caso nuevo si el cliente ya completó su trámite.
       if (incoming.length && this.onCustomerServiceMessage) { try { await this.onCustomerServiceMessage(conversationId, text, pendingSale); } catch {} }
+    }
+    // Venta cerrada por Atención a Clientes (28-oct): el cliente es de Atención; Mia no sigue la venta ni contesta.
+    if (serviceSaleActive(this.memories.get(conversationId))) {
+      await this.record(conversationId, "service_sale_skip", { message_ids: (snapshot?.ids || []).map(String) });
+      return;
     }
     // Se registra para que el Inspector y el .txt digan por qué Mia no contestó (antes era silencio sin rastro).
     if (reassigned && pendingSale?.status !== "payment_requested" && !awaitingValidity && !debtSale) {

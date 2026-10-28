@@ -1376,7 +1376,7 @@ async function renderCustomerService(view) {
   const rows = items.length ? `<div class="queue-row queue-head case-row" role="row"><span>Cliente</span><span>Motivo</span><span>Estado</span><span>Responsable</span><span>Desde</span></div>` + items.map(c => `<button class="queue-row case-row" role="row" data-case="${esc(c.case_id)}" style="--area:${areaVar("atencion")}" ${state.caseId === c.case_id ? 'aria-current="true"' : ""}>
       <span class="cell-customer"><strong>${esc(c.customer?.nombre || "Cliente sin nombre")}</strong><small class="mono">${esc(c.case_id)}</small></span>
       <span>${esc(c.kind_label)}${c.reason ? `<span class="cell-sub">${esc(c.reason.slice(0, 70))}</span>` : ""}</span>
-      <span><span class="tag ${c.status === "new" ? "warn" : c.status === "resolved" ? "ok" : ""}">${esc(CASE_STATUS_TEXT[c.status] || c.status)}</span></span>
+      <span><span class="tag ${c.status === "new" ? "warn" : c.status === "resolved" ? "ok" : ""}">${esc(CASE_STATUS_TEXT[c.status] || c.status)}</span>${c.service_sale?.active ? `<span class="cell-sub">Venta cerrada por Atención</span>` : ""}</span>
       <span>${c.assignee ? esc(c.assignee.name) : '<span class="muted">Sin asignar</span>'}</span>
       <span>${esc(sinceLabel(c.created_at))}</span>
     </button>`).join("") : `<div class="empty"><strong>Sin casos</strong>No hay casos con este filtro.</div>`;
@@ -1412,6 +1412,9 @@ async function openCase(id) {
     if (c.status !== "in_progress") buttons.push(`<button class="btn small primary" data-case-act="in_progress">Atendiendo</button>`);
     if (c.status !== "following") buttons.push(`<button class="btn small" data-case-act="following">En seguimiento</button>`);
     // Si un área mandó el expediente, se cierra regresándolo (a esa área o a otra).
+    // Atención cerró la venta y se queda con el cliente: Mia ya no sigue el proceso de venta (28-oct).
+    if (c.conversation_id && !c.service_sale?.active) buttons.push(`<button class="btn small primary" data-case-act="close_sale">Venta cerrada por Atención</button>`);
+    if (c.service_sale?.active) buttons.push(`<button class="btn small" data-case-act="return_mia">Regresar a Mia</button>`);
     if (result.can.return) buttons.push(`<button class="btn small primary" data-case-act="return">Regresar expediente</button>`);
     else buttons.push(`<button class="btn small" data-case-act="resolved">Marcar como atendido</button>`);
   }
@@ -1419,7 +1422,7 @@ async function openCase(id) {
   if (result.can.assign && c.status !== "resolved") buttons.push(`<button class="btn small" data-case-act="assign">Reasignar a…</button>`);
   const history = [...(c.events || [])].reverse().map(e => {
     const d = e.details || {};
-    const what = { "case.created": "Caso creado", "case.assigned": d.by_rotation ? `Asignado por rotación a ${d.to_name}` : `Asignado a ${d.to_name}`, "case.unassigned": "Sin responsable disponible", "case.in_progress": "Atendiendo", "case.following": "En seguimiento", "case.resolved": "Atendido", "case.new": "Reabierto", "case.note": "Nuevo motivo", "case.linked_sale": "Ligado al expediente" }[e.type] || e.type;
+    const what = { "case.created": "Caso creado", "case.assigned": d.by_rotation ? `Asignado por rotación a ${d.to_name}` : `Asignado a ${d.to_name}`, "case.unassigned": "Sin responsable disponible", "case.in_progress": "Atendiendo", "case.following": "En seguimiento", "case.resolved": "Atendido", "case.new": "Reabierto", "case.note": "Nuevo motivo", "case.linked_sale": "Ligado al expediente", "case.sale_closed": "Venta cerrada por Atención a Clientes", "case.sale_returned": "Regresado a Mia" }[e.type] || e.type;
     return `<li class="${e.actor ? "person" : ""}"><div><div class="what">${esc(what)}</div>${d.note ? `<div>${esc(d.note)}</div>` : ""}${e.type === "case.assigned" && d.chatwoot === false ? `<div class="muted">No se asignó en Chatwoot (falta su ID de Chatwoot en Admin)</div>` : ""}<div class="meta">${esc(actorName(e.actor))}, ${esc(dateTime(e.at))}</div></div></li>`;
   }).join("");
   const html = `
@@ -1428,7 +1431,8 @@ async function openCase(id) {
       <div class="panel-head"><div class="top"><div><h2 id="panel-title">${esc(c.customer?.nombre || "Cliente sin nombre")}</h2><div class="folio mono">${esc(c.case_id)}</div></div><button class="btn quiet" data-act="close-case" aria-label="Cerrar caso">Cerrar</button></div></div>
       <div class="panel-body">
         <section>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="tag area" style="--area:${areaVar("atencion")}">${esc(c.kind_label)}</span><span class="tag">${esc(CASE_STATUS_TEXT[c.status] || c.status)}</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="tag area" style="--area:${areaVar("atencion")}">${esc(c.kind_label)}</span><span class="tag">${esc(CASE_STATUS_TEXT[c.status] || c.status)}</span>${c.service_sale?.active ? `<span class="tag ok">Venta cerrada por Atención</span>` : ""}</div>
+          ${c.service_sale?.active ? `<div class="notice" style="margin-top:10px"><strong>Este cliente se queda con Atención a Clientes.</strong> Mia no le contesta ni le da seguimiento; si debe volver al proceso normal, usa “Regresar a Mia”.</div>` : ""}
           ${c.reason ? `<p style="margin:10px 0 0">${esc(c.reason)}</p>` : ""}
           ${result.service ? `<div class="notice warn" style="margin-top:10px"><strong>Expediente en pausa en ${esc(result.service.queue_label)}.</strong> Cuando lo soluciones, regrésalo a esa área o pásalo a la que deba revisarlo.</div>` : ""}
           <div style="margin-top:12px"><span class="muted">Responsable:</span> <strong>${c.assignee ? esc(c.assignee.name) : "Sin asignar"}</strong></div>
@@ -1474,6 +1478,14 @@ async function caseAction(action) {
     const options = [["origin", `${svc.queue_label}: ya se solucionó, sigue donde estaba`], ...svc.targets.filter(t => !t.origin).map(t => [t.key, `Pasar a ${t.label}`])];
     const data = await ask({ title: "Regresar expediente", text: "Si lo mandas a otra área, el expediente vuelve a pasar por las etapas siguientes (igual que cuando Supervisión lo regresa).", fields: [{ name: "target", label: "¿A dónde regresa?", type: "select", options, value: "origin" }, { name: "note", label: "¿Qué se resolvió o qué debe revisar esa área?", type: "textarea", required: true }], confirm: "Regresar expediente", area: "atencion" });
     if (data) done = await post("return", { target: data.target, note: data.note }, "Expediente regresado");
+  }
+  if (action === "close_sale") {
+    const data = await ask({ title: "Venta cerrada por Atención", text: "El cliente se queda contigo: Mia ya no le contestará ni seguirá el proceso de venta en esta conversación.", fields: [{ name: "plan", label: "Plan", type: "select", options: [["plan_1", "Plan 1"], ["plan_2", "Plan 2"], ["", "Otro / sin definir"]], value: c.customer?.plan || "plan_1" }, { name: "note", label: "Nota (opcional)", type: "textarea", placeholder: "Ej. cerró por llamada, manda documentos mañana" }], confirm: "Cerrar venta", area: "atencion" });
+    if (data) done = await post("close-sale", { plan: data.plan, note: data.note }, "Venta cerrada: el cliente se queda con Atención");
+  }
+  if (action === "return_mia") {
+    const data = await ask({ title: "Regresar a Mia", text: "Mia volverá a atender esta conversación con el proceso normal de venta.", fields: [{ name: "note", label: "¿Por qué regresa con Mia?", type: "textarea", required: true }], confirm: "Regresar a Mia", area: "atencion" });
+    if (data) done = await post("return-to-mia", { note: data.note }, "Conversación regresada a Mia");
   }
   if (action === "assign") {
     const people = await run(() => api("/operations/api/cases/people"));

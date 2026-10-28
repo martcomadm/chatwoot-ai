@@ -88,7 +88,8 @@ export class CustomerService {
     }
     const previous = this.store.forConversation(conversationId).at(-1) || null;
     // Solo clientes con su trámite completado (o que ya eran casos de Atención a Clientes por eso).
-    if (sale?.queue === "completed" || ["completed_sale", "returning"].includes(previous?.kind)) {
+    // También los clientes cuya venta cerró Atención a Clientes (28-oct): Mia no les contesta, así que alguien debe saberlo.
+    if (sale?.queue === "completed" || ["completed_sale", "returning"].includes(previous?.kind) || previous?.service_sale?.active) {
       return this.openCase({ conversation_id: conversationId, kind: "returning", reason: clip(text, 200) || null, sale, customer: previous?.customer || {}, prefer: previous?.assignee?.username || null });
     }
     return null;

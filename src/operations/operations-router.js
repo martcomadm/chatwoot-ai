@@ -1,3 +1,4 @@
+import { closeSaleInService, returnSaleToMia } from "./customer-service/service-sale.js";
 import fs from "node:fs";
 import { BUILD_LABEL } from "./build-info.js";
 import express from "express";
@@ -296,6 +297,22 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!c) return;
     if (!canWorkCase(req.opsUser, c)) return res.status(403).json({ error: "Este caso no es tuyo", code: "forbidden" });
     try { res.json({ ok: true, case: caseView(customerService.setStatus(c.case_id, String(req.body?.status || ""), { note: req.body?.note, by: actorOf(req.opsUser) })) }); }
+    catch (error) { fail(res, error); }
+  });
+
+  // Venta cerrada por Atención a Clientes (28-oct): el cliente se queda con Atención y Mia ya no sigue la venta.
+  router.post("/operations/api/cases/:id/close-sale", async (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    if (!canWorkCase(req.opsUser, c)) return res.status(403).json({ error: "Este caso no es tuyo", code: "forbidden" });
+    try { res.json({ ok: true, case: caseView(await closeSaleInService({ customerService, memories, chatwoot, c, user: req.opsUser, plan: String(req.body?.plan || ""), note: req.body?.note })) }); }
+    catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/cases/:id/return-to-mia", async (req, res) => {
+    const c = visibleCase(req, res);
+    if (!c) return;
+    if (!canWorkCase(req.opsUser, c)) return res.status(403).json({ error: "Este caso no es tuyo", code: "forbidden" });
+    try { res.json({ ok: true, case: caseView(await returnSaleToMia({ customerService, memories, chatwoot, c, user: req.opsUser, miaAgentId: config?.chatwoot?.agentId || null, note: req.body?.note })) }); }
     catch (error) { fail(res, error); }
   });
 
