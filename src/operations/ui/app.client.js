@@ -1578,18 +1578,32 @@ function unlockSound() {
 }
 document.addEventListener("pointerdown", unlockSound, { once: true });
 
+// Tono de aviso (28-oct: más fuerte, más largo y repetido dos veces). Problemas y atrasos llevan un tono más grave.
 function playChime(kind) {
   try {
     unlockSound();
     if (!audioCtx) return;
-    const notes = kind === "issue" || kind === "overdue" ? [660, 520] : [740, 988];
-    notes.forEach((freq, i) => {
-      const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-      osc.type = "sine"; osc.frequency.value = freq;
-      const t = audioCtx.currentTime + i * 0.16;
-      gain.gain.setValueAtTime(0.0001, t); gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02); gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-      osc.connect(gain).connect(audioCtx.destination); osc.start(t); osc.stop(t + 0.16);
-    });
+    const notes = kind === "issue" || kind === "overdue" ? [784, 659, 523] : [659, 880, 1175];
+    const NOTE = 0.32, GAP = 0.05, PAUSE = 0.45;
+    const round = notes.length * (NOTE + GAP) + PAUSE;
+    // Compresor: sube el volumen percibido sin que se distorsione.
+    const out = audioCtx.createDynamicsCompressor();
+    out.threshold.value = -18; out.ratio.value = 6;
+    out.connect(audioCtx.destination);
+    for (let r = 0; r < 2; r++) {
+      notes.forEach((freq, i) => {
+        const t = audioCtx.currentTime + 0.02 + r * round + i * (NOTE + GAP);
+        for (const [type, level, mult] of [["triangle", 0.9, 1], ["sine", 0.35, 2]]) {
+          const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+          osc.type = type; osc.frequency.value = freq * mult;
+          gain.gain.setValueAtTime(0.0001, t);
+          gain.gain.exponentialRampToValueAtTime(level, t + 0.02);
+          gain.gain.setValueAtTime(level, t + NOTE * 0.55);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + NOTE);
+          osc.connect(gain).connect(out); osc.start(t); osc.stop(t + NOTE + 0.02);
+        }
+      });
+    }
   } catch {}
 }
 
