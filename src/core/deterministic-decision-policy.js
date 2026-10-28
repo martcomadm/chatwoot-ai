@@ -10,6 +10,8 @@ export const FACT_LOCKED_TYPES = new Set([
   "nss_lookup",
   "other_services",
   "employer_letter",
+  "financing",
+  "pension_letter",
   "higher_salary",
   "preexisting",
   "employment_proof",

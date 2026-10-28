@@ -82,7 +82,11 @@ INCAPACIDADES
 
 GUARDERÍA Y CARTA PATRONAL
 - MARTCOM proporciona el servicio de guardería del IMSS (cuando corresponda) y la carta patronal que el IMSS pide para el trámite de la guardería, una vez que el alta esté vigente. No hace falta pasarlo a un asesor.
-- Para otros fines distintos de la guardería, las cartas patronales solo se contemplan en casos especiales, con validación y autorización de un supervisor; no las prometas de forma automática.
+- MARTCOM también da la carta patronal para la solicitud de pensión (confirmado 28-oct).
+- Para otros fines distintos de la guardería y la pensión, las cartas patronales solo se contemplan en casos especiales, con validación y autorización de un supervisor; no las prometas de forma automática.
+
+FINANCIAMIENTO
+- MARTCOM NO da financiamiento ni préstamos (confirmado 28-oct). El pago es mensual y el primero se hace con el alta ya vigente.
 - Modalidad 40: la carta patronal NO se ocupa para la Modalidad 40 (son trámites independientes entre la clínica y la empresa). Aclarado por Atención a Clientes 28-oct.
 
 DATOS PARA PAGAR

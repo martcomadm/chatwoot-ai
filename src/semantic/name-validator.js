@@ -16,7 +16,7 @@ const NEVER_FIRST = new Set(["que", "qué", "como", "cómo", "cual", "cuál", "c
   // Casos reales 23 al 26-oct: "Q prosige", "Q devo de aser", "Ambos cosas", "Todo lo mencionado", "Mari estoy viendo".
   "q", "k", "x", "ambos", "ambas", "todo", "todos", "todas", "las", "nop", "nel", "osea", "pos"]);
 // "Porfa Expliqueme", "Nesecito Afiliarme" (casos reales 19 y 20-oct) también se guardaban como nombre.
-const NEVER_ANY = /\b(?:porfa|porfavor|expl[ií]que\w*|espl[ií]que\w*|explica\w*|nesecito|necesito|nesesito|afiliar\w*|afiliacion\w*|afiliaciones|inscrib\w*|ayuda|ayudar\w*|interesa\w*|informacion|info|dudas?|pregunta\w*|consulta|asesor\w*|ocupo|busco|gracias|modalidad|atienden|trabajar|legal|empresa|patron(?:es)?|planes?|diferencia|hay|cuesta|costo|ubicaci[oó]n|informes?|favor|semanas|años|anos|hogar|casa|esposo|esposa|hijos?|solo|servicios?|m[eé]dic\w*|ustedes|financ\w*|mensualidad\w*|tiempo|alta|imss|imms|tramite|trámite|iniciar|haber|aclar\w*|ecuaci[oó]n|seguir|año|trabaj\w*|chofer|taxi\w*|construcci[oó]n|obrero|ovrero|comerciante|empleado|colima|d[eé]j[ae]me|d[eé]jeme|deja|dejame|perm[ií]t[ae]me|perm[ií]tame|checo|checar|chec[oa]|confirm\w*|cosas?|mencionad[oa]s?|prosig\w*|devo|debo|aser|hacer|hago|revis\w*|momento|poquito|pokito|ratito|espere?|esperame|luego|despu[eé]s|ma[ñn]ana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|viendo|opciones|pensar\w*|aviso|llamo|ok|okey|ninguna|nada|cotizo|cotizando|pagando|pago)\b/i;
+const NEVER_ANY = /\b(?:porfa|porfavor|expl[ií]que\w*|espl[ií]que\w*|explica\w*|nesecito|necesito|nesesito|afiliar\w*|afiliacion\w*|afiliaciones|inscrib\w*|ayuda|ayudar\w*|interesa\w*|informacion|info|dudas?|pregunta\w*|consulta|asesor\w*|ocupo|busco|gracias|modalidad|atienden|trabajar|legal|empresa|patron(?:es)?|planes?|diferencia|hay|cuesta|costo|ubicaci[oó]n|informes?|favor|semanas|años|anos|hogar|casa|esposo|esposa|hijos?|solo|servicios?|m[eé]dic\w*|ustedes|financ\w*|mensualidad\w*|tiempo|alta|imss|imms|tramite|trámite|iniciar|haber|aclar\w*|ecuaci[oó]n|seguir|año|trabaj\w*|chofer|taxi\w*|construcci[oó]n|obrero|ovrero|comerciante|empleado|colima|d[eé]j[ae]me|d[eé]jeme|deja|dejame|perm[ií]t[ae]me|perm[ií]tame|checo|checar|chec[oa]|confirm\w*|cosas?|mencionad[oa]s?|prosig\w*|devo|debo|aser|hacer|hago|revis\w*|momento|poquito|pokito|ratito|espere?|esperame|luego|despu[eé]s|ma[ñn]ana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|viendo|opciones|pensar\w*|aviso|llamo|ok|okey|ninguna|nada|cotizo|cotizando|pagando|pago|nombre)\b/i;
 
 export function validateNameCandidate(value) {
   const text = String(value ?? "").trim().replace(/[.,;:!?]+$/g, "").replace(/\b([A-Za-z]{1,3})\.(?=[A-Za-zÁÉÍÓÚÑáéíóúñ])/g, "$1. ");
@@ -46,6 +46,10 @@ export function extractValidatedName(text, memory = {}) {
     const candidate = explicit.split(/[,.!?\n]/)[0].trim();
     if (validateNameCandidate(candidate).ok) return titleCaseName(candidate);
   }
+
+  // "Juan es mi nombre" (caso real 28-oct: se guardó "Juan Es Mi Nombre").
+  const reversed = raw.match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]{3,90}?)\s+es mi nombre\b/i)?.[1];
+  if (reversed && (validateNameCandidate(reversed.trim()).ok || isSingleName(reversed.trim()))) return titleCaseName(reversed.trim());
 
   // "Nombre: Rosa Martha Molina" (aunque no se haya preguntado).
   const labeled = raw.match(/\bnombre\s*[:=-]\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]{3,90})/i)?.[1];

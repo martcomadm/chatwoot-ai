@@ -106,3 +106,11 @@ test("la IA se despide: ya no se programan seguimientos", async () => {
   assert.equal(s.sent.length, 1);
   assert.equal(s.followups, 0);
 });
+
+import { extractValidatedName } from "../src/semantic/name-validator.js";
+test("confirmado 28-oct: carta patronal para pensión, sin financiamiento; 'Juan es mi nombre'", () => {
+  assert.match(ans("Me dan la carta patronal para mi pensión?"), /^Sí, te damos la carta patronal para tu solicitud de pensión/);
+  assert.equal(key("Necesito la carta patronal para la guardería"), "daycare");
+  assert.match(ans("Dannfinaciamiento?"), /^No, no manejamos financiamiento/);
+  assert.equal(extractValidatedName("Juan es mi nombre\nY cuanto te tengo que pagar?", {}), "Juan");
+});
