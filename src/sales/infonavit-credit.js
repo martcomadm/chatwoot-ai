@@ -15,6 +15,9 @@ const ACTIVE_RE = [
   /\bme\s+(?:descuentan|descontaban|estan descontando|cobran)\s+(?:el\s+|lo del\s+|del\s+)?(?:credito\s+(?:de\s+|del\s+)?)?infonavit\b/,
   /\b(?:tengo|tenemos)\s+(?:una\s+)?casa\s+(?:de|del|con)\s+infonavit\b(?!.{0,20}\b(?:ya (?:la )?pague|liquid\w*|ya termine))/,
   /\bdebo\s+(?:mi\s+|la\s+|el\s+)?(?:casa|credito)\b.{0,20}\binfonavit\b/,
+  // "También AFORE e Infonavit, tengo crédito", "seguir pagando Infonavit" (caso real 28-oct: se le recomendó el Plan 2).
+  /\b(?:infonavit|fovissste)\b.{0,12}\b(?:tengo|tenemos|traigo)\s+(?:un\s+)?credito\b/,
+  /\b(?:seguir|continuar|sigo|seguire)\s+pagando\s+(?:mi\s+|el\s+|lo del\s+)?(?:credito\s+(?:de\s+|del\s+)?)?(?:infonavit|fovissste)\b/,
   // "Por tener un crédito vigente de Infonavit…" (caso real 23-oct).
   /\b(?:por|al|como|ya que|porque)\s+(?:yo\s+)?(?:tener|tengo)\s+(?:un\s+)?credito\s+(?:activo|vigente)\b/,
 ];

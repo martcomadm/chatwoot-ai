@@ -46,6 +46,8 @@ const LATER_RE = [
   // "Mañana ok necesito checar mi número de IMSS", "Voy a buscar los papeles" (casos reales 20 y 21-oct).
   /^(?:ok\s+|bueno\s+|si\s+)?manana\b|\b(?:necesito|tengo que|voy a|deja|dejame|dejeme)\s+(?:checar|buscar|revisar|ver|conseguir|sacar|localizar)\s+(?:mi|mis|el|la|los|las)\s+(?:numero|nss|curp|ine|papeles|documentos|datos|credencial)\b/,
   /\b(?:podemos|puedo|quiero)\s+(?:iniciar|empezar|comenzar)\b.{0,25}\b(?:el lunes|el martes|el miercoles|el jueves|el viernes|el sabado|el domingo|manana|la otra semana|la proxima semana|despues|luego|mas tarde)\b|\b(?:llegando|cuando llegue|al llegar)\b.{0,25}\b(?:los|las|lo|la)\s+(?:busco|mando|envio|paso|checo)\b|\b(?:te|se|le)\s+(?:lo|la|los|las)\s+(?:mando|envio|paso)\s+(?:en un rato|al rato|mas tarde|manana|en (?:una|dos|tres|unas) horas?)\b|\ben (?:una|dos|tres|unas|un par de) horas?\b.{0,20}\b(?:te|se|le)\s+(?:lo|la|los|las)\s+(?:mando|envio|paso)\b/,
+  // "En otro momento, gracias" (caso real 27-oct: quedó sin respuesta).
+  /\ben otro momento\b/,
   /\bestoy en espera de\b|\btodavia no (?:lo )?(?:decido|se|tengo)\b|\bno gracias,? (?:despues|luego|mas adelante)\b/,
   // Casos reales 23 al 26-oct: "Mari estoy viendo opciones", "Estoy revisando la opción", "Ok déjeme, checar
   // mañana lo decido", "les voy a llamar… el próximo mes", "al próximo mes me contacto", "Dame una hora y mando todo".
@@ -70,7 +72,9 @@ export function detectDeferral(text) {
   const value = norm(text).replace(/[,;:!]+/g, " ").replace(/\.{2,}/g, " ").replace(/\s+/g, " ").trim();
   if (!value || /[?¿]/.test(String(text))) return null;
   // "Que costos tienen para platicarlo con mi pareja" (caso real 21-oct): primero el precio.
-  if (/\b(?:cuanto|costos?|precios?|cuesta|cobran|mensualidad)\b/.test(value) && !NO_MONEY_RE.some(re => re.test(value))) return null;
+  // "Creo que está bien el precio, lo comento con mis clientes y me vuelvo a comunicar" (caso real 28-oct) sí pospone.
+  const priceOk = /\b(?:esta bien|me parece bien|es buen|es bueno|esta accesible)\s+(?:el\s+)?precio\b|\bel precio (?:esta|me parece) bien\b/.test(value);
+  if (/\b(?:cuanto|costos?|precios?|cuesta|cobran|mensualidad)\b/.test(value) && !priceOk && !NO_MONEY_RE.some(re => re.test(value))) return null;
   if (NO_MONEY_RE.some(re => re.test(value))) return "no_money";
   if (ANSWERS_STATE_RE.test(value)) return null;
   // "Soy ley 73, en qué año no me acuerdo, necesito checar mis papeles" (caso real 27-oct) responde la pregunta.
@@ -116,7 +120,7 @@ function planLabel(memory = {}) {
 const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^(?:muchas |mil )?gracias[ ,.!]*(?:pero )?no (?:me )?interesa\b|^no[ ,.!]*(?:me interesa(?! (?:el |la |lo de )?(?:infonavit|afore|credito|plan))|por ahora|por el momento|de momento)\b/;
 
 // "Disculpe no haré trámite", "No necesito ya el servicio", "No quiero continuar con el trámite" (24-oct).
-const DECLINE_ANY_RE = /\bsi no(?: es posible| se puede| esta bien)?,? (?:ni modo,? )?(?:muchas )?gracias\b|\bno (?:hare|voy a hacer|realizare|voy a realizar) (?:el |ningun )?tramite\b|\b(?:no|ya no) (?:necesitare|necesito|ocupo|requiero|quiero) (?:ya )?(?:el |del |tu |su )?servicio\b|\bno (?:quiero|deseo|voy a) (?:continuar|seguir) con el tramite\b/;
+const DECLINE_ANY_RE = /\bsi no(?: es posible| se puede| esta bien)?,? (?:ni modo,? )?(?:muchas )?gracias\b|\bno (?:hare|voy a hacer|realizare|voy a realizar) (?:el |ningun )?tramite\b|\b(?:no|ya no) (?:necesitare|necesito|ocupo|requiero|quiero) (?:ya )?(?:el |del |tu |su )?servicio\b|\bno (?:quiero|deseo|voy a) (?:continuar|seguir) con el tramite\b|^(?:ya|ya lo|ya la)\s+(?:encontre|consegui|tengo otra opcion|contrate)\b/;
 // "No, me equivoqué, perdón" (caso real 24-oct): escribió por error.
 const MISTAKE_RE = /^(?:no[ ,.!]*)?(?:me equivoque|me equivoque de (?:chat|numero|contacto)|fue un error|era para otra persona|no era para ustedes|disculpe? me equivoque|perdon me equivoque)\b/;
 const NOT_FIT_RE = /\bno (?:es|era) (?:lo que|el (?:servicio|plan) que) (?:busco|buscaba|necesito|necesitaba|quiero|queria|ocupo)\b|\bno (?:es|era) (?:para mi|lo mio)\b|\bno me (?:sirve|funciona)\b(?! (?:el|la) (?:plan|horario))/;
@@ -192,4 +196,13 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
     add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     deferral: startLater ? "start_later" : kind || "closing",
   };
+}
+
+// Respuesta de Mia que ya se despide ("Cuando quieras retomar…, que tengas buen día", "quedo al pendiente"): después
+// de ella no se programan seguimientos (casos reales 27-oct: le siguieron escribiendo a quien dijo que no tenía dinero).
+export function isClosingReply(reply = "") {
+  const value = String(reply || "");
+  if (!value.trim()) return false;
+  if (value.includes(CLOSING_MARK)) return true;
+  return !/[?¿]/.test(value) && /que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que te vaya (?:muy )?bien|escr[ií]be(?:me|ame)? (?:por aqu[ií] )?y (?:con gusto|retomamos)|quedo al pendiente|cuando quieras retomar|cuando (?:puedas|pueda) (?:avisar|escr[ií]be)/i.test(value);
 }

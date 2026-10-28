@@ -11,7 +11,7 @@ function planLabel(plan) { return plan === "plan_2" ? "Plan 2" : plan === "plan_
 function planPrice(plan) { return plan === "plan_2" ? "$1,500 MXN mensuales" : plan === "plan_1" ? "$1,100 MXN mensuales" : null; }
 
 // "Pues iniciar trámite" (caso real 21-oct) también es iniciar.
-const START_RE = /^(?:(?:pues|si|ok|bueno|entonces|claro|va|vamos a|ya)[ ,]*)*(?:iniciar|empezar|comenzar|arrancar)(?:le)?\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?(?:quiero|deseo|podemos|quiero que)\s+(?:iniciar|empezar|proceder|continuar|hacer)\s+(?:con\s+)?(?:el\s+)?(?:tramite|proceso|alta)|\b(?:iniciemos|empecemos|empezemos|procedamos)\b|\badelante con (?:el )?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?me interesa[, ]+(?:iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/;
+const START_RE = /\b(?:iniciamos|empezamos|comenzamos|arrancamos)\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b|^(?:(?:pues|si|ok|bueno|entonces|claro|va|vamos a|ya)[ ,]*)*(?:iniciar|empezar|comenzar|arrancar)(?:le)?\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?(?:quiero|deseo|podemos|quiero que)\s+(?:iniciar|empezar|proceder|continuar|hacer)\s+(?:con\s+)?(?:el\s+)?(?:tramite|proceso|alta)|\b(?:iniciemos|empecemos|empezemos|procedamos)\b|\badelante con (?:el )?(?:tramite|proceso|alta)\b|\b(?:si[, ]*)?me interesa[, ]+(?:iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/;
 // También "Para el plan 1", "con el plan 2", "mejor el 1" (caso real 20-oct).
 const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo|seria|sera|va a ser)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)\s+(?:el\s+)?plan\s*(1|uno|2|dos)(?:\s+(?:por favor|porfa|mejor|entonces))?[ .!]*$|\bmejor el (?:plan\s*)?(?:1|uno|2|dos)\b/;
 const INTEREST_ONLY_RE = /\bme interesa(?:\s+(?:adquirir|contratar|tomar|elegir|escoger))?(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|\b(?:quiero|deseo)\s+(?:adquirir|contratar|tomar)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
@@ -19,7 +19,9 @@ const INTEREST_ONLY_RE = /\bme interesa(?:\s+(?:adquirir|contratar|tomar|elegir|
 export function commitmentDecision(memory = {}, combinedText = "") {
   const text = norm(combinedText);
   const cycle = memory.sales_cycle || {};
-  const plan = cycle.selected_plan || cycle.recommended_plan || null;
+  // "Plan 2. Empezamos con el trámite" (caso real 28-oct): vale el plan que nombra.
+  const textPlans = [...new Set([...text.matchAll(/\bplan\s*(1|uno|2|dos)\b/g)].map(m => /1|uno/.test(m[1]) ? "plan_1" : "plan_2"))];
+  const plan = (textPlans.length === 1 ? textPlans[0] : null) || cycle.selected_plan || cycle.recommended_plan || null;
   if (!text || cycle.authorized || negatesCommitment(text) || detectDeferral(combinedText)) return null;
   // Pide el Plan 2 teniendo crédito INFONAVIT activo: no aplica (22-oct).
   if (cycle.infonavit_credit && /\bplan\s*(?:2|dos)\b|\bpaquete\s*(?:2|dos)\b/.test(text)) {

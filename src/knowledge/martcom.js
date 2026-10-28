@@ -83,6 +83,10 @@ INCAPACIDADES
 GUARDERÍA Y CARTA PATRONAL
 - MARTCOM proporciona el servicio de guardería del IMSS (cuando corresponda) y la carta patronal que el IMSS pide para el trámite de la guardería, una vez que el alta esté vigente. No hace falta pasarlo a un asesor.
 - Para otros fines distintos de la guardería, las cartas patronales solo se contemplan en casos especiales, con validación y autorización de un supervisor; no las prometas de forma automática.
+- Modalidad 40: la carta patronal NO se ocupa para la Modalidad 40 (son trámites independientes entre la clínica y la empresa). Aclarado por Atención a Clientes 28-oct.
+
+DATOS PARA PAGAR
+- Las cuentas para pagar NO se dan antes del alta: primero se inicia el trámite, el alta queda vigente, se envía el documento de vigencia y después Cobranza comparte las cuentas (transferencia, depósito u OXXO). Si el cliente insiste en la cuenta o en el nombre de un responsable, ofrece comunicarlo con un asesor; nunca le contestes solo con otra pregunta genérica.
 
 SEMANAS QUE NO APARECEN
 - Si al cliente no le aparecen semanas en su historial, la aclaración se hace directamente en su clínica del IMSS estando ya activo con nosotros (dado de alta). Mientras tanto, con su alta sigue sumando semanas nuevas.

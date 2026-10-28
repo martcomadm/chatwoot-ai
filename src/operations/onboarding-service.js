@@ -120,6 +120,15 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     && !/[?¿]/.test(combinedText) && !/\b(?:ine|curp|nss|documento|documentos|foto|fotos|archivo)\b/.test(norm(combinedText))) {
     return { reply: CALL_ACK_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
   }
+  // Ya se agradeció su horario y precisa la hora ("Entre 9 y 11 de la mañana", caso real 27-oct: recibió el aviso de
+  // documentos): se toma nota una vez más, sin pedir documentos.
+  const ackAt = Date.parse(memory.call_ack_at || "");
+  if (Number.isFinite(callAt) && ackAt > callAt && Date.now() - ackAt < 6 * 3600 * 1000
+    && String(memory.ultima_respuesta_agente || "").trim() === CALL_ACK_TEXT
+    && /\b(?:entre|de|a las|despues de|antes de|como a las)\s+(?:las\s+)?\d{1,2}\b|\b\d{1,2}\s*(?:am|pm|hrs?|horas)\b|\b(?:manana|tarde|noche|mediodia)\b/.test(norm(combinedText))
+    && !/[?¿]/.test(combinedText) && !hasCurpValue(combinedText) && !hasNssValue(combinedText)) {
+    return { reply: "Anotado, también se lo comento al asesor.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+  }
   if (memory.operations.documents_complete) {
     const last = String(memory.ultima_respuesta_agente || "").trim();
     // La primera vez se avisa que el expediente quedó completo. Después ya no se repite a cada
@@ -222,8 +231,9 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   // "En dos horas te lo envío, ando fuera" (caso real 20-oct): antes se repetía la solicitud y se
   // suprimía como duplicada, y el cliente se quedaba sin respuesta.
   if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
-    && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso)|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|(?:proxima|otra|siguiente) semana|voy (?:hoy )?a buscar|hoy (?:voy a )?busco|tengo que buscar)\b/.test(text)
-    && /\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos)\b/.test(text)
+    && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|en otro momento|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso)|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|(?:proxima|otra|siguiente) semana|voy (?:hoy )?a buscar|hoy (?:voy a )?busco|tengo que buscar)\b/.test(text)
+    // "Más tarde, voy en el transporte", "en otro momento, gracias" (casos reales 27 y 28-oct) también: mensajes cortos.
+    && (/\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos)\b/.test(text) || text.length <= 60)
     && String(memory.ultima_respuesta_agente || "").trim() !== DOCS_LATER_TEXT) {
     return { reply: DOCS_LATER_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
   }
@@ -231,6 +241,11 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   const nssPending = memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss";
   if (nssPending && /\b(?:que es (?:el |un )?(?:nss|numero de seguro)|que significa nss|cual (?:es el )?nss|a cual se refiere|cual numero|no se que es|que numero)\b/.test(text)) {
     return { reply: NSS_HELP_TEXT, question_key: "nss", add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: "nss", priority: true };
+  }
+  // "Perdón, ¿qué ocupas de documentos?" (caso real 27-oct: se le repitió la petición de la CURP).
+  const docKey = memory.operations.onboarding_next || memory.operations.documents_missing?.[0] || null;
+  if (docKey && !hasCurpValue(combinedText) && !hasNssValue(combinedText) && /\b(?:que|q|cuales|cual)\s+(?:\w+\s+){0,2}(?:documentos|papeles|requisitos|datos)\b|\b(?:que|q|cuales)\s+(?:ocupas|ocupan|necesitas|necesitan|pides|piden|requieres|requieren)\b/.test(text)) {
+    return { reply: `Para tu trámite necesitamos CURP, NSS e INE del titular. Por ahora me falta: ${onboardingLabel(docKey)}. Cuando lo tengas, envíamelo por aquí.`, question_key: docKey === "curp" || docKey === "nss" ? docKey : null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: docKey, priority: true };
   }
   // "Ok te la envío" (caso real 23-oct: no recibió respuesta).
   if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)

@@ -9,7 +9,7 @@ import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDe
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, deriveCommercialNeed } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
-import { deferralDecision, detectDeferral, detectClosing } from "../sales/customer-deferral.js";
+import { deferralDecision, detectDeferral, detectClosing, isClosingReply } from "../sales/customer-deferral.js";
 import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
@@ -752,7 +752,7 @@ export class ConversationProcessor {
     // Con el trámite iniciado, una CURP es un documento del expediente, no una "revisión de caso".
     const directDecisionRaw = directAnswerDecision({ judgment, orchestration });
     // Con el trámite iniciado, "no tengo NSS" lo resuelve el expediente (onboarding), no la respuesta de venta.
-    const directDecision = memory.sales_cycle?.authorized && /^direct:(?:case_review|missing_docs|requirements|fees)/.test(directDecisionRaw?.__source || "") ? null : directDecisionRaw;
+    const directDecision = memory.sales_cycle?.authorized && /^direct:(?:case_review|missing_docs|requirements|fees|nss_lookup|payment_method)/.test(directDecisionRaw?.__source || "") ? null : directDecisionRaw;
     const commitment = commitmentDecision(memory, combinedText);
     // El cliente pospone ("ahorita no tengo dinero", "yo le aviso") o solo agradece: despedirse y no insistir.
     // "No me interesa Infonavit" descarta una parte, no es despedida (caso real 19-oct).
@@ -940,10 +940,13 @@ export class ConversationProcessor {
     // La misma duda de la empresa o de la modalidad por segunda vez (caso real 27-oct: Leonardo recibió 4 veces la
     // respuesta de la empresa): ya no se repite la respuesta fija; se ofrece un asesor que lo explique a fondo.
     {
-      const key = { "direct:same_company": "same_company", "direct:modality": "modality" }[decisionSource];
+      const key = { "direct:same_company": "same_company", "direct:modality": "modality", "direct:payment_method": "payment_method" }[decisionSource];
       if (key && Number(memory.direct_answer_counts?.[key] || 0) >= 1 && !/te comunique con (?:uno|un asesor)/.test(String(memory.ultima_respuesta_agente || ""))) {
         decision.reply = key === "same_company"
           ? "Entiendo que para ti es muy importante la estabilidad con la misma empresa. Para darte el detalle de la empresa con la que quedarías registrado y resolver esa duda a fondo, lo mejor es que te lo explique un asesor. ¿Quieres que te comunique con un asesor?"
+          : key === "payment_method"
+          // "Datos de la cuenta, nombre del responsable" repetido (caso real 28-oct, 2 horas sin avanzar).
+          ? "Entiendo que quieres dejarlo listo de una vez. Para que alguien de nuestro equipo te atienda directamente, te dé sus datos y te explique el pago, ¿quieres que te comunique con un asesor?"
           : "Para explicarte a detalle cómo queda tu alta frente a las modalidades del IMSS, lo mejor es que lo revise contigo un asesor. ¿Quieres que te comunique con un asesor?";
         decision.question_key = null;
         await this.record(conversationId, "repeated_topic_to_advisor", { topic: key });
@@ -1067,7 +1070,7 @@ export class ConversationProcessor {
       ...(decision.reply === CALL_ACK_TEXT ? { call_ack_at: new Date().toISOString() } : {}),
       ultima_respuesta_agente: decision.reply,
       ultima_pregunta: decision.question_key || null,
-      ...(/^direct:(?:same_company|modality)$/.test(decisionSource) ? { direct_answer_counts: { ...(memory.direct_answer_counts || {}), [decisionSource.slice(7)]: Number(memory.direct_answer_counts?.[decisionSource.slice(7)] || 0) + 1 } } : {}),
+      ...(/^direct:(?:same_company|modality|payment_method)$/.test(decisionSource) ? { direct_answer_counts: { ...(memory.direct_answer_counts || {}), [decisionSource.slice(7)]: Number(memory.direct_answer_counts?.[decisionSource.slice(7)] || 0) + 1 } } : {}),
       asked_counts: (() => { const k = decision.question_key || (asksImssStatus(decision.reply) ? "tiene_imss" : null); return k ? { ...(memory.asked_counts || {}), [k]: Number(memory.asked_counts?.[k] || 0) + 1 } : memory.asked_counts; })(),
       preguntas_realizadas: decision.question_key ? arrays(memory.preguntas_realizadas, [decision.question_key]) : memory.preguntas_realizadas,
       presentacion_realizada: true,
@@ -1101,7 +1104,9 @@ export class ConversationProcessor {
     await this.memories.markProcessedMany(conversationId, messageIds);
     // Programar seguimientos si el cliente deja de contestar (no si acaba de rechazar).
     // Quien quiere iniciar después ("el lunes", "mañana te mando los papeles") sí recibe recordatorio.
-    if (this.followUps && !decisionState.onboarding_declined && decision.reply !== ONBOARDING_DECLINED_TEXT && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later")) {
+    if (this.followUps && !decisionState.onboarding_declined && decision.reply !== ONBOARDING_DECLINED_TEXT && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later")
+      // La IA ya se despidió ("Cuando quieras retomar…, que tengas buen día"): no se le insiste (casos reales 27-oct).
+      && !(isClosingReply(decision.reply) && !memory.sales_cycle?.authorized)) {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();
       const notBefore = customerResumeAt(combinedText);
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply, notBefore });

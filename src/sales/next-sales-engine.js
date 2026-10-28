@@ -23,6 +23,8 @@ const AUTHORIZATION_PATTERNS = [
   // "Pues iniciar trámite" (caso real 21-oct).
   /^(?:(?:pues|si|ok|bueno|entonces|claro|va|vamos a|ya)[ ,]*)*(?:iniciar|empezar|comenzar|arrancar)(?:le)?\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b/,
   /\b(iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
+  // "Iniciamos mi trámite", "Empezamos con el trámite" (caso real 28-oct).
+  /\b(?:iniciamos|empezamos|comenzamos|arrancamos)\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b/,
   /\bme interesa (contratarlo|hacerlo|iniciar|proceder)\b/,
   /\bsi[, ]+(quiero (?:iniciar|proceder|continuar|empezar)|adelante con (?:el )?(?:tramite|proceso|alta)|procedamos|iniciemos|empecemos|empezemos)\b/,
   /\b(?:si[, ]*)?me interesa[, ]+(?:empecemos|empezemos|iniciemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
@@ -176,7 +178,10 @@ export function analyzeNextSale(text, memory = {}) {
   const lastQuestion = norm(String(memory?.ultima_respuesta_agente || "").split(/(?<=[.!])\s+/).filter(p => /\?/.test(p)).at(-1) || "");
   const askedPlans = [...new Set([...lastQuestion.matchAll(/\bplan\s*(1|uno|2|dos)\b/g)].map(m => /1|uno/.test(m[1]) ? "plan_1" : "plan_2"))];
   const askedPlan = authorized && askedPlans.length === 1 ? askedPlans[0] : null;
+  // Acepta nombrando un solo plan ("Plan 2. Empezamos con el trámite", caso real 28-oct): vale ese.
+  const namedPlans = authorized ? [...new Set([...value.matchAll(/\bplan\s*(1|uno|2|dos)\b/g)].map(m => /1|uno/.test(m[1]) ? "plan_1" : "plan_2"))] : [];
   const selectedPlan = noPlan2(explicitSelection
+    || (namedPlans.length === 1 ? namedPlans[0] : null)
     || askedPlan
     || previous.selected_plan
     // Al aceptar vale el último plan del que se habló o se explicó, no el primero que se recomendó (caso real
