@@ -6,7 +6,7 @@ import path from "node:path";
 // la cola de fuera de horario y la cola de seguimientos.
 
 import { describeSchedule, localClock, nextOpeningDate, parseSchedule } from "../core/business-hours.js";
-import { buildStats } from "./stats-service.js";
+import { buildStats, entryOf, needOf, ENTRY_LABELS, NEED_LABELS } from "./stats-service.js";
 
 const DAY = 24 * 3600 * 1000;
 const NOTICE_RE = /^¡Gracias por escribir a MARTCOM! Nuestro horario de atención es/;
@@ -516,6 +516,75 @@ export class MiaConsole {
     });
     const name = `mia-conversaciones-${from === to ? from : `${from}_a_${to}`}.txt`;
     return { name, text: out.join("\n") + "\n", count: details.length };
+  }
+
+  // ── Exportar a CSV (29-oct) ─────────────────────────────────────
+  // Una fila por conversación con actividad entre `from` y `to`: número del cliente, línea de WhatsApp
+  // (bandeja de Chatwoot) por la que escribió, cómo llegó (botón del anuncio o mensaje propio) y resultado.
+  async exportCsv({ from, to, filter = "all", now = new Date() } = {}) {
+    const today = this.dayKey(now);
+    const valid = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+    from = valid(from) ? from : today;
+    to = valid(to) ? to : from;
+    if (from > to) [from, to] = [to, from];
+    const inRange = iso => { if (!iso) return false; const d = this.dayKey(iso); return d >= from && d <= to; };
+    const byConv = this.eventsByConversation({ includeTests: true });
+    const tests = this.testIds();
+    let memories = this.allMemories({ includeTests: true }).filter(m => (byConv.get(Number(m.id)) || []).some(e => inRange(e.timestamp)));
+    memories = filter === "tests" ? memories.filter(m => tests.has(Number(m.id))) : memories.filter(m => !tests.has(Number(m.id)));
+    if (filter === "authorized") memories = memories.filter(m => m.sales_cycle?.authorized);
+    if (filter === "handoff") memories = memories.filter(m => m.handoff?.status);
+
+    const inboxes = new Map();
+    const inboxOf = async inboxId => {
+      if (!inboxId || !this.chatwoot?.getInbox) return null;
+      if (!inboxes.has(inboxId)) inboxes.set(inboxId, this.chatwoot.getInbox(inboxId).catch(() => null));
+      return inboxes.get(inboxId);
+    };
+    const base = String(this.config.chatwoot?.baseUrl || "").replace(/\/+$/, "");
+    const tz = this.timezone();
+    const stamp = iso => iso ? new Date(iso).toLocaleString("es-MX", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+    const rows = [];
+    for (let i = 0; i < memories.length; i += 6) {
+      rows.push(...await Promise.all(memories.slice(i, i + 6).map(async memory => {
+        const id = Number(memory.id);
+        const events = byConv.get(id) || [];
+        let conv = null;
+        try { conv = this.chatwoot?.getConversation ? await this.chatwoot.getConversation(id) : null; } catch {}
+        const inboxId = Number(conv?.inbox_id || conv?.inbox?.id || 0) || null;
+        const inbox = await inboxOf(inboxId);
+        const sender = conv?.meta?.sender || {};
+        const firstCustomer = events.find(e => e.details?.customer_text)?.details?.customer_text || "";
+        const summary = this.summarize({ ...memory, id }, events);
+        const labels = (conv?.labels || []).map(l => (typeof l === "string" ? l : l?.title)).filter(Boolean);
+        return [
+          id,
+          stamp(events[0]?.timestamp || (conv?.created_at ? new Date(Number(conv.created_at) * 1000).toISOString() : null)),
+          stamp(events.at(-1)?.timestamp || memory.actualizado_en),
+          memory.nombre || sender.name || "",
+          sender.phone_number || "",
+          inbox?.name || conv?.inbox?.name || (inboxId ? `Bandeja ${inboxId}` : ""),
+          inbox?.phone_number || "",
+          ENTRY_LABELS[entryOf(firstCustomer)] || "",
+          firstCustomer.replace(/\s+/g, " ").slice(0, 300),
+          NEED_LABELS[needOf(memory)] || "",
+          memory.edad ?? "",
+          summary.stage,
+          summary.plan || "",
+          summary.authorized ? "Sí" : "No",
+          summary.deferral || "",
+          memory.handoff?.status ? (memory.handoff.agent_name || "Sí") : "",
+          conv?.meta?.assignee?.name || "",
+          labels.join(" "),
+          base && this.config.chatwoot?.accountId ? `${base}/app/accounts/${this.config.chatwoot.accountId}/conversations/${id}` : "",
+        ];
+      })));
+    }
+    rows.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+    const header = ["Conversación", "Inicio", "Última actividad", "Nombre", "Teléfono del cliente", "Línea de WhatsApp (bandeja)", "Número de la línea", "Cómo llegó", "Primer mensaje del cliente", "Qué busca", "Edad", "Etapa", "Plan", "Aceptó iniciar", "Pospuso", "Pasó a persona", "Asignado a", "Etiquetas", "Enlace a Chatwoot"];
+    const cell = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const text = "﻿" + [header, ...rows].map(r => r.map(cell).join(",")).join("\r\n") + "\r\n";
+    return { name: `mia-chats-${from === to ? from : `${from}_a_${to}`}.csv`, text, count: rows.length };
   }
 
   // ── Calidad ──────────────────────────────────────────────────────

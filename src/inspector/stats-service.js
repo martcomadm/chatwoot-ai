@@ -47,7 +47,7 @@ export const ENTRY_LABELS = {
   direct: "Escribió con su propio mensaje",
 };
 
-const NEED_LABELS = { afore: "AFORE e INFONAVIT", weeks: "Semanas / pensión", medical: "Servicio médico", unknown: "Sin definir" };
+export const NEED_LABELS = { afore: "AFORE e INFONAVIT", weeks: "Semanas / pensión", medical: "Servicio médico", unknown: "Sin definir" };
 const DEFERRAL_LABELS = { no_money: "Sin dinero por ahora", later: "Avisará después", closing: "Se despidió", declined: "No le interesa", not_fit: "No era lo que buscaba", mistake: "Se equivocó de número", start_later: "Iniciará después" };
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -129,7 +129,7 @@ export function previousRange(from, to, group) {
 }
 
 // ── Datos por conversación ───────────────────────────────────────────
-function entryOf(text) {
+export function entryOf(text) {
   const kind = adOpeningKind(text);
   if (kind) return kind;
   const v = norm(text);
@@ -138,7 +138,7 @@ function entryOf(text) {
   return "direct";
 }
 
-function needOf(memory = {}) {
+export function needOf(memory = {}) {
   const n = memory.commercial_need || {};
   if (n.afore_infonavit) return "afore";
   if (n.weeks || n.retirement) return "weeks";

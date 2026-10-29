@@ -43,3 +43,22 @@ test("cuenta nuevas, aceptaron, conversión, calidad, ventas y desgloses por sem
   // 27-oct 21:30 hora de México = martes; 28-oct 03:30Z = 27-oct 21:30 local.
   assert.equal(s.heatmap.cells[1][21], 1);
 });
+
+import { MiaConsole } from "../src/inspector/mia-console.js";
+test("CSV de chats: número del cliente, línea de WhatsApp, cómo llegó y enlace", async () => {
+  const events = [ev(10, "2026-10-28T16:00:00Z", "ai_reply_sent", { customer_text: "Dejé de cotizar, quiero seguir sumando para pensionarme", decision_source: "ad_opening:pension", reply: "a" }), ev(11, "2026-10-20T16:00:00Z", "ai_reply_sent", { customer_text: "hola", reply: "b" })];
+  const mc = new MiaConsole({
+    config: { ai: { timezone: "America/Mexico_City" }, inspector: {}, chatwoot: { baseUrl: "https://chat.test", accountId: 1 } },
+    memories: { list: () => [{ id: 10, nombre: "Rosa \"La\" López", edad: 61, sales_cycle: { authorized: true, selected_plan: "plan_1" } }, { id: 11 }] },
+    inspectorEvents: { listAll: () => events, get: id => events.filter(e => e.conversationId === id) },
+    chatwoot: { async getConversation(id) { return { id, inbox_id: 7, meta: { sender: { name: "Rosa", phone_number: "+525512345678" }, assignee: { name: "Ana" } }, labels: ["venta"] }; }, async getInbox() { return { name: "WhatsApp Ventas", phone_number: "+525500000000" }; } },
+  });
+  const out = await mc.exportCsv({ from: "2026-10-28", to: "2026-10-28" });
+  assert.equal(out.count, 1);
+  assert.equal(out.name, "mia-chats-2026-10-28.csv");
+  const [head, row] = out.text.replace(/^﻿/, "").trim().split("\r\n");
+  assert.match(head, /"Teléfono del cliente","Línea de WhatsApp \(bandeja\)","Número de la línea","Cómo llegó"/);
+  assert.match(row, /^"10",/);
+  assert.match(row, /"Rosa ""La"" López","\+525512345678","WhatsApp Ventas","\+525500000000","Anuncio: seguir sumando semanas"/);
+  assert.match(row, /"Sí".*"Ana","venta","https:\/\/chat\.test\/app\/accounts\/1\/conversations\/10"$/);
+});
