@@ -1111,7 +1111,7 @@ export class ConversationProcessor {
       const notBefore = customerResumeAt(combinedText);
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply, notBefore });
     }
-    await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null,
+    await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), customer_at: (() => { const t = Math.max(0, ...batch.map(m => Number(m.created_at || 0))); return t ? new Date(t * 1000).toISOString() : null; })(), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null,
       ...(aiDraft && aiDraft.trim() !== String(decision.reply || "").trim() ? { ai_draft: aiDraft.slice(0, 900), replaced_reasons: [...new Set(replacedReasons)] } : {}) });
   }
 }

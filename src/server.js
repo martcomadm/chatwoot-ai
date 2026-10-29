@@ -180,7 +180,7 @@ try {
   });
 
   app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService }));
-  const miaConsole = new MiaConsole({ config, memories, inspectorEvents, afterHours, followUps, operationsConfig, chatwoot, selfSenders,
+  const miaConsole = new MiaConsole({ config, memories, inspectorEvents, afterHours, followUps, operationsConfig, chatwoot, selfSenders, saleStore,
     testFile: path.join(config.storage.dataDir, "inspector-test-conversations.json"),
     isOpen: now => processor.inSchedule(now), isMiaPaused: () => opsSettings.miaPaused() });
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot, miaConsole }));

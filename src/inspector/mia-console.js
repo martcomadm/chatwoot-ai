@@ -6,6 +6,7 @@ import path from "node:path";
 // la cola de fuera de horario y la cola de seguimientos.
 
 import { describeSchedule, localClock, nextOpeningDate, parseSchedule } from "../core/business-hours.js";
+import { buildStats } from "./stats-service.js";
 
 const DAY = 24 * 3600 * 1000;
 const NOTICE_RE = /^¡Gracias por escribir a MARTCOM! Nuestro horario de atención es/;
@@ -201,8 +202,8 @@ export const FLAG_LABELS = {
 };
 
 export class MiaConsole {
-  constructor({ config, memories, inspectorEvents, afterHours = null, followUps = null, isOpen = () => true, isMiaPaused = () => false, operationsConfig = null, chatwoot = null, selfSenders = null, testFile = null }) {
-    Object.assign(this, { config, memories, inspectorEvents, afterHours, followUps, isOpen, isMiaPaused, operationsConfig, chatwoot, selfSenders, testFile });
+  constructor({ config, memories, inspectorEvents, afterHours = null, followUps = null, isOpen = () => true, isMiaPaused = () => false, operationsConfig = null, chatwoot = null, selfSenders = null, testFile = null, saleStore = null }) {
+    Object.assign(this, { config, memories, inspectorEvents, afterHours, followUps, isOpen, isMiaPaused, operationsConfig, chatwoot, selfSenders, testFile, saleStore });
     this.manualTests = new Set();
     if (testFile) {
       try { this.manualTests = new Set((JSON.parse(fs.readFileSync(testFile, "utf8"))?.ids || []).map(Number)); }
@@ -556,6 +557,13 @@ export class MiaConsole {
       counts: Object.entries(FLAG_LABELS).map(([key, label]) => ({ key, label, count: counts[key] || 0 })),
       items: items.sort((a, b) => ms(b.at) - ms(a.at)).slice(0, 300).map(i => ({ ...i, flag_labels: i.flags.map(f => FLAG_LABELS[f]) })),
     };
+  }
+
+  // ── Estadísticas (tendencias, semanas, meses y comparaciones) ─────
+  stats({ group, from, to, compareFrom, compareTo, now = new Date() } = {}) {
+    const tests = this.testIds();
+    const sales = (this.saleStore?.list?.() || []).filter(s => !tests.has(Number(s.conversation_id)));
+    return buildStats({ memories: this.allMemories(), eventsByConv: this.eventsByConversation(), sales, timezone: this.timezone(), group, from, to, compareFrom, compareTo, now });
   }
 
   // ── Embudo y configuración ───────────────────────────────────────

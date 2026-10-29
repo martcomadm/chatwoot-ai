@@ -2,12 +2,12 @@
 
 // ═══════════════════════════════════════════════════════════════════════
 // Inspector de Mia — MARTCOM NEXT (solo Admin, con INSPECTOR_TOKEN)
-// Vistas: Hoy · Conversaciones · Calidad · Embudo y configuración
+// Vistas: Hoy · Estadísticas · Conversaciones · Calidad · Embudo y configuración
 // ═══════════════════════════════════════════════════════════════════════
 
 const app = document.getElementById("app");
 const TOKEN_KEY = "mia-inspector-token";
-const state = { token: "", view: "hoy", live: null, convs: null, convFilter: "all", convSearch: "", conv: null, convTab: "chat", quality: null, qDays: 7, qFlag: "", funnel: null, fDays: 30, adminToken: "", timer: null };
+const state = { stats: null, sq: { group: "week", from: "", to: "", cmpMode: "prev", cmpFrom: "", cmpTo: "", preset: "12w" }, sMetric: "nuevas", token: "", view: "hoy", live: null, convs: null, convFilter: "all", convSearch: "", conv: null, convTab: "chat", quality: null, qDays: 7, qFlag: "", funnel: null, fDays: 30, adminToken: "", timer: null };
 
 const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 const store = { get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} } };
@@ -98,7 +98,7 @@ function gate(message = "") {
 function logout(message) { state.token = ""; store.set(TOKEN_KEY, ""); gate(message); }
 
 // ── Estructura ─────────────────────────────────────────────────────────
-const VIEWS = [["hoy", "Hoy"], ["conversaciones", "Conversaciones"], ["calidad", "Calidad"], ["embudo", "Embudo y configuración"]];
+const VIEWS = [["hoy", "Hoy"], ["estadisticas", "Estadísticas"], ["conversaciones", "Conversaciones"], ["calidad", "Calidad"], ["embudo", "Embudo y configuración"]];
 
 function shell() {
   const live = state.live;
@@ -122,6 +122,7 @@ async function render() {
   try {
     if (state.view === "hoy") view.innerHTML = renderLive();
     if (state.view === "conversaciones") { if (!state.convs) await loadConvs(); view.innerHTML = renderConversations(); scrollChat(); }
+    if (state.view === "estadisticas") { if (!state.stats) await loadStats(); view.innerHTML = renderStats(); }
     if (state.view === "calidad") { if (!state.quality) await loadQuality(); view.innerHTML = renderQuality(); }
     if (state.view === "embudo") { if (!state.funnel) await loadFunnel(); view.innerHTML = renderFunnel(); }
   } catch (error) { if (error.message !== "401") view.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
@@ -130,6 +131,15 @@ async function render() {
 async function loadLive() { state.live = await api("/inspector/api/v2/live"); }
 async function loadConvs() { state.convs = await api(`/inspector/api/v2/conversations?filter=${encodeURIComponent(state.convFilter)}&search=${encodeURIComponent(state.convSearch)}`); }
 async function loadConv(id) { state.conv = await api(`/inspector/api/v2/conversations/${encodeURIComponent(id)}`); }
+async function loadStats() {
+  const q = state.sq;
+  const params = new URLSearchParams({ group: q.group });
+  if (q.from && q.to) { params.set("from", q.from); params.set("to", q.to); }
+  if (q.cmpMode === "custom" && q.cmpFrom && q.cmpTo) { params.set("cmp_from", q.cmpFrom); params.set("cmp_to", q.cmpTo); }
+  state.stats = await api(`/inspector/api/v2/stats?${params}`);
+  q.from = state.stats.range.from; q.to = state.stats.range.to;
+  if (q.cmpMode !== "custom") { q.cmpFrom = state.stats.compare.from; q.cmpTo = state.stats.compare.to; }
+}
 async function loadQuality() { state.quality = await api(`/inspector/api/v2/quality?days=${state.qDays}`); }
 async function loadFunnel() { state.funnel = await api(`/inspector/api/v2/funnel?days=${state.fDays}`); }
 
@@ -258,6 +268,158 @@ function renderQuality() {
     </section>`;
 }
 
+// ── Estadísticas ───────────────────────────────────────────────────────
+// Tendencias por día, semana o mes, comparación contra otro periodo y desgloses.
+const GROUP_TEXT = { day: "día", week: "semana", month: "mes" };
+const isoDay = d => d.toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+function shiftDays(date, n) { return new Date(Date.parse(`${date}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10); }
+function mondayOf(date) { return shiftDays(date, -((new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7)); }
+const PRESETS = [["week", "Esta semana"], ["lastweek", "Semana pasada"], ["month", "Este mes"], ["lastmonth", "Mes pasado"], ["12w", "Últimas 12 semanas"], ["6m", "Últimos 6 meses"], ["30d", "Últimos 30 días"]];
+function applyPreset(key) {
+  const today = isoDay(new Date());
+  const [y, m] = today.split("-").map(Number);
+  const first = (yy, mm) => new Date(Date.UTC(yy, mm - 1, 1)).toISOString().slice(0, 10);
+  const q = state.sq;
+  q.preset = key; q.cmpMode = "prev";
+  if (key === "week") Object.assign(q, { group: "day", from: mondayOf(today), to: today });
+  if (key === "lastweek") Object.assign(q, { group: "day", from: shiftDays(mondayOf(today), -7), to: shiftDays(mondayOf(today), -1) });
+  if (key === "month") Object.assign(q, { group: "day", from: first(y, m), to: today });
+  if (key === "lastmonth") Object.assign(q, { group: "week", from: first(y, m - 1), to: shiftDays(first(y, m), -1) });
+  if (key === "12w") Object.assign(q, { group: "week", from: shiftDays(mondayOf(today), -77), to: today });
+  if (key === "6m") Object.assign(q, { group: "month", from: first(y, m - 5), to: today });
+  if (key === "30d") Object.assign(q, { group: "day", from: shiftDays(today, -29), to: today });
+}
+
+const money = n => `$${Math.round(n).toLocaleString("es-MX")}`;
+function fmtSecs(s) { if (s === null || s === undefined) return "—"; if (s < 60) return `${s} s`; const m = Math.floor(s / 60); return m < 60 ? `${m} min ${s % 60 ? `${s % 60} s` : ""}`.trim() : `${Math.floor(m / 60)} h ${m % 60} min`; }
+function fmtMetric(metric, value) {
+  if (value === null || value === undefined) return "—";
+  if (metric.unit === "%") return `${value}%`;
+  if (metric.unit === "s") return fmtSecs(value);
+  if (metric.unit === "$") return money(value);
+  return Number(value).toLocaleString("es-MX");
+}
+function delta(metric, cur, prev) {
+  if (cur === null || cur === undefined || prev === null || prev === undefined) return { text: "sin comparación", cls: "" };
+  const diff = cur - prev;
+  if (diff === 0) return { text: "igual", cls: "" };
+  const good = metric.good ? (diff > 0) === (metric.good === "up") : null;
+  const cls = good === null ? "" : good ? "up" : "down";
+  const arrow = diff > 0 ? "▲" : "▼";
+  if (metric.unit === "%") return { text: `${arrow} ${Math.abs(Math.round(diff * 10) / 10)} pts`, cls };
+  if (!prev) return { text: `${arrow} nuevo`, cls };
+  return { text: `${arrow} ${Math.abs(Math.round((diff / prev) * 1000) / 10)}%`, cls };
+}
+
+function renderStats() {
+  const s = state.stats;
+  const q = state.sq;
+  const metrics = Object.fromEntries(s.metrics.map(m => [m.key, m]));
+  const metric = metrics[state.sMetric] || metrics.nuevas;
+  const groups = [...new Set(s.metrics.map(m => m.group))];
+  const tiles = groups.map(g => `<section class="kgroup" aria-label="${esc(g)}"><h2>${g === "Mia" ? "Ventas con Mia" : g === "Operations" ? "Operations" : "Calidad de Mia"}</h2><div class="stiles">${s.metrics.filter(m => m.group === g).map(m => {
+    const d = delta(m, s.totals[m.key], s.previous[m.key]);
+    return `<button class="stile" data-metric="${m.key}" aria-pressed="${metric.key === m.key}" title="Ver la tendencia de ${esc(m.label)}"><span>${esc(m.label)}</span><b>${esc(fmtMetric(m, s.totals[m.key]))}</b><small><span class="delta ${d.cls}">${esc(d.text)}</span> antes ${esc(fmtMetric(m, s.previous[m.key]))}</small></button>`;
+  }).join("")}</div></section>`).join("");
+  const insight = s.insights.length ? `<ul class="insights">${s.insights.map(i => {
+    const m = metrics[i.key];
+    const change = i.unit === "pts" ? `${i.change > 0 ? "subió" : "bajó"} ${Math.abs(i.change)} puntos` : i.change === null ? "apareció" : `${i.change > 0 ? "subió" : "bajó"} ${Math.abs(i.change)}%`;
+    return `<li class="${i.good === null ? "" : i.good ? "up" : "down"}"><span class="ico" aria-hidden="true">${i.good === null ? "•" : i.good ? "▲" : "▼"}</span><span><b>${esc(i.label)}</b> ${change}: ${esc(fmtMetric(m, i.previous))} → ${esc(fmtMetric(m, i.current))}</span></li>`;
+  }).join("")}</ul>` : `<div class="empty">Sin cambios importantes entre los dos periodos (o todavía hay pocos datos).</div>`;
+  const tableCols = ["nuevas", "atendidas", "aceptaron", "conversion", "a_persona", "pospusieron", "no_contestaron", "pct_genericas", "expedientes", "altas", "pagadas", "ingreso"].map(k => metrics[k]);
+  const table = `<div class="tscroll"><table class="stable"><thead><tr><th scope="col">${esc(GROUP_TEXT[s.group][0].toUpperCase() + GROUP_TEXT[s.group].slice(1))}</th>${tableCols.map(m => `<th scope="col">${esc(m.label)}</th>`).join("")}</tr></thead><tbody>
+    ${s.buckets.slice().reverse().map(b => `<tr><th scope="row">${esc(b.label)}${b.partial ? ' <span class="tag">en curso</span>' : ""}</th>${tableCols.map(m => `<td>${esc(fmtMetric(m, b[m.key]))}</td>`).join("")}</tr>`).join("")}
+    <tr class="total"><th scope="row">Total del periodo</th>${tableCols.map(m => `<td>${esc(fmtMetric(m, s.totals[m.key]))}</td>`).join("")}</tr>
+    <tr class="prev"><th scope="row">Periodo de comparación</th>${tableCols.map(m => `<td>${esc(fmtMetric(m, s.previous[m.key]))}</td>`).join("")}</tr>
+  </tbody></table></div>`;
+  return `<div class="head"><div><h1>Estadísticas</h1><p>${esc(s.range.label)} · comparado con ${esc(s.compare.label)}</p></div><button class="btn small" data-act="stats-csv">Descargar CSV</button></div>
+    <section class="card controls"><div class="card-body">
+      <div class="chips">${PRESETS.map(([k, l]) => `<button type="button" class="tag button" data-preset="${k}" aria-pressed="${q.preset === k}">${l}</button>`).join("")}</div>
+      <form id="stats-form" class="sform" autocomplete="off">
+        <div class="field fgroup"><span>Agrupar por</span><div class="segmented">${[["day", "Día"], ["week", "Semana"], ["month", "Mes"]].map(([k, l]) => `<button type="button" data-sgroup="${k}" aria-pressed="${s.group === k}">${l}</button>`).join("")}</div></div>
+        <label class="field"><span>Desde</span><input class="input" type="date" name="from" value="${esc(q.from)}"></label>
+        <label class="field"><span>Hasta</span><input class="input" type="date" name="to" value="${esc(q.to)}"></label>
+        <label class="field"><span>Comparar con</span><select class="input" name="cmp" id="cmp-mode"><option value="prev" ${q.cmpMode !== "custom" ? "selected" : ""}>Periodo anterior</option><option value="custom" ${q.cmpMode === "custom" ? "selected" : ""}>Otras fechas…</option></select></label>
+        <label class="field cmpf" ${q.cmpMode === "custom" ? "" : "hidden"}><span>Comparar desde</span><input class="input" type="date" name="cmp_from" value="${esc(q.cmpFrom)}"></label>
+        <label class="field cmpf" ${q.cmpMode === "custom" ? "" : "hidden"}><span>Comparar hasta</span><input class="input" type="date" name="cmp_to" value="${esc(q.cmpTo)}"></label>
+        <button class="btn primary small">Aplicar</button>
+      </form>
+    </div></section>
+    <section class="card"><div class="card-head"><h2>Lo que más cambió</h2><small>contra ${esc(s.compare.label)}</small></div><div class="card-body">${insight}</div></section>
+    ${tiles}
+    <section class="card"><div class="card-head"><h2>${esc(metric.label)} por ${esc(GROUP_TEXT[s.group])}</h2><small>toca un indicador de arriba para cambiar la gráfica</small></div><div class="card-body">${trendChart(s, metric)}</div></section>
+    <section class="card"><div class="card-head"><h2>Detalle por ${esc(GROUP_TEXT[s.group])}</h2><small>lo más reciente arriba</small></div>${table}</section>
+    <div class="cols2">
+      ${breakdownCard("¿Cómo llegaron?", "conversaciones nuevas en el periodo y cuántas aceptaron", s.breakdowns.entry, true)}
+      ${breakdownCard("¿Qué buscan?", "lo que dijeron que necesitan", s.breakdowns.need, true)}
+      ${breakdownCard("Edad", "de las conversaciones nuevas", s.breakdowns.age, true)}
+      ${breakdownCard("Plan de quienes aceptaron", "en el periodo", s.breakdowns.plan, false)}
+      ${breakdownCard("¿Dónde se quedaron?", "clientes que pospusieron o se despidieron", s.breakdowns.deferral, false)}
+      ${heatmapCard(s.heatmap)}
+    </div>
+    ${s.notes.response_time ? `<p class="foot">${esc(s.notes.response_time)}</p>` : ""}
+    <p class="foot">Las ventas pagadas e ingresos son el primer pago de cada expediente ($1,100 Plan 1 · $1,500 Plan 2). Los chats de prueba no cuentan.</p>`;
+}
+
+// Etiqueta corta del eje: "10 ago" (semana), "29 oct" (día), "oct" (mes).
+const axisLabel = (label, group) => group === "week" ? label.split(" – ")[0] : group === "day" ? label.replace(/^\S+\s/, "") : label.replace(/ \d{4}$/, "");
+function trendChart(s, metric) {
+  const data = s.buckets.map(b => ({ label: b.label, value: b[metric.key], partial: b.partial }));
+  if (!data.length) return `<div class="empty">Sin datos.</div>`;
+  const values = data.map(d => Number(d.value) || 0);
+  const max = Math.max(...values, 1);
+  const nice = (() => { const p = 10 ** Math.floor(Math.log10(max)); const n = max / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; })();
+  const W = 960, H = 260, L = 44, R = 8, T = 16, B = 46;
+  const step = (W - L - R) / data.length;
+  const bw = Math.max(3, Math.min(48, step * 0.62));
+  const y = v => T + (H - T - B) * (1 - v / nice);
+  const ticks = [0, nice / 2, nice];
+  const every = Math.ceil(data.length / 12);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const bars = data.map((d, i) => {
+    const x = L + i * step + (step - bw) / 2;
+    const v = Number(d.value) || 0;
+    const h = Math.max(v ? 2 : 0, H - B - y(v));
+    const tip = `${d.label}: ${fmtMetric(metric, d.value)}${d.partial ? " (en curso)" : ""}`;
+    return `<g class="bar-g"><rect class="hit" x="${L + i * step}" y="${T}" width="${step}" height="${H - T - B}"><title>${esc(tip)}</title></rect><path class="barp ${d.partial ? "partial" : ""}" d="M${x},${H - B} v${-Math.max(0, h - 4)} q0,-4 4,-4 h${bw - 8} q4,0 4,4 v${Math.max(0, h - 4)} z"><title>${esc(tip)}</title></path>
+      ${data.length <= 16 && v ? `<text class="vlabel" x="${x + bw / 2}" y="${H - B - h - 5}" text-anchor="middle">${esc(fmtMetric(metric, d.value))}</text>` : ""}
+      ${i % every === 0 ? `<text class="xlabel" x="${x + bw / 2}" y="${H - B + 16}" text-anchor="middle">${esc(axisLabel(d.label, s.group))}</text>` : ""}</g>`;
+  }).join("");
+  return `<div class="chartwrap"><svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(metric.label)} por ${esc(GROUP_TEXT[s.group])}">
+    ${ticks.map(t => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/><text class="ylabel" x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${esc(fmtMetric(metric, Math.round(t * 10) / 10))}</text>`).join("")}
+    ${bars}
+    <line class="avg" x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}"><title>Promedio: ${esc(fmtMetric(metric, Math.round(avg * 10) / 10))}</title></line>
+  </svg></div><div class="legend"><span><i class="sw" style="background:var(--brand)"></i>${esc(metric.label)}</span><span><i class="sw dash"></i>Promedio del periodo ${esc(fmtMetric(metric, Math.round(avg * 10) / 10))}</span><span><i class="sw" style="background:var(--brand);opacity:.45"></i>Periodo en curso</span></div>`;
+}
+
+function breakdownCard(title, sub, rows, withConversion) {
+  const max = Math.max(1, ...rows.map(r => r.count));
+  return `<section class="card"><div class="card-head"><h2>${esc(title)}</h2><small>${esc(sub)}</small></div><div class="card-body">${rows.length ? `<div class="brk">${withConversion ? `<div class="brk-row head"><span></span><span class="track"></span><span class="num">Total</span><span class="num">Aceptaron</span></div>` : ""}${rows.map(r => `<div class="brk-row"><span>${esc(r.label)}</span><span class="track"><i style="width:${(r.count / max) * 100}%"></i></span><span class="num">${r.count}</span>${withConversion ? `<span class="num">${r.aceptaron} <small>${r.conversion}%</small></span>` : ""}</div>`).join("")}</div>` : `<div class="empty">Sin datos en el periodo.</div>`}</div></section>`;
+}
+
+function heatmapCard(h) {
+  const max = Math.max(1, ...h.cells.flat());
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  return `<section class="card"><div class="card-head"><h2>¿Cuándo escriben?</h2><small>mensajes de clientes por día y hora</small></div><div class="card-body"><div class="heat" role="table" aria-label="Mensajes por día y hora">
+    <div class="heat-row" role="row"><span></span>${hours.map(hh => `<span class="hh" role="columnheader">${hh % 3 === 0 ? hh : ""}</span>`).join("")}</div>
+    ${h.cells.map((row, d) => `<div class="heat-row" role="row"><span class="hd" role="rowheader">${esc(h.weekdays[d])}</span>${row.map((v, hh) => `<span class="cell" role="cell" style="--a:${v ? 0.12 + 0.88 * (v / max) : 0}" title="${esc(h.weekdays[d])} ${hh}:00 · ${v} mensaje(s)"></span>`).join("")}</div>`).join("")}
+  </div><div class="legend" style="margin-top:8px"><span>Menos</span><span class="ramp" aria-hidden="true"></span><span>Más</span></div></div></section>`;
+}
+
+function statsCsv() {
+  const s = state.stats;
+  if (!s) return;
+  const cell = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [[GROUP_TEXT[s.group], ...s.metrics.map(m => m.label)].map(cell).join(",")];
+  for (const b of s.buckets) rows.push([b.label + (b.partial ? " (en curso)" : ""), ...s.metrics.map(m => b[m.key])].map(cell).join(","));
+  rows.push(["Total del periodo", ...s.metrics.map(m => s.totals[m.key])].map(cell).join(","));
+  rows.push([`Comparación (${s.compare.label})`, ...s.metrics.map(m => s.previous[m.key])].map(cell).join(","));
+  const url = URL.createObjectURL(new Blob(["﻿" + rows.join("\n")], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: `mia-estadisticas-${s.range.from}_a_${s.range.to}.csv` });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 // ── Embudo y configuración ─────────────────────────────────────────────
 function renderFunnel() {
   const { funnel: f, config: c, diagnostics: diag } = state.funnel;
@@ -315,8 +477,11 @@ async function openConversation(id) {
 app.addEventListener("click", async event => {
   // Abrir "Ver lo que había escrito la IA" no debe llevar a la conversación.
   if (event.target.closest("details.draft")) return;
-  const el = event.target.closest("[data-view],[data-act],[data-open],[data-conv-filter],[data-conv-tab],[data-qdays],[data-qflag],[data-fdays],[data-rot-remove]");
+  const el = event.target.closest("[data-preset],[data-sgroup],[data-metric],[data-view],[data-act],[data-open],[data-conv-filter],[data-conv-tab],[data-qdays],[data-qflag],[data-fdays],[data-rot-remove]");
   if (!el) return;
+  if (el.dataset.preset) { applyPreset(el.dataset.preset); await loadStats(); return render(); }
+  if (el.dataset.sgroup) { state.sq.group = el.dataset.sgroup; state.sq.preset = ""; state.sq.from = ""; state.sq.to = ""; await loadStats(); return render(); }
+  if (el.dataset.metric) { state.sMetric = el.dataset.metric; return render(); }
   if (el.dataset.view) { state.view = el.dataset.view; if (state.view === "hoy") await loadLive(); return render(); }
   if (el.dataset.open) return openConversation(el.dataset.open);
   if (el.dataset.convFilter) { state.convFilter = el.dataset.convFilter; await loadConvs(); return render(); }
@@ -333,6 +498,7 @@ app.addEventListener("click", async event => {
   if (act === "refresh") { await loadLive(); return render(); }
   if (act === "back") { state.conv = null; return render(); }
   if (act === "export-txt") return exportTxt(el);
+  if (act === "stats-csv") return statsCsv();
   if (act === "reload-conv") { await loadConv(state.conv.id); return render(); }
   if (act === "toggle-test") {
     await api(`/inspector/api/v2/conversations/${state.conv.id}/test`, { method: "POST", body: JSON.stringify({ test: !state.conv.test }) });
@@ -343,10 +509,16 @@ app.addEventListener("click", async event => {
   }
   if (act === "admin-off") { state.adminToken = ""; return render(); }
 });
+app.addEventListener("change", event => { if (event.target.id === "cmp-mode") for (const el of document.querySelectorAll(".cmpf")) el.hidden = event.target.value !== "custom"; });
 app.addEventListener("keydown", event => { if (event.key === "Enter" && event.target.matches(".qitem")) event.target.click(); });
 app.addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.target;
+  if (form.id === "stats-form") {
+    const d = new FormData(form);
+    Object.assign(state.sq, { from: String(d.get("from") || ""), to: String(d.get("to") || ""), cmpMode: String(d.get("cmp") || "prev"), cmpFrom: String(d.get("cmp_from") || ""), cmpTo: String(d.get("cmp_to") || ""), preset: "" });
+    await loadStats(); return render();
+  }
   if (form.id === "conv-search") { state.convSearch = new FormData(form).get("mia-busqueda") || ""; await loadConvs(); return render(); }
   if (form.id === "admin-form") { state.adminToken = String(new FormData(form).get("mia-admin-token") || "").trim(); return render(); }
   if (form.dataset.rotAdd) {

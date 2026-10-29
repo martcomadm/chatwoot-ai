@@ -54,6 +54,7 @@ export function createRouter({ config, memories, buffer, inspectorEvents, handof
       res.set("Content-Disposition", `attachment; filename="${result.name}"`).set("X-Export-Count", String(result.count)).type("text/plain; charset=utf-8").send(result.text);
     } catch (error) { console.error("Inspector export:", error); res.status(500).json({ error: error.message }); }
   });
+  router.get("/inspector/api/v2/stats", v2(req => miaConsole.stats({ group: req.query.group, from: req.query.from, to: req.query.to, compareFrom: req.query.cmp_from, compareTo: req.query.cmp_to })));
   router.get("/inspector/api/v2/quality", v2(req => miaConsole.quality({ days: days(req.query.days, 7) })));
   router.get("/inspector/api/v2/funnel", v2(req => ({ funnel: miaConsole.funnel({ days: days(req.query.days, 30) }), config: miaConsole.configuration(), diagnostics: (d => ({ ...d, components: d.components.filter(c => !/Advisor Affinity/.test(c.name)) }))(buildDiagnostics({ config, memories, inspectorEvents })) })));
   router.get("/inspector/api/health", (req, res) => {
