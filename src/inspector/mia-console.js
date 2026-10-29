@@ -519,7 +519,7 @@ export class MiaConsole {
   }
 
   // ── Exportar a CSV (29-oct) ─────────────────────────────────────
-  // Una fila por conversación con actividad entre `from` y `to`: número del cliente, línea de WhatsApp
+  // Una fila por conversación CREADA entre `from` y `to` (29-oct: solo los chats nuevos de esas fechas): número del cliente, línea de WhatsApp
   // (bandeja de Chatwoot) por la que escribió, cómo llegó (botón del anuncio o mensaje propio) y resultado.
   async exportCsv({ from, to, filter = "all", now = new Date() } = {}) {
     const today = this.dayKey(now);
@@ -530,7 +530,11 @@ export class MiaConsole {
     const inRange = iso => { if (!iso) return false; const d = this.dayKey(iso); return d >= from && d <= to; };
     const byConv = this.eventsByConversation({ includeTests: true });
     const tests = this.testIds();
-    let memories = this.allMemories({ includeTests: true }).filter(m => (byConv.get(Number(m.id)) || []).some(e => inRange(e.timestamp)));
+    // Candidatos: el primer evento de Mia cae en el rango (o al día siguiente, por si llegó de noche). Después se
+    // confirma con la fecha de creación de Chatwoot.
+    const dayAfter = new Date(Date.parse(`${to}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+    const firstDay = m => { const first = (byConv.get(Number(m.id)) || [])[0]?.timestamp; return first ? this.dayKey(first) : null; };
+    let memories = this.allMemories({ includeTests: true }).filter(m => { const d = firstDay(m); return d && d >= from && d <= dayAfter; });
     memories = filter === "tests" ? memories.filter(m => tests.has(Number(m.id))) : memories.filter(m => !tests.has(Number(m.id)));
     if (filter === "authorized") memories = memories.filter(m => m.sales_cycle?.authorized);
     if (filter === "handoff") memories = memories.filter(m => m.handoff?.status);
@@ -551,6 +555,8 @@ export class MiaConsole {
         const events = byConv.get(id) || [];
         let conv = null;
         try { conv = this.chatwoot?.getConversation ? await this.chatwoot.getConversation(id) : null; } catch {}
+        const createdAt = conv?.created_at ? new Date(Number(conv.created_at) * 1000).toISOString() : events[0]?.timestamp || null;
+        if (!inRange(createdAt)) return null;
         const inboxId = Number(conv?.inbox_id || conv?.inbox?.id || 0) || null;
         const inbox = await inboxOf(inboxId);
         const sender = conv?.meta?.sender || {};
@@ -559,7 +565,7 @@ export class MiaConsole {
         const labels = (conv?.labels || []).map(l => (typeof l === "string" ? l : l?.title)).filter(Boolean);
         return [
           id,
-          stamp(events[0]?.timestamp || (conv?.created_at ? new Date(Number(conv.created_at) * 1000).toISOString() : null)),
+          stamp(createdAt),
           stamp(events.at(-1)?.timestamp || memory.actualizado_en),
           memory.nombre || sender.name || "",
           sender.phone_number || "",
@@ -580,8 +586,9 @@ export class MiaConsole {
         ];
       })));
     }
+    for (let i = rows.length - 1; i >= 0; i--) if (!rows[i]) rows.splice(i, 1);
     rows.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-    const header = ["Conversación", "Inicio", "Última actividad", "Nombre", "Teléfono del cliente", "Línea de WhatsApp (bandeja)", "Número de la línea", "Cómo llegó", "Primer mensaje del cliente", "Qué busca", "Edad", "Etapa", "Plan", "Aceptó iniciar", "Pospuso", "Pasó a persona", "Asignado a", "Etiquetas", "Enlace a Chatwoot"];
+    const header = ["Conversación", "Creado", "Última actividad", "Nombre", "Teléfono del cliente", "Línea de WhatsApp (bandeja)", "Número de la línea", "Cómo llegó", "Primer mensaje del cliente", "Qué busca", "Edad", "Etapa", "Plan", "Aceptó iniciar", "Pospuso", "Pasó a persona", "Asignado a", "Etiquetas", "Enlace a Chatwoot"];
     const cell = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const text = "﻿" + [header, ...rows].map(r => r.map(cell).join(",")).join("\r\n") + "\r\n";
     return { name: `mia-chats-${from === to ? from : `${from}_a_${to}`}.csv`, text, count: rows.length };

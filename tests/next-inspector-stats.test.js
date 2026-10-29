@@ -53,8 +53,16 @@ test("CSV de chats: número del cliente, línea de WhatsApp, cómo llegó y enla
     inspectorEvents: { listAll: () => events, get: id => events.filter(e => e.conversationId === id) },
     chatwoot: { async getConversation(id) { return { id, inbox_id: 7, meta: { sender: { name: "Rosa", phone_number: "+525512345678" }, assignee: { name: "Ana" } }, labels: ["venta"] }; }, async getInbox() { return { name: "WhatsApp Ventas", phone_number: "+525500000000" }; } },
   });
+  // El chat 12 tuvo actividad el 28 pero se creó el 20: no sale. El 13 se creó a las 23:50 del 28 y Mia contestó el 29: sí sale.
+  events.push(ev(12, "2026-10-20T16:00:00Z", "ai_reply_sent", { customer_text: "hola", reply: "c" }), ev(12, "2026-10-28T17:00:00Z", "ai_reply_sent", { customer_text: "sigo", reply: "d" }));
+  events.push(ev(13, "2026-10-29T13:01:00Z", "ai_reply_sent", { customer_text: "Información", reply: "e" }));
+  const created = { 13: Date.parse("2026-10-29T05:50:00Z") / 1000 };
+  const getConversation = mc.chatwoot.getConversation;
+  mc.chatwoot.getConversation = async id => ({ ...(await getConversation(id)), created_at: created[id] });
+  mc.memories = { list: () => [...[10, 11, 12, 13].map(id => ({ id, ...(id === 10 ? { nombre: "Rosa \"La\" López", edad: 61, sales_cycle: { authorized: true, selected_plan: "plan_1" } } : {}) }))] };
   const out = await mc.exportCsv({ from: "2026-10-28", to: "2026-10-28" });
-  assert.equal(out.count, 1);
+  assert.deepEqual(out.text.trim().split("\r\n").slice(1).map(r => r.split(",")[0]), ['"10"', '"13"']);
+  assert.equal(out.count, 2);
   assert.equal(out.name, "mia-chats-2026-10-28.csv");
   const [head, row] = out.text.replace(/^﻿/, "").trim().split("\r\n");
   assert.match(head, /"Teléfono del cliente","Línea de WhatsApp \(bandeja\)","Número de la línea","Cómo llegó"/);

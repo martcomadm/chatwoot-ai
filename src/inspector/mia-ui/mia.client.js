@@ -195,7 +195,7 @@ function renderConversations() {
           <label>Desde <input class="input" type="date" id="export-from" value="${esc(state.exportFrom || todayLocal())}"></label>
           <label>Hasta <input class="input" type="date" id="export-to" value="${esc(state.exportTo || todayLocal())}"></label>
           <button type="button" class="btn small" data-act="export-txt">Descargar .txt</button>
-          <button type="button" class="btn small" data-act="export-csv" title="Una fila por chat: número del cliente, línea de WhatsApp por la que escribió, cómo llegó y resultado">Descargar CSV</button>
+          <button type="button" class="btn small" data-act="export-csv" title="Solo los chats creados en esas fechas: número del cliente, línea de WhatsApp por la que escribió, cómo llegó y resultado">Descargar CSV (chats nuevos)</button>
         </div>
       </form>
       <div class="conv-list">${list.length ? `<ul class="rows">${list.map(i => `<li><button class="row" data-open="${i.id}" aria-current="${c?.id === i.id}">

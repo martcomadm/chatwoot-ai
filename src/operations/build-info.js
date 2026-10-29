@@ -1,3 +1,3 @@
 // Versión visible en Operations (debajo de "Operations NEXT") para confirmar qué quedó desplegado.
 // Se actualiza con cada entrega.
-export const BUILD_LABEL = "29-oct · CSV de chats en el Inspector";
+export const BUILD_LABEL = "29-oct · CSV solo con chats nuevos";
