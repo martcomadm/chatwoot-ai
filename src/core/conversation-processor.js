@@ -190,7 +190,7 @@ export class ConversationProcessor {
 
   // Handoff a un asesor humano: nota privada con resumen, aviso al cliente y asignación por rotación.
   // call=true: el cliente pidió que le llamen → rotación de asesores. Si no, atención humana → su rotación
-  // (Jaqueline, Erika, Ricardo y Brenda desde el 23-oct), si está configurada.
+  // (Jaqueline, Erika y Brenda; Ricardo salió el 29-oct), si está configurada.
   async transfer(conversationId, conversation, reason, memory, { customerText = null, call = false } = {}) {
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
     const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);

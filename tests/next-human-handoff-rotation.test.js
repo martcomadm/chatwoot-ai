@@ -44,5 +44,5 @@ test("pide hablar con una persona → rotación de atención humana; pide llamad
 });
 
 test("la rotación de atención humana por defecto son las 4 personas", () => {
-  assert.equal(DEFAULT_HUMAN_HANDOFF_AGENTS, "62:Jaqueline Juárez,58:Erika Balanzario,60:Ricardo Guzman,59:Brenda Torres");
+  assert.equal(DEFAULT_HUMAN_HANDOFF_AGENTS, "62:Jaqueline Juárez,58:Erika Balanzario,59:Brenda Torres");
 });
