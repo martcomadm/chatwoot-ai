@@ -50,7 +50,8 @@ export class InspectorEventStore {
       type,
       details,
     });
-    this.data[key] = events.slice(-this.maxPerConversation);
+    // Se conserva siempre el primer evento: las Estadísticas lo usan como fecha en que llegó el cliente.
+    this.data[key] = events.length > this.maxPerConversation ? [events[0], ...events.slice(-(this.maxPerConversation - 1))] : events;
     await this.persist();
   }
 

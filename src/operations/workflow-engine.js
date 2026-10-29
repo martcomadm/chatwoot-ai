@@ -1,0 +1,556 @@
+// Motor del flujo del expediente de venta.
+//
+// Cada expediente avanza por estas colas, en orden:
+//   capture (Captura) → validation (Validación) → validity (Vigencia) → payment (Cobranza) → completed
+//
+// Cada método valida desde qué estado se permite la acción (requireStatus) y guarda
+// el cambio con store.update(id, patch, tipoDeEvento, detalles), que además registra
+// el evento en el historial del expediente y avisa al bridge de Chatwoot.
+
+export const SALE_STATUSES = Object.freeze({
+  AUTHORIZED: "authorized",
+  WAITING_CAPTURE: "waiting_capture",
+  CAPTURE_IN_PROGRESS: "capture_in_progress",
+  ALTA_PROCESSED: "alta_processed",
+  WAITING_VALIDATION: "waiting_validation",
+  VALIDATION_IN_PROGRESS: "validation_in_progress",
+  VALIDATION_APPROVED: "validation_approved",
+  VALIDATION_REJECTED: "validation_rejected",
+  WAITING_VALIDITY: "waiting_validity",
+  VALIDITY_CONFIRMED: "validity_confirmed",
+  PAYMENT_REQUESTED: "payment_requested",
+  PAYMENT_RECEIVED: "payment_received",
+  PAYMENT_VALIDATED: "payment_validated",
+  COMPLETED: "completed",
+  ALTA_ISSUE: "alta_issue",
+  VALIDITY_ISSUE: "validity_issue",
+  PAYMENT_ISSUE: "payment_issue",
+  CANCELLED: "cancelled",
+  // Cliente con alta vigente que dejó de pagar: Supervisión lo da de baja y el expediente se guarda en
+  // "Bajas por falta de pago" con su adeudo. Si vuelve a escribir, Mia le pide cubrirlo (26-oct).
+  DROPPED_NONPAYMENT: "dropped_nonpayment",
+});
+
+const PLAN_PRICES = Object.freeze({ plan_1: 1100, plan_2: 1500 });
+
+// Etapas a las que Supervisión puede regresar un expediente.
+export const RETURN_TARGETS = Object.freeze({
+  capture: { status: "waiting_capture", queue: "capture", label: "Captura" },
+  validation: { status: "waiting_validation", queue: "validation", label: "Validación" },
+  validity: { status: "waiting_validity", queue: "validity", label: "Vigencia", requiresValidation: true },
+  payment: { status: "validity_confirmed", queue: "payment", label: "Cobranza", requiresValidation: true, requiresValidity: true },
+});
+
+// Las cuatro revisiones de Validación. Al marcar todas, el expediente pasa a Vigencia.
+export const VALIDATION_KEYS = Object.freeze(["datos", "alta", "documentos", "revision_final"]);
+
+function requireStatus(sale, allowed, action) {
+  if (!allowed.includes(sale.status)) throw new Error(`${action} no permitido desde estado ${sale.status}`);
+}
+
+function requireReason(payload) {
+  const reason = String(payload?.reason || payload?.notes || "").trim();
+  if (!reason) throw new Error("Se requiere indicar el motivo");
+  return reason;
+}
+
+function proofFrom(payload = {}) {
+  return {
+    proof_url: payload.proof_url || payload.document_url || null,
+    proof_name: payload.proof_name || payload.document_name || null,
+  };
+}
+
+// Llave para no registrar dos veces el mismo comprobante (idempotencia).
+function proofKey(payload = {}, proof = proofFrom(payload)) {
+  const explicit = payload.proof_key || payload.idempotency_key || payload.attachment_id || payload.message_id;
+  if (explicit != null && String(explicit).trim()) return String(explicit).trim();
+  const url = String(proof.proof_url || "").trim();
+  if (url) return `url:${url}`;
+  const name = String(proof.proof_name || "").trim(), reference = String(payload.reference || "").trim();
+  return name ? `name:${name}|ref:${reference}` : null;
+}
+
+export class SaleWorkflowEngine {
+  constructor(store) {
+    this.store = store;
+  }
+
+  // ── Apertura ───────────────────────────────────────────────────────────
+  // Una conversación tiene un solo expediente: si ya existe, se devuelve ese.
+  openAuthorizedSale(input) {
+    const existing = input.conversation_id ? this.store.findByConversationId(input.conversation_id) : null;
+    // Si el expediente anterior se canceló y el cliente vuelve a aceptar, se abre uno nuevo (el cancelado se queda guardado).
+    if (existing && existing.status !== SALE_STATUSES.CANCELLED) return existing;
+    return this.store.create({ ...input, status: SALE_STATUSES.WAITING_CAPTURE, queue: "capture" });
+  }
+
+  // ── Captura ────────────────────────────────────────────────────────────
+  syncDocuments(id, payload = {}) {
+    return this.store.syncDocuments(id, payload);
+  }
+
+  registerNss(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Registrar NSS");
+    const nss = String(payload.nss || "").replace(/\D/g, "");
+    if (nss.length !== 11) throw new Error("El NSS debe contener exactamente 11 dígitos");
+    const updated = this.store.syncDocuments(id, { customer: { nss } });
+    return this.store.update(id, { customer: { ...updated.customer, nss } }, "capture.nss.registered", {
+      by: payload.by || "Capturista",
+      source: payload.source || "capture",
+      nss_last4: nss.slice(-4),
+    });
+  }
+
+  // Cualquier área (la que tiene el expediente, o Supervisión) pide al cliente una llamada; el expediente
+  // se queda en su etapa y Mia le manda el mensaje. Se guarda en capture.* por compatibilidad.
+  requestCall(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED].includes(sale.status)) throw new Error(`Solicitar llamada no permitido desde estado ${sale.status}`);
+    const note = String(payload.note || "").trim() || null;
+    const area = payload.area || null;
+    return this.store.update(id, { capture: { ...sale.capture, call_requested_at: new Date().toISOString(), call_note: note, call_area: area } }, "capture.call_requested", { note, area });
+  }
+
+  // Captura escribe la CURP (p. ej. la leyó de la foto que mandó el cliente) para completar el alta.
+  registerCurp(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Registrar CURP");
+    const curp = String(payload.curp || "").replace(/\s+/g, "").toUpperCase();
+    if (!/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/.test(curp)) throw new Error("La CURP debe tener 18 caracteres con el formato oficial (ej. GOMA800101HDFRRN09)");
+    const updated = this.store.syncDocuments(id, { customer: { curp } });
+    return this.store.update(id, { customer: { ...updated.customer, curp } }, "capture.curp.registered", {
+      by: payload.by || "Capturista",
+      source: payload.source || "capture",
+      curp_last4: curp.slice(-4),
+    });
+  }
+
+  startCapture(id, operator = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE], "Iniciar captura");
+    return this.store.update(id, {
+      status: SALE_STATUSES.CAPTURE_IN_PROGRESS,
+      queue: "capture",
+      capture: { ...sale.capture, assigned_to: operator.id || null, assigned_name: operator.name || null, started_at: new Date().toISOString() },
+      ...(operator.id ? { assignee: { username: operator.id, name: operator.name || operator.id, assigned_at: new Date().toISOString() } } : {}),
+    }, "capture.started", operator);
+  }
+
+  // Termina el alta y la manda a Validación con las cuatro revisiones en blanco.
+  completeCapture(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.CAPTURE_IN_PROGRESS, SALE_STATUSES.WAITING_CAPTURE], "Completar alta");
+    if (!sale.documents?.complete) throw new Error(`Expediente documental incompleto. Faltan: ${(sale.documents?.missing||[]).join(", ")||"requisitos"}`);
+    return this.store.update(id, {
+      status: SALE_STATUSES.WAITING_VALIDATION,
+      queue: "validation",
+      capture: { ...sale.capture, completed_at: new Date().toISOString(), notes: payload.notes ?? sale.capture.notes },
+      validation: { ...sale.validation, datos: false, alta: false, documentos: false, revision_final: false, approved: false, approved_at: null, correction: null, rejected: false },
+    }, "capture.completed", { notes: payload.notes || "" });
+  }
+
+  // ── Validación ─────────────────────────────────────────────────────────
+  setValidationCheck(id, key, checked, payload = {}) {
+    if (!VALIDATION_KEYS.includes(key)) throw new Error("Check de validación inválido");
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDATION, SALE_STATUSES.VALIDATION_IN_PROGRESS], "Validar expediente");
+    const validation = {
+      ...sale.validation,
+      [key]: Boolean(checked),
+      notes: payload.notes ?? sale.validation.notes,
+      reviewed_by: payload.by || sale.validation?.reviewed_by || null,
+      correction: null,
+      rejected: false,
+    };
+    const allChecked = VALIDATION_KEYS.every(item => validation[item] === true);
+    if (allChecked) {
+      validation.approved = true;
+      validation.approved_at = new Date().toISOString();
+      return this.store.update(id, {
+        status: SALE_STATUSES.WAITING_VALIDITY,
+        queue: "validity",
+        validation,
+        validity: { ...sale.validity, confirmed: false, issue: null },
+      }, "validation.approved", { by: payload.by || null });
+    }
+    validation.approved = false;
+    validation.approved_at = null;
+    return this.store.update(id, {
+      status: SALE_STATUSES.VALIDATION_IN_PROGRESS,
+      queue: "validation",
+      validation,
+    }, "validation.check.updated", { key, checked: Boolean(checked), by: payload.by || null });
+  }
+
+  // Regresa el expediente a Captura. Si la corrección es del cliente, Mia le avisa
+  // (el bridge envía el mensaje) y Captura espera; si es de Captura, sigue en captura.
+  requestCorrection(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDATION, SALE_STATUSES.VALIDATION_IN_PROGRESS, SALE_STATUSES.VALIDATION_REJECTED], "Solicitar corrección");
+    const reason = requireReason(payload);
+    const target = payload.target === "customer" ? "customer" : "capture";
+    const correction = { target, reason, requested_by: payload.by || null, requested_at: new Date().toISOString(), open: true };
+    const validation = { ...sale.validation, approved: false, approved_at: null, correction, rejected: false, notes: reason };
+    if (target === "customer") return this.store.update(id, {
+      status: SALE_STATUSES.WAITING_CAPTURE,
+      queue: "capture",
+      validation,
+      capture: { ...sale.capture, completed_at: null, notes: `Corrección solicitada por Validación: ${reason}` },
+    }, "validation.correction.requested", correction);
+    return this.store.update(id, {
+      status: SALE_STATUSES.CAPTURE_IN_PROGRESS,
+      queue: "capture",
+      validation,
+      capture: { ...sale.capture, completed_at: null, notes: `Corrección solicitada por Validación: ${reason}` },
+    }, "validation.correction.requested", correction);
+  }
+
+  rejectValidation(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDATION, SALE_STATUSES.VALIDATION_IN_PROGRESS], "Rechazar validación");
+    const reason = requireReason(payload);
+    const validation = {
+      ...sale.validation,
+      approved: false,
+      approved_at: null,
+      rejected: true,
+      rejected_at: new Date().toISOString(),
+      rejected_by: payload.by || null,
+      notes: reason,
+      correction: null,
+    };
+    return this.store.update(id, { status: SALE_STATUSES.VALIDATION_REJECTED, queue: "validation", validation }, "validation.rejected", { reason, by: payload.by || null });
+  }
+
+  reopenRejected(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.VALIDATION_REJECTED], "Reabrir validación");
+    const validation = { ...sale.validation, rejected: false, rejected_at: null, rejected_by: null, notes: payload.notes || sale.validation.notes };
+    return this.store.update(id, { status: SALE_STATUSES.VALIDATION_IN_PROGRESS, queue: "validation", validation }, "validation.reopened", payload);
+  }
+
+  // ── Vigencia ───────────────────────────────────────────────────────────
+  reportValidityIssue(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDITY], "Reportar incidencia de vigencia");
+    const reason = requireReason(payload);
+    const issue = { reason, reported_by: payload.by || null, reported_at: new Date().toISOString(), open: true };
+    return this.store.update(id, {
+      status: SALE_STATUSES.VALIDITY_ISSUE,
+      queue: "validity",
+      validity: { ...sale.validity, confirmed: false, issue, notes: reason },
+    }, "validity.issue", issue);
+  }
+
+  reopenValidity(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.VALIDITY_ISSUE], "Reabrir vigencia");
+    return this.store.update(id, {
+      status: SALE_STATUSES.WAITING_VALIDITY,
+      queue: "validity",
+      validity: { ...sale.validity, confirmed: false, issue: null, notes: payload.notes || sale.validity?.notes || "" },
+    }, "validity.reopened", { by: payload.by || null });
+  }
+
+  // Confirma la vigencia y pasa a Cobranza. Si trae el documento en base64, el
+  // bridge se lo envía al cliente y después lo borra del expediente.
+  confirmValidity(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_VALIDITY], "Confirmar vigencia");
+    if (sale.validation?.approved !== true) throw new Error("No se puede confirmar vigencia sin validación aprobada");
+    if (!payload.document_url && !payload.document_name && !payload.document_base64) throw new Error("Se requiere el documento de vigencia");
+    const confirmedAt = new Date().toISOString();
+    return this.store.update(id, {
+      status: SALE_STATUSES.VALIDITY_CONFIRMED,
+      queue: "payment",
+      validity: {
+        ...sale.validity,
+        confirmed: true,
+        document_url: payload.document_url || null,
+        document_name: payload.document_name || null,
+        document_content_type: payload.document_content_type || null,
+        document_base64: payload.document_base64 || null,
+        delivered_to_customer: false,
+        delivered_at: null,
+        confirmed_at: confirmedAt,
+        confirmed_by: payload.by || null,
+        issue: null,
+        notes: payload.notes || "",
+      },
+    }, "validity.confirmed", {
+      document_name: payload.document_name || null,
+      document_url: payload.document_url || null,
+      document_content_type: payload.document_content_type || null,
+      by: payload.by || null,
+      confirmed_at: confirmedAt,
+    });
+  }
+
+  // ── Cobranza ───────────────────────────────────────────────────────────
+  // El importe sale del pago indicado o del precio del plan. El pago vence el mismo día.
+  requestPayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.VALIDITY_CONFIRMED], "Solicitar pago");
+    if (sale.validity?.confirmed !== true || !sale.validity?.confirmed_at) throw new Error("No se puede solicitar pago sin vigencia confirmada");
+    const requestedAt = new Date().toISOString();
+    const dueDate = requestedAt.slice(0, 10);
+    return this.store.update(id, {
+      status: SALE_STATUSES.PAYMENT_REQUESTED,
+      queue: "payment",
+      payment: {
+        ...sale.payment,
+        requested: true,
+        requested_at: requestedAt,
+        requested_by: payload.by || null,
+        method: payload.method || sale.payment?.method || null,
+        amount: payload.amount ?? sale.sale?.precio ?? sale.payment?.amount ?? null,
+        due_date: dueDate,
+        accounts_image_name: payload.accounts_image_name || null,
+        accounts_image_content_type: payload.accounts_image_content_type || null,
+        accounts_image_base64: payload.accounts_image_base64 || null,
+        accounts_image_delivered: false,
+        accounts_image_delivered_at: null,
+        issue: null,
+        notes: payload.notes || sale.payment?.notes || "",
+      },
+    }, "payment.requested", {
+      by: payload.by || null,
+      method: payload.method || null,
+      amount: payload.amount ?? sale.sale?.precio ?? null,
+      due_date: dueDate,
+      accounts_image_name: payload.accounts_image_name || null,
+    });
+  }
+
+  // Registra el comprobante. Si llega dos veces el mismo (misma llave), no hace nada.
+  receivePayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    const proof = proofFrom(payload);
+    if (!proof.proof_url && !proof.proof_name) throw new Error("Se requiere comprobante o referencia del pago");
+    const key = proofKey(payload, proof);
+    const previousKey = sale.payment?.proof_key || null;
+    if (key && previousKey === key && sale.payment?.received === true) return sale;
+    requireStatus(sale, [SALE_STATUSES.PAYMENT_REQUESTED], "Registrar pago");
+    const receivedAt = new Date().toISOString();
+    return this.store.update(id, {
+      status: SALE_STATUSES.PAYMENT_RECEIVED,
+      queue: "payment",
+      payment: {
+        ...sale.payment,
+        received: true,
+        received_at: receivedAt,
+        received_by: payload.by || null,
+        reference: payload.reference || null,
+        proof_key: key,
+        ...proof,
+        issue: null,
+        notes: payload.notes || sale.payment?.notes || "",
+      },
+    }, "payment.received", { by: payload.by || null, reference: payload.reference || null, proof_key: key, ...proof });
+  }
+
+  reportPaymentIssue(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.PAYMENT_REQUESTED, SALE_STATUSES.PAYMENT_RECEIVED], "Reportar incidencia de pago");
+    const reason = requireReason(payload);
+    const issue = { reason, reported_by: payload.by || null, reported_at: new Date().toISOString(), open: true, previous_status: sale.status };
+    return this.store.update(id, {
+      status: SALE_STATUSES.PAYMENT_ISSUE,
+      queue: "payment",
+      payment: { ...sale.payment, issue, notes: reason },
+    }, "payment.issue", issue);
+  }
+
+  // Al reabrir, regresa al estado en que estaba antes de la incidencia.
+  reopenPayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.PAYMENT_ISSUE], "Reabrir pago");
+    const previous = sale.payment?.issue?.previous_status === SALE_STATUSES.PAYMENT_RECEIVED ? SALE_STATUSES.PAYMENT_RECEIVED : SALE_STATUSES.PAYMENT_REQUESTED;
+    return this.store.update(id, {
+      status: previous,
+      queue: "payment",
+      payment: { ...sale.payment, issue: null, notes: payload.notes || sale.payment?.notes || "" },
+    }, "payment.reopened", { by: payload.by || null, status: previous });
+  }
+
+  // Cierra el expediente. El bridge pasa la conversación a Atención a Clientes.
+  validatePayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.PAYMENT_RECEIVED], "Validar pago");
+    if (sale.payment?.received !== true) throw new Error("No existe pago recibido para validar");
+    if (!sale.payment?.proof_url && !sale.payment?.proof_name) throw new Error("No se puede validar pago sin comprobante");
+    if (sale.payment?.issue?.open) throw new Error("Existe una incidencia de pago abierta");
+    const validatedAt = new Date().toISOString();
+    return this.store.update(id, {
+      status: SALE_STATUSES.COMPLETED,
+      queue: "completed",
+      payment: { ...sale.payment, validated: true, validated_at: validatedAt, validated_by: payload.by || null, issue: null, notes: payload.notes || sale.payment?.notes || "" },
+      completed_at: validatedAt,
+    }, "payment.validated", { by: payload.by || null, validated_at: validatedAt });
+  }
+
+  // ── Supervisión ──────────────────────────────────────────────────────────
+  // Regresa un expediente a una etapa anterior. Todo lo posterior a esa etapa se
+  // reinicia para que el expediente vuelva a pasar por las mismas validaciones.
+  returnToStage(id, payload = {}) {
+    const sale = this.mustGet(id);
+    const target = RETURN_TARGETS[payload.target];
+    if (!target) throw new Error("Etapa destino inválida");
+    if (sale.status === SALE_STATUSES.COMPLETED) throw new Error("Un expediente completado no se puede regresar");
+    if (sale.status === SALE_STATUSES.DROPPED_NONPAYMENT) throw new Error("Es una baja por falta de pago; usa 'Reactivar (ya pagó)'");
+    const reason = requireReason(payload);
+    if (target.requiresValidation && sale.validation?.approved !== true) throw new Error("El expediente no tiene validación aprobada; regrésalo a Validación");
+    if (target.requiresValidity && sale.validity?.confirmed !== true) throw new Error("El expediente no tiene vigencia confirmada; regrésalo a Vigencia");
+    const patch = { status: target.status, queue: target.queue, cancellation: null };
+    const resetPayment = {
+      ...sale.payment,
+      requested: false, requested_at: null, requested_by: null,
+      received: false, received_at: null, received_by: null,
+      reference: null, proof_url: null, proof_name: null, proof_key: null,
+      validated: false, validated_at: null, validated_by: null,
+      issue: null,
+    };
+    const resetValidity = { ...sale.validity, confirmed: false, confirmed_at: null, confirmed_by: null, issue: null, delivered_to_customer: false, delivery_started_at: null };
+    const resetValidation = { ...sale.validation, datos: false, alta: false, documentos: false, revision_final: false, approved: false, approved_at: null, correction: null, rejected: false };
+    if (target.queue === "capture") Object.assign(patch, {
+      capture: { ...sale.capture, completed_at: null, notes: `Regresado por Supervisión: ${reason}` },
+      validation: resetValidation,
+      validity: resetValidity,
+      payment: resetPayment,
+    });
+    if (target.queue === "validation") Object.assign(patch, { validation: resetValidation, validity: resetValidity, payment: resetPayment });
+    if (target.queue === "validity") Object.assign(patch, { validity: resetValidity, payment: resetPayment });
+    if (target.queue === "payment") Object.assign(patch, { payment: resetPayment });
+    return this.store.update(id, patch, "supervision.returned", { from_status: sale.status, from_queue: sale.queue, to_status: target.status, to_queue: target.queue, reason });
+  }
+
+  // ── Atención a Clientes ─────────────────────────────────────────────
+  // Un área (o Supervisión) manda el expediente a Atención a Clientes con el motivo. El expediente
+  // conserva su etapa, pero queda en pausa para el área hasta que Atención lo regrese.
+  sendToService(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED, SALE_STATUSES.DROPPED_NONPAYMENT].includes(sale.status)) throw new Error("Este expediente ya no está en proceso");
+    if (sale.service?.open) throw new Error("El expediente ya está en Atención a Clientes");
+    const reason = requireReason(payload);
+    const service = { open: true, reason, case_id: payload.case_id || null, from_area: payload.area || null, from_queue: sale.queue, from_status: sale.status, sent_at: new Date().toISOString(), sent_by: payload.by || null, returned_at: null, returned_to: null, return_note: null };
+    return this.store.update(id, { service }, "service.sent", { reason, from_area: service.from_area, from_queue: sale.queue, case_id: service.case_id });
+  }
+
+  // Atención a Clientes lo regresa: a la misma área si ya lo solucionó, o a otra área que deba
+  // revisarlo (en ese caso se reinicia lo posterior, igual que cuando Supervisión lo regresa).
+  returnFromService(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (!sale.service?.open) throw new Error("El expediente no está en Atención a Clientes");
+    const note = String(payload.note || "").trim();
+    if (!note) throw new Error("Escribe qué se resolvió o por qué pasa a esa área");
+    const targetQueue = payload.target === "origin" || !payload.target ? sale.queue : payload.target;
+    const target = RETURN_TARGETS[targetQueue];
+    if (!target) throw new Error("Área destino inválida");
+    const closed = { ...sale.service, open: false, returned_at: new Date().toISOString(), returned_to: targetQueue, return_note: note, returned_by: payload.by || null };
+    if (targetQueue === sale.queue) {
+      return this.store.update(id, { service: closed }, "service.returned", { to_queue: targetQueue, note, same_area: true });
+    }
+    if (targetQueue === "validation" && !sale.capture?.completed_at && sale.queue === "capture") throw new Error("Todavía no se completa el alta en Captura; regrésalo a Captura");
+    // Se reutiliza la regla de Supervisión para mover y reiniciar etapas (valida los requisitos).
+    // Primero se mueve (si no cumple los requisitos, falla sin cambiar nada) y luego se cierra.
+    this.returnToStage(id, { target: targetQueue, reason: `Atención a Clientes: ${note}` });
+    return this.store.update(id, { service: closed }, "service.returned", { to_queue: targetQueue, note, same_area: false, from_queue: sale.queue });
+  }
+
+  cancelSale(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status === SALE_STATUSES.COMPLETED) throw new Error("Un expediente completado no se puede cancelar");
+    if (sale.status === SALE_STATUSES.CANCELLED) throw new Error("El expediente ya está cancelado");
+    const reason = requireReason(payload);
+    return this.store.update(id, {
+      status: SALE_STATUSES.CANCELLED,
+      queue: "cancelled",
+      cancellation: { reason, at: new Date().toISOString(), from_status: sale.status, from_queue: sale.queue },
+    }, "supervision.cancelled", { reason, from_status: sale.status, from_queue: sale.queue });
+  }
+
+  // ── Bajas por falta de pago ─────────────────────────────────────────
+  // Solo clientes con alta vigente (vigencia confirmada o proceso completado). El expediente conserva
+  // todo y guarda el adeudo: meses sin pagar y monto (por omisión, la mensualidad del plan por mes).
+  dropForNonPayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status === SALE_STATUSES.DROPPED_NONPAYMENT) throw new Error("El cliente ya está dado de baja por falta de pago");
+    if (sale.status === SALE_STATUSES.CANCELLED) throw new Error("Un expediente cancelado no se puede dar de baja");
+    if (sale.validity?.confirmed !== true && sale.status !== SALE_STATUSES.COMPLETED) throw new Error("Solo se da de baja a un cliente con alta vigente; si su alta no quedó, cancela el expediente");
+    const reason = requireReason(payload);
+    const months = Math.max(1, Math.min(24, Math.floor(Number(payload.months || 1)) || 1));
+    const monthly = Number(sale.sale?.precio || PLAN_PRICES[sale.sale?.plan] || 0) || null;
+    const typed = payload.amount === "" || payload.amount == null ? null : Number(payload.amount);
+    if (typed != null && (!Number.isFinite(typed) || typed <= 0)) throw new Error("El monto del adeudo no es válido");
+    const amount = typed ?? (monthly ? monthly * months : null);
+    if (!amount) throw new Error("Indica el monto del adeudo");
+    const droppedAt = new Date().toISOString();
+    const debt = { open: true, amount, months, plan: sale.sale?.plan || null, reason, dropped_at: droppedAt, dropped_by: payload.by || null, from_status: sale.status, from_queue: sale.queue, customer_contacted_at: null, proof_received_at: null, settled: false, settled_at: null, settled_by: null, settle_notes: null };
+    return this.store.update(id, { status: SALE_STATUSES.DROPPED_NONPAYMENT, queue: "dropped", debt, assignee: null }, "supervision.dropped_nonpayment", { reason, amount, months, from_status: sale.status, from_queue: sale.queue });
+  }
+
+  // Ya cubrió su adeudo: regresa a donde estaba (normalmente Completados) y se avisa al cliente.
+  reactivateAfterPayment(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status !== SALE_STATUSES.DROPPED_NONPAYMENT) throw new Error("El expediente no está dado de baja por falta de pago");
+    const notes = String(payload.notes || payload.reason || "").trim();
+    const fromStatus = sale.debt?.from_status && sale.debt.from_status !== SALE_STATUSES.DROPPED_NONPAYMENT ? sale.debt.from_status : SALE_STATUSES.COMPLETED;
+    const fromQueue = sale.debt?.from_queue && sale.debt.from_queue !== "dropped" ? sale.debt.from_queue : "completed";
+    const debt = { ...sale.debt, open: false, settled: true, settled_at: new Date().toISOString(), settled_by: payload.by || null, settle_notes: notes || null };
+    return this.store.update(id, { status: fromStatus, queue: fromQueue, debt }, "supervision.debt_settled", { notes, amount: sale.debt?.amount ?? null, to_status: fromStatus, to_queue: fromQueue });
+  }
+
+  // El cliente dado de baja volvió a escribir (Mia ya le pidió cubrir su adeudo). Si escribió desde otra
+  // conversación, el expediente se liga a la nueva para que los avisos le lleguen ahí.
+  debtCustomerContacted(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if (sale.status !== SALE_STATUSES.DROPPED_NONPAYMENT) return sale;
+    const conversationId = Number(payload.conversation_id || 0) || sale.conversation_id;
+    const patch = { debt: { ...sale.debt, customer_contacted_at: new Date().toISOString(), ...(payload.proof ? { proof_received_at: new Date().toISOString(), proof_name: payload.proof_name || null } : {}) } };
+    if (conversationId !== sale.conversation_id) patch.conversation_id = conversationId;
+    return this.store.update(id, patch, payload.proof ? "debt.proof_received" : "debt.customer_contacted", { conversation_id: conversationId, previous_conversation_id: sale.conversation_id !== conversationId ? sale.conversation_id : null });
+  }
+
+  // Corregir el nombre del cliente (Captura mientras captura; Supervisión en cualquier etapa).
+  correctCustomerName(id, payload = {}, { anyStage = false } = {}) {
+    const sale = this.mustGet(id);
+    if (!anyStage) requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Corregir nombre");
+    const nombre = String(payload.nombre || "").replace(/\s+/g, " ").trim();
+    if (nombre.length < 4 || nombre.length > 90 || /\d/.test(nombre)) throw new Error("Escribe el nombre completo del cliente");
+    if (nombre === sale.customer?.nombre) throw new Error("El expediente ya tiene ese nombre");
+    return this.store.update(id, { customer: { ...sale.customer, nombre } }, "customer.name_corrected", { from: sale.customer?.nombre || null, to: nombre });
+  }
+
+  // Supervisión cambia el plan en cualquier etapa (el cliente pidió otro). Si ya se pidió el pago,
+  // el monto se actualiza al nuevo precio.
+  changePlan(id, payload = {}) {
+    const sale = this.mustGet(id);
+    if ([SALE_STATUSES.CANCELLED, SALE_STATUSES.DROPPED_NONPAYMENT].includes(sale.status)) throw new Error("Este expediente no puede cambiar de plan");
+    const plan = String(payload.plan || "");
+    const prices = { plan_1: 1100, plan_2: 1500 };
+    if (!prices[plan]) throw new Error("Elige Plan 1 o Plan 2");
+    if (sale.sale?.plan === plan) throw new Error("El expediente ya tiene ese plan");
+    const reason = requireReason(payload);
+    const precio = prices[plan];
+    const payment = sale.payment && sale.payment.amount != null ? { ...sale.payment, amount: precio } : sale.payment;
+    return this.store.update(id, { sale: { ...sale.sale, plan, precio }, ...(payment ? { payment } : {}) }, "supervision.plan_changed", {
+      from: sale.sale?.plan || null, to: plan, reason, notify_customer: payload.notify_customer !== false,
+    });
+  }
+
+  // assignee: {username,name} o null para dejarlo sin asignar.
+  assign(id, assignee) {
+    const sale = this.mustGet(id);
+    if ([SALE_STATUSES.COMPLETED, SALE_STATUSES.CANCELLED, SALE_STATUSES.DROPPED_NONPAYMENT].includes(sale.status)) throw new Error("El expediente ya no está en una cola de trabajo");
+    const next = assignee ? { username: assignee.username, name: assignee.name, assigned_at: new Date().toISOString() } : null;
+    return this.store.update(id, { assignee: next }, "assignment.changed", { from: sale.assignee?.username || null, to: next?.username || null, to_name: next?.name || null });
+  }
+
+  mustGet(id) {
+    const sale = this.store.get(id);
+    if (!sale) throw new Error("Expediente no encontrado");
+    return sale;
+  }
+}
