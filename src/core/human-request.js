@@ -33,7 +33,7 @@ export function explicitHumanRequest(text) {
 // Mia ofreció "¿Quieres que te comunique con un asesor?" y el cliente dijo que sí.
 export function acceptsAdvisorOffer(text, lastReply = "") {
   // "¿…o prefieres que un asesor revise tu caso primero?" → "Sí, revisarlo por favor" (caso real 27-oct).
-  if (/prefieres que un asesor revise tu caso/.test(norm(lastReply)) && /\b(?:asesor|revis\w*|que lo revise|que lo vea)\b/.test(norm(text)) && !/\b(?:iniciemos|iniciar|no)\b/.test(norm(text))) return true;
+  if (/prefieres que un asesor revise tu caso/.test(norm(lastReply)) && /\b(?:asesor|r?revis\w*|que lo revise|que lo vea|revision)\b/.test(norm(text)) && !/\b(?:iniciemos|iniciar|no)\b/.test(norm(text))) return true;
   if (!/quieres que te comunique con un asesor/.test(norm(lastReply))) return false;
   const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
   // "Ok, voy a buscar la hoja rosa y te envío foto" (caso real 21-oct) no es aceptar al asesor.

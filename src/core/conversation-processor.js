@@ -6,7 +6,7 @@ import { mergeMemory } from "../ai/services.js";
 import { fallbackDecision, contextualNextStep } from "./fallback.js";
 import { contextualActivityPatch, enforcePreAuthorizationDecision } from "./next-commercial-guard.js";
 import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDecision, contextualPlanExplanation, disclosureViolations, effectivePlan, medicalNotNeededDecision, coverageAndRequirementsDecision } from "../sales/progressive-disclosure.js";
-import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, deriveCommercialNeed } from "../sales/need-before-recommendation.js";
+import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, deriveCommercialNeed, hasCommercialNeed } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
 import { deferralDecision, detectDeferral, detectClosing, isClosingReply } from "../sales/customer-deferral.js";
@@ -735,6 +735,14 @@ export class ConversationProcessor {
     if (directRequest && ["curp", "nss"].includes(planner?.question_key)) planner = { ...planner, question_key: null, customer_question_priority: true };
     if (!memory.sales_cycle?.authorized && ["curp", "nss"].includes(planner?.question_key)) planner = { ...planner, action: "continuar_venta", question_key: null, specialized: true };
     if (["curp", "nss"].includes(planner?.question_key) && sensitiveSlotSuppressed(memory, planner.question_key)) planner = { action: "esperar_o_continuar_sin_dato_sensible", question_key: null, specialized: true };
+    // 02-nov (export 29-oct al 2-nov): pedir nombre, edad y actividad uno por uno antes de recomendar costaba
+    // 3-4 mensajes y muchos clientes se iban ("No" → "¿Cuál es tu nombre?" → silencio). Antes de que acepte, Mia
+    // pregunta qué busca, recomienda y cierra; los datos salen de la CURP al iniciar el trámite.
+    if (!memory.sales_cycle?.authorized && ["nombre", "edad", "actividad"].includes(planner?.question_key) && !planner?.interruptible) {
+      planner = hasCommercialNeed(memory)
+        ? { action: "recomendar_plan_y_proponer_iniciar", question_key: null, customer_question_priority: Boolean(planner.customer_question_priority), direct_answer_first: planner.direct_answer_first, direct_request: planner.direct_request }
+        : { action: "preguntar_necesidad", question_key: "necesidad_principal", customer_question_priority: Boolean(planner.customer_question_priority), direct_answer_first: planner.direct_answer_first, direct_request: planner.direct_request };
+    }
     if (memory.sales_cycle?.authorized) planner = { action: "expediente_onboarding", question_key: memory.operations?.onboarding_next || null, specialized: true, operations: memory.operations };
     memory.ventas = sales;
     memory.flujo = { fase: memory.sales_cycle?.authorized ? "operaciones" : "venta", siguiente_paso: planner.question_key };

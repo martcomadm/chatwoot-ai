@@ -1,3 +1,3 @@
 // Versión visible en Operations (debajo de "Operations NEXT") para confirmar qué quedó desplegado.
 // Se actualiza con cada entrega.
-export const BUILD_LABEL = "29-oct · Ricardo fuera de la rotación";
+export const BUILD_LABEL = "02-nov · Embudo de venta más corto";

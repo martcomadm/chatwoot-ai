@@ -23,6 +23,10 @@ const FIXES = [
   [/\bx\b(?=\s+(?:cu[aá]nto|favor|fa|el|la|mes|semana|tiempo|que))/gi, "por"],
   [/\bq\b(?=\s+(?:cotizar|tener|pagar|hacer|aser|debo|tengo|necesito|es|implica|incluye|cuesta|onda))/gi, "que"],
   [/\bpen[cs]i[oó][nm]\b/gi, "pensión"],
+  // "k presios tiene", "kisiera" (caso real 1-nov: se le pidió el nombre en vez de darle el precio).
+  [/\b(?:presios?|precioz)\b/gi, "precios"],
+  [/\bk(?=\s+(?:precios?|costo|cuesta|sale|vale)\b)/gi, "que"],
+  [/\bkisiera\b/gi, "quisiera"],
   [/\bpen[cs]ionarme\b/gi, "pensionarme"],
   [/\b(?:i fonavit|imfonavit|infonavid|infonabit|imfonabit)\b/gi, "infonavit"],
   // "Solo servicuo", "Solo segurk medici" (caso real 27-oct).

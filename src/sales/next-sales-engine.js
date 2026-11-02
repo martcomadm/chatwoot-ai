@@ -25,6 +25,8 @@ const AUTHORIZATION_PATTERNS = [
   /\b(iniciemos|empecemos|empezemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,
   // "Iniciamos mi trámite", "Empezamos con el trámite" (caso real 28-oct).
   /\b(?:iniciamos|empezamos|comenzamos|arrancamos)\s+(?:con\s+)?(?:el\s+|mi\s+)?(?:tramite|proceso|alta)\b/,
+  // "Lo iniciamos", "Sí, lo hacemos" (caso real 28-oct: se le contestó "¿Hay algo más en lo que te pueda ayudar?").
+  /^(?:(?:si|ok|pues|bueno|va|entonces|claro)[ ,]+)*(?:lo|la)\s+(?:iniciamos|empezamos|comenzamos|hacemos|tramitamos|contratamos)\b/,
   /\bme interesa (contratarlo|hacerlo|iniciar|proceder)\b/,
   /\bsi[, ]+(quiero (?:iniciar|proceder|continuar|empezar)|adelante con (?:el )?(?:tramite|proceso|alta)|procedamos|iniciemos|empecemos|empezemos)\b/,
   /\b(?:si[, ]*)?me interesa[, ]+(?:empecemos|empezemos|iniciemos|procedamos)(?:\s+(?:con )?(?:el )?(?:tramite|proceso|alta))?\b/,

@@ -55,6 +55,11 @@ const LATER_RE = [
   /\bmanana\s+(?:lo\s+|le\s+|te\s+)?(?:decido|confirmo|concreto|digo|aviso|resuelvo)\b|\b(?:le|te)\s+(?:puedo\s+)?confirm\w*\s+(?:el\s+)?(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana)\b/,
   /\b(?:les|le|te)\s+voy\s+a\s+(?:llamar|marcar|escribir|hablar|contactar)\b|\b(?:al|el)\s+(?:proximo|siguiente)\s+mes\b/,
   /^(?:ok\s+)?(?:dame|deme|denme|dejame|dejeme)\s+(?:una|un|unas|dos|tres|unos)\s+(?:hora|horas|rato|ratito|minutos|dias)\b/,
+  // "Haré todo lo posible por mandar documentos mañana", "te los mando en un par de horas" (casos reales 28-oct y 1-nov:
+  // la IA quería pedir la CURP y la revisión la cambiaba por una pregunta genérica).
+  // Un "Sí, solo que… le envío papeles mañana" acepta iniciar (caso 21-oct): ese no cuenta aquí.
+  /^(?!(?:si|claro|va|sale|ok si)\b).*\b(?:mandar|enviar|pasar|mando|envio|paso)\w*\s+(?:los\s+|mis\s+|tus\s+|sus\s+)?(?:documentos|papeles|datos)\b.{0,25}\b(?:manana|al rato|mas tarde|luego|despues|en la tarde|en la noche|el lunes|el martes|el miercoles|el jueves|el viernes|el sabado|el domingo)\b/,
+  /\b(?:te|se|le|t)\s+(?:lo|la|los|las)\s+(?:mando|envio|paso)\s+en\s+(?:un\s+par\s+de\s+horas|un\s+rato|unas\s+horas)\b/,
 ];
 
 // "Ahorita no estoy trabajando", "Por el momento no cuento con IMSS": responden una pregunta, no posponen.
@@ -184,7 +189,7 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   let reply;
   // Quiere iniciar pero después ("Podemos iniciar el trámite el lunes, voy a buscar mis papeles",
   // "mañana le envío papeles"; casos reales 21 y 22-oct): se le dice qué tener listo.
-  const startLater = kind === "later" && /\b(?:papeles|documentos|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b/.test(norm(combinedText));
+  const startLater = kind === "later" && /\b(?:papeles|documentos|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
   if (startLater) reply = String(memory.ultima_respuesta_agente || "").includes(START_LATER_MARK) ? "" : `Perfecto${name}. Cuando tengas a la mano tu CURP, NSS e INE, ${START_LATER_MARK}${plan ? ` con ${plan}` : ""}.`;
   else if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
   else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando puedas, ${CLOSING_MARK} y con gusto continuamos con tu trámite. Aquí estaré para ayudarte.`;

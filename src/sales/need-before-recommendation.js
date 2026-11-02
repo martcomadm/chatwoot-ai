@@ -60,11 +60,14 @@ export function needGuardDecision(memory = {}, combinedText = "") {
   // prevents an unsupported recommendation afterwards, but it must not replace
   // the customer's request for guidance with the same discovery question.
   if (isAdvisoryTurn(combinedText)) return null;
-  if (!memory?.nombre || !memory?.edad || !memory?.actividad) return null;
+  // 02-nov: se pregunta qué busca en cuanto se sabe si tiene IMSS (antes esperaba nombre, edad y actividad).
+  if ((memory?.tiene_imss === null || memory?.tiene_imss === undefined) && !(memory?.resolved_questions || []).includes("tiene_imss") && !memory?.nombre) return null;
   // Si el cliente pregunta algo, se le responde primero (la IA contesta); no se repite la
   // pregunta de necesidad encima de su pregunta (caso real: se repitió 3 veces).
   if (/[?¿]/.test(String(combinedText)) || /^(?:que|cual|cuales|como|cuanto|cuando|donde|por que|tu dime|dime|me puedes|explicame)\b/.test(norm(combinedText))) return null;
   if (/para orientarte mejor, ¿que es lo mas importante para ti/.test(norm(memory?.ultima_respuesta_agente || ""))) return null;
+  // "Quisiera información del plan 2": pide un plan o información concreta; se le responde, no se le pregunta qué busca.
+  if (/\bplan\s*(?:1|2|uno|dos)\b|\b(?:informacion|info|precio|costo|cuanto)\b/.test(norm(combinedText))) return null;
 
   const candidateName = memory?.primer_nombre || String(memory?.nombre || "").trim().split(/\s+/)[0] || null;
   const firstName = candidateName && plausibleName(candidateName) ? candidateName : null;

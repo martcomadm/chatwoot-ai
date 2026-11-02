@@ -132,14 +132,14 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   }
   if (plan === "plan_1") {
     return {
-      reply: "Claro. El Plan 1 incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Se maneja con un salario diario registrado de $480 MXN y tiene un costo de $1,100 MXN mensuales. Una vez que tengamos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si quieres, puedo explicarte qué atención médica puedes recibir o cuáles son los requisitos para iniciar.",
+      reply: "Claro. El Plan 1 incluye servicio médico del IMSS, continuación de semanas cotizadas y la posibilidad de registrar beneficiarios conforme a las reglas del IMSS. Se maneja con un salario diario registrado de $480 MXN y tiene un costo de $1,100 MXN mensuales. Para iniciar solo necesitamos CURP, NSS e INE del titular, todo por este medio, y con la documentación completa el alta suele quedar en unas 48 horas hábiles. El primer pago se hace hasta que tu alta ya está vigente. ¿Quieres que iniciemos tu trámite?",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
   }
   if (plan === "plan_2") {
     return {
-      reply: "Claro. El Plan 2 cuesta $1,500 MXN mensuales y maneja un salario diario registrado de $480 MXN. Incluye servicio médico del IMSS y continuación de semanas cotizadas; además contempla aportaciones a AFORE, alternando un mes 5.5% y el siguiente 10%, y acumulación estimada de entre 200 y 250 puntos para INFONAVIT. También incluye incapacidad por enfermedad (no por riesgo de trabajo). Para iniciar necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se solicita posteriormente. Con la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. Si estás de acuerdo, podemos iniciar el trámite.",
+      reply: "Claro. El Plan 2 cuesta $1,500 MXN mensuales y maneja un salario diario registrado de $480 MXN. Incluye servicio médico del IMSS y continuación de semanas cotizadas; además contempla aportaciones a AFORE, alternando un mes 5.5% y el siguiente 10%, y acumulación estimada de entre 200 y 250 puntos para INFONAVIT. También incluye incapacidad por enfermedad (no por riesgo de trabajo). Para iniciar necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se solicita posteriormente. Con la documentación completa, el alta suele quedar en unas 48 horas hábiles y el primer pago se hace hasta que ya está vigente. ¿Quieres que iniciemos tu trámite?",
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
@@ -205,7 +205,7 @@ export function compactPlanRecommendation(memory = {}, combinedText = "") {
   if (plan === "plan_1" && retirementContext && weeksContext) {
     return {
       // Si ya dijo que empezó a cotizar antes de 1997 (anuncio de pensión), se le dice que es Ley 73.
-      reply: `Entiendo. ${memory?.pension_data?.cotizo_antes_1997 ? "Como empezaste a cotizar antes del 1 de julio de 1997, tu caso es Ley 73: necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos. " : ""}Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN mensuales. Si quieres, te explico cómo funciona y qué conviene revisar en tu caso antes de iniciar.`,
+      reply: `Entiendo. ${memory?.pension_data?.cotizo_antes_1997 ? "Como empezaste a cotizar antes del 1 de julio de 1997, tu caso es Ley 73: necesitas al menos 13 meses de afiliación antes de tramitar tu pensión para reactivar tus derechos. " : ""}Si tu objetivo es seguir cotizando semanas pensando en tu futura pensión, el Plan 1 puede ser una opción para continuar cotizando y además contar con servicio médico del IMSS. Tiene un costo de $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`,
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     };
