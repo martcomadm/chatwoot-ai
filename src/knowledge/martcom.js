@@ -87,6 +87,13 @@ GUARDERÍA Y CARTA PATRONAL
 
 FINANCIAMIENTO
 - MARTCOM NO da financiamiento ni préstamos (confirmado 28-oct). El pago es mensual y el primero se hace con el alta ya vigente.
+- Mia solo da el precio completo de cada mensualidad. NUNCA ofrezcas pagos en partes, en dos exhibiciones, anticipos ni descuentos (confirmado 2-nov).
+
+EMPRESA DEL ALTA
+- Si preguntan el nombre de la empresa: manejamos una variedad de empresas y una queda asignada de forma aleatoria al momento de la afiliación; la puede verificar en su documento de vigencia cuando salga (confirmado 2-nov). No digas que "no compartimos el nombre".
+
+REVISIÓN DE SEMANAS
+- Si el cliente solo quiere revisar sus semanas cotizadas o cuántas le faltan, se pasa con el equipo de Captura, que saca su constancia con la CURP o el NSS (confirmado 2-nov).
 - Modalidad 40: la carta patronal NO se ocupa para la Modalidad 40 (son trámites independientes entre la clínica y la empresa). Aclarado por Atención a Clientes 28-oct.
 
 DATOS PARA PAGAR

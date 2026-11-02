@@ -9,6 +9,7 @@ export const FACT_LOCKED_TYPES = new Set([
   "advisor_topic",
   "nss_lookup",
   "weeks_review",
+  "company_name",
   "other_services",
   "employer_letter",
   "financing",

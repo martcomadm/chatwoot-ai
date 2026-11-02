@@ -1,3 +1,4 @@
+import { CaptureReviewRouter } from "./operations/capture-review.js";
 import "dotenv/config";
 import express from "express";
 import OpenAI from "openai";
@@ -106,6 +107,8 @@ try {
   customerService.start();
   workflowBridge.onCompletedSale = sale => customerService.openCase({ conversation_id: sale.conversation_id, kind: "completed_sale", reason: "Pago validado: trámite completado", sale });
   processor.onCustomerServiceCase = input => customerService.openCase(input);
+  // Revisión de semanas: con los capturistas (2-nov).
+  processor.captureReview = new CaptureReviewRouter({ users: opsUsers, chatwoot, notifier: opsNotifier, file: path.join(config.storage.dataDir, "capture-review-rotation.json") });
   processor.onCustomerServiceMessage = (conversationId, text, sale) => customerService.customerWrote(conversationId, text, { sale });
   // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
   if (followUps) {

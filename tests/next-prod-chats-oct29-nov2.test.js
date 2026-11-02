@@ -63,3 +63,47 @@ test("frases que no se reconocían", () => {
   assert.equal(deferralDecision(m, "Aré todo lo posible por mandar documentos mañana")?.deferral, "start_later");
   assert.equal(deferralDecision(m, "Ok t parece si t los mando en un par de horas voy camino a casa")?.deferral, "start_later");
 });
+
+import { directAnswerText } from "../src/orchestrator/conversation-orchestrator.js";
+import { CaptureReviewRouter } from "../src/operations/capture-review.js";
+test("confirmado 2-nov: empresa asignada al afiliarse; revisión de semanas con Captura", async () => {
+  assert.match(directAnswerText(detectDirectRequest("A qué nombre de empresa es la alta")), /variedad de empresas.*aleatoria.*vigencia/s);
+  // Rotación entre capturistas activos con ID de Chatwoot.
+  const assigned = []; const notes = [];
+  const users = { list: () => [
+    { username: "ana.captura", name: "Ana", areas: ["captura"], active: true, chatwoot_agent_id: 31 },
+    { username: "beto.captura", name: "Beto", areas: ["captura"], active: true, chatwoot_agent_id: 32 },
+    { username: "sin.id", name: "Sin ID", areas: ["captura"], active: true },
+    { username: "vale", name: "Vale", areas: ["validacion"], active: true, chatwoot_agent_id: 40 },
+  ] };
+  const router = new CaptureReviewRouter({ users, chatwoot: { async assignConversation(id, a) { assigned.push([id, a]); } }, notifier: { async notify(n) { notes.push(n); } } });
+  await router.route({ conversationId: 7 }); await router.route({ conversationId: 8 }); await router.route({ conversationId: 9 });
+  assert.deepEqual(assigned, [[7, 31], [8, 32], [9, 31]]);
+  assert.equal(notes[0].title, "Cliente quiere revisar sus semanas");
+  assert.deepEqual(notes[0].to, ["ana.captura"]);
+  // En la conversación: Mia avisa, deja nota y pasa con Captura.
+  const c = conversation();
+  const routed = [];
+  const original = c.say;
+  const sent = await (async () => {
+    const { ConversationProcessor: P } = await import("../src/core/conversation-processor.js");
+    const state = { sent: [], notes: [], memory: { ultima_respuesta_agente: "¿Quieres que te explique cómo funciona?" } };
+    const m = { id: 1, message_type: 0, sender_type: "Contact", sender: { type: "contact" }, private: false, content: "Solo quiero saber cuántas semanas tengo", attachments: [], created_at: 1 };
+    const p = new P({
+      config: { chatwoot: { inboxId: 7, agentId: 53 }, ai: { validationLabel: "validacion", publicName: "Mia de MARTCOM", maxReplyChars: 850 }, operations: {} },
+      chatwoot: { async getConversation() { return { id: 5, inbox_id: 7, meta: { assignee: { id: 53 } }, labels: [], messages: [m] }; }, async sendMessage(_i, t, priv) { (priv ? state.notes : state.sent).push(t); }, async getMessages() { return { payload: [] }; } },
+      labels: { async mergeSafe() { return []; } },
+      memories: { get: () => structuredClone(state.memory), async set(_i, v) { state.memory = v; }, async merge() {}, hasProcessed: () => false, async markProcessedMany() {} },
+      agentRotation: {}, ai: { extractAmbiguous: async () => ({}), generateDecision: async () => ({ reply: "x" }), repairDecision: async () => ({}), handoffSummary: async () => "resumen" },
+      inspectorEvents: { async record() {} }, handoffRouter: {},
+    });
+    p.captureReview = { async route(x) { routed.push(x); return { agent: { name: "Ana" }, assigned: true }; } };
+    await p.process(5, { ids: ["1"], webhookMessages: new Map([["1", m]]) });
+    return state;
+  })();
+  assert.equal(routed.length, 1);
+  assert.match(sent.sent[0], /equipo de Captura/);
+  assert.match(sent.notes[0], /^MÍA → CAPTURA/);
+  assert.equal(sent.memory.handoff.agent_name, "Ana");
+  void original;
+});

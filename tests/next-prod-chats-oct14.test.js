@@ -46,7 +46,7 @@ test("preguntas reales reciben respuesta directa", () => {
     "Qué necesita que le envíe": "requirements",
     "Que modalidad atienden": "modality",
     "Y si es legal ?": "legitimacy",
-    "Y cuál es la empresa": "operational_model",
+    "Y cuál es la empresa": "company_name", // 2-nov: se explica que la empresa se asigna al afiliarse
     "Con cuántos patrones dan de alta ?": "operational_model",
     "En donde está está enpresa": "location",
     "Tiene ubicación?": "location",

@@ -89,10 +89,11 @@ export const EVENT_LABELS = {
   onboarding_declined: "El cliente ya no quiere continuar (aviso a Operaciones)",
   payment_extension_requested: "Pidió más tiempo para pagar (aviso a Cobranza)",
   repeated_answer_regenerated: "Respuesta fija repetida: la redactó la IA",
+  capture_review_handoff: "Pasó a Captura (revisión de semanas)",
 };
 
 // Eventos que explican por qué Mia no contestó; van en el .txt junto a los mensajes.
-const SILENCE_EVENTS = new Set(["already_answered_skip", "empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule", "agent_owned_skip", "onboarding_declined", "payment_extension_requested"]);
+const SILENCE_EVENTS = new Set(["already_answered_skip", "empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule", "agent_owned_skip", "onboarding_declined", "payment_extension_requested", "capture_review_handoff"]);
 
 const REASON_LABELS = {
   human_replied: "Parecía que una persona ya había contestado",

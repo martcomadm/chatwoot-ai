@@ -151,6 +151,8 @@ export function explainedPlanInReply(reply = "") {
   return null;
 }
 
+export const CAPTURE_REVIEW_TEXT = "Con gusto. Para revisar cuántas semanas tienes cotizadas te comunico con nuestro equipo de Captura: ellos sacan tu constancia de semanas con tu CURP o tu NSS. Si los tienes a la mano, compártelos por aquí y en un momento te atienden.";
+
 export class ConversationProcessor {
   constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter = null, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null }) {
     this.templates = templates;
@@ -163,6 +165,7 @@ export class ConversationProcessor {
     this.inspectorEvents = inspectorEvents;
     this.handoffRouter = handoffRouter;
     this.humanHandoffRouter = humanHandoffRouter;
+    this.captureReview = null;
     this.workflow = workflow;
     this.turnLock = turnLock;
     this.isMiaPaused = isMiaPaused;
@@ -202,6 +205,20 @@ export class ConversationProcessor {
     if (typeof router?.handoff === "function") routed = await router.handoff(conversationId, { reason, memory });
     else if (typeof router?.route === "function") routed = await router.route({ conversationId, reason, reservedAdvisor: human ? null : memory?.advisor_affinity || null });
     await this.record(conversationId, "handoff", { reason, routed, rotation: human ? "atencion_humana" : "asesores" });
+    return routed;
+  }
+
+  // Revisión de semanas con un capturista (2-nov).
+  async transferToCapture(conversationId, conversation, customerText, memory) {
+    const reason = `Quiere revisar sus semanas cotizadas: "${String(customerText || "").replace(/\s+/g, " ").slice(0, 160)}"`;
+    await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
+    const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo: ${reason}`);
+    await this.chatwoot.sendMessage(conversationId, `MÍA → CAPTURA (revisión de semanas)\n${reason}\n\n${summary}`, true);
+    await this.chatwoot.sendMessage(conversationId, CAPTURE_REVIEW_TEXT);
+    const routed = await this.captureReview.route({ conversationId, reason, customer: { nombre: memory?.nombre || null } });
+    await this.record(conversationId, "capture_review_handoff", { reason, agent: routed?.agent?.name || null, assigned: Boolean(routed?.assigned) });
+    const current = this.memories.get(conversationId) || memory;
+    await this.memories.set(conversationId, { ...current, ultima_respuesta_agente: CAPTURE_REVIEW_TEXT, ultima_pregunta: null, handoff: { status: "completed", reason, agent_name: routed?.agent?.name || "Captura" } });
     return routed;
   }
 
@@ -659,6 +676,12 @@ export class ConversationProcessor {
         await this.memories.markProcessedMany(conversationId, messageIds);
         return;
       }
+    }
+    // Solo quiere revisar sus semanas (2-nov): pasa con Captura, que saca su constancia con la CURP o el NSS.
+    if (!wantsHuman && !b2b && !specialized && !memory.sales_cycle?.authorized && this.captureReview && orchestration.directRequest?.answerKey === "weeks_review") {
+      await this.transferToCapture(conversationId, conversation, combinedText, memory);
+      await this.memories.markProcessedMany(conversationId, messageIds);
+      return;
     }
     if (wantsHuman || b2b || frustrated || specialized) {
       if (b2b) await this.labels.mergeSafe(conversationId, ["proveedor", this.config.ai.validationLabel], [], conversation);
