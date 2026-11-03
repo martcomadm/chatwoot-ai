@@ -1,3 +1,12 @@
+// Cuando Chatwoot está caído, EasyPanel regresa una página HTML ("Service is not reachable"): se resume en una línea.
+function chatwootError(status, data) {
+  const html = typeof data === "string" && /<html|<!doctype/i.test(data);
+  const detail = html ? (/Service is not reachable/i.test(data) ? "Chatwoot no está disponible (EasyPanel: Service is not reachable)" : "respuesta HTML") : JSON.stringify(data);
+  const error = new Error(`Chatwoot ${status}: ${String(detail).slice(0, 300)}`);
+  error.status = status;
+  return error;
+}
+
 export class ChatwootApi {
   constructor(config) { this.config = config; }
   async request(path, options = {}) {
@@ -8,7 +17,7 @@ export class ChatwootApi {
     const text = await response.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-    if (!response.ok) throw new Error(`Chatwoot ${response.status}: ${JSON.stringify(data)}`);
+    if (!response.ok) throw chatwootError(response.status, data);
     return data;
   }
   getConversation(id) { return this.request(`/api/v1/accounts/${this.config.accountId}/conversations/${id}`); }
@@ -64,7 +73,7 @@ export class ChatwootApi {
     const responseText = await response.text();
     let data = null;
     try { data = responseText ? JSON.parse(responseText) : null; } catch { data = responseText; }
-    if (!response.ok) throw new Error(`Chatwoot ${response.status}: ${JSON.stringify(data)}`);
+    if (!response.ok) throw chatwootError(response.status, data);
     return data;
   }
   assignConversation(id, assigneeId) {
