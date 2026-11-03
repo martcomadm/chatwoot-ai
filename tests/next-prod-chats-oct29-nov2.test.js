@@ -57,7 +57,11 @@ test("frases que no se reconocían", () => {
   assert.equal(commitmentDecision({ sales_cycle: { recommended_plan: "plan_1" } }, "2) si escojo el plan 1 después puedo migrar al 2 3) en que tiempo se tarda")?.commitment, undefined);
   assert.equal(acceptsAdvisorOffer("Porque mejor rrevisar mi caso para estar seguro", "¿Quieres que iniciemos tu trámite o prefieres que un asesor revise tu caso primero?"), true);
   assert.equal(key("No estoy esperando que me diga cuántas semanas yebo y cuántas faltan"), "weeks_review");
-  assert.equal(key("Porfavor necesito mas información demi de como esta el caso"), "weeks_review");
+  // 2-nov (corregido): el botón del anuncio y "revisar mi caso" no son pedir sus semanas.
+  assert.equal(key("Información y revisar mi caso con mi NSS"), null);
+  assert.equal(key("Porfavor necesito mas información demi de como esta el caso"), null);
+  assert.equal(key("Quiero revisar mis semanas"), "weeks_review");
+  assert.equal(key("¿Cuántas semanas tengo cotizadas?"), "weeks_review");
   assert.equal(key("Y kisiera darme de alta k presios tiene"), "price");
   const m = { ultima_respuesta_agente: "¿Quieres que iniciemos tu trámite?", sales_cycle: { selected_plan: "plan_2" } };
   assert.equal(deferralDecision(m, "Aré todo lo posible por mandar documentos mañana")?.deferral, "start_later");
@@ -106,4 +110,29 @@ test("confirmado 2-nov: empresa asignada al afiliarse; revisión de semanas con 
   assert.match(sent.notes[0], /^MÍA → CAPTURA/);
   assert.equal(sent.memory.handoff.agent_name, "Ana");
   void original;
+});
+
+test("no pasa a Captura en el primer mensaje ni con el botón del anuncio", async () => {
+  const { ConversationProcessor: P } = await import("../src/core/conversation-processor.js");
+  const run = async (content, memory) => {
+    const routed = []; const sent = [];
+    const m = { id: 1, message_type: 0, sender_type: "Contact", sender: { type: "contact" }, private: false, content, attachments: [], created_at: 1 };
+    let mem = structuredClone(memory);
+    const p = new P({
+      config: { chatwoot: { inboxId: 7, agentId: 53 }, ai: { validationLabel: "validacion", publicName: "Mia de MARTCOM", maxReplyChars: 850 }, operations: {} },
+      chatwoot: { async getConversation() { return { id: 5, inbox_id: 7, meta: { assignee: { id: 53 } }, labels: [], messages: [m] }; }, async sendMessage(_i, t, priv) { if (!priv) sent.push(t); }, async getMessages() { return { payload: [] }; } },
+      labels: { async mergeSafe() { return []; } },
+      memories: { get: () => structuredClone(mem), async set(_i, v) { mem = v; }, async merge() {}, hasProcessed: () => false, async markProcessedMany() {} },
+      agentRotation: {}, ai: { extractAmbiguous: async () => ({}), generateDecision: async () => ({ reply: "¿Hace cuánto dejaste de cotizar?" }), repairDecision: async () => ({}), handoffSummary: async () => "" },
+      inspectorEvents: { async record() {} }, handoffRouter: {},
+    });
+    p.captureReview = { async route(x) { routed.push(x); return { agent: { name: "Ana" }, assigned: true }; } };
+    await p.process(5, { ids: ["1"], webhookMessages: new Map([["1", m]]) });
+    return { routed, sent };
+  };
+  const ad = await run("Información y revisar mi caso con mi NSS", {});
+  assert.equal(ad.routed.length, 0);
+  assert.match(ad.sent[0], /hace cuánto dejaste de cotizar/);
+  assert.equal((await run("Quiero saber cuántas semanas tengo", {})).routed.length, 0, "primer mensaje: primero diagnóstico");
+  assert.equal((await run("Quiero saber cuántas semanas tengo", { ultima_respuesta_agente: "¿Hace cuánto dejaste de cotizar?" })).routed.length, 1);
 });

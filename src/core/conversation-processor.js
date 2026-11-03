@@ -678,7 +678,9 @@ export class ConversationProcessor {
       }
     }
     // Solo quiere revisar sus semanas (2-nov): pasa con Captura, que saca su constancia con la CURP o el NSS.
-    if (!wantsHuman && !b2b && !specialized && !memory.sales_cycle?.authorized && this.captureReview && orchestration.directRequest?.answerKey === "weeks_review") {
+    if (!wantsHuman && !b2b && !specialized && !memory.sales_cycle?.authorized && this.captureReview && orchestration.directRequest?.answerKey === "weeks_review"
+      // Nunca en el primer mensaje: Mia ya debió platicar con el cliente (diagnóstico) antes de pasarlo.
+      && Boolean(base.ultima_respuesta_agente)) {
       await this.transferToCapture(conversationId, conversation, combinedText, memory);
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
