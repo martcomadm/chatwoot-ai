@@ -77,7 +77,18 @@ try {
   const opsNotifier = new OpsNotifier({ users: opsUsers, store: opsPush, settings: opsSettings, subject: process.env.OPS_VAPID_SUBJECT || "https://martcom-econtact.mx" });
   saleStore.on("sale", event => void opsNotifier.handleSaleEvent(event));
   opsNotifier.start(() => saleStore.list());
-  workflowBridge.reconcileCompletedSales().catch(error=>console.error("NEXT reconciliación de completados:",error));
+  // Si Chatwoot no responde al arrancar (502 de EasyPanel mientras se levanta), se reintenta cada 10 min, hasta 12 veces.
+  {
+    let tries = 0;
+    const reconcile = async () => {
+      tries++;
+      let failed = 0;
+      try { failed = await workflowBridge.reconcileCompletedSales(); }
+      catch (error) { failed = 1; console.error("NEXT reconciliación de completados:", error?.message || error); }
+      if (failed && tries < 12) { console.log(`NEXT reintentará la reconciliación de ${failed} expediente(s) completado(s) en 10 min.`); setTimeout(reconcile, 10 * 60 * 1000).unref?.(); }
+    };
+    void reconcile();
+  }
   workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error));
   setInterval(()=>workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error)),15*60*1000).unref();
   const ai = new AiServices(openai, { ...config.openai, ...config.ai });

@@ -28,8 +28,10 @@ export class ChatwootWorkflowBridge{
   constructor({saleStore,chatwoot,labels,memories,inspectorEvents,customerServiceTeamId=0,settings=null,templates=null,miaAgentId=0}){this.miaAgentId=Number(miaAgentId||0);this.templates=templates;this.saleStore=saleStore;this.settings=settings;this.chatwoot=chatwoot;this.labels=labels;this.memories=memories;this.inspectorEvents=inspectorEvents;this.customerServiceTeamId=Number(customerServiceTeamId||0);this.listener=event=>this.handle(event).catch(error=>console.error("NEXT workflow bridge:",error))}
   start(){this.saleStore.on("sale",this.listener)}
   stop(){this.saleStore.off("sale",this.listener)}
+  // Devuelve cuántos no se pudieron revisar (p. ej. Chatwoot caído con 502 al arrancar): server.js reintenta.
   async reconcileCompletedSales(){
     const completed=this.saleStore.list({status:"completed"});
+    let failed=0;
     for(const sale of completed){
       const conversationId=Number(sale?.conversation_id||0);
       if(!conversationId)continue;
@@ -42,10 +44,12 @@ export class ChatwootWorkflowBridge{
         await this.completeHumanHandoff(conversationId,sale);
         await this.record(conversationId,"completed_handoff_reconciled",{sale_id:sale.sale_id,team_id:this.customerServiceTeamId});
       }catch(error){
+        failed++;
         await this.record(conversationId,"completed_handoff_reconcile_failed",{sale_id:sale.sale_id,error:error.message});
-        console.error("NEXT no pudo reconciliar expediente completado:",error);
+        console.error(`NEXT no pudo reconciliar expediente completado ${sale.sale_id} (conversación ${conversationId}): ${String(error?.message||error).slice(0,120)}`);
       }
     }
+    return failed;
   }
   async record(conversationId,type,details={}){try{await this.inspectorEvents?.record(conversationId,type,details)}catch{}}
   // Texto configurado en Admin (o el predeterminado) para el evento; null si no notifica.
