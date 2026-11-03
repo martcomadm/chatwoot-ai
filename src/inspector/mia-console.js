@@ -9,6 +9,7 @@ import { describeSchedule, localClock, nextOpeningDate, parseSchedule } from "..
 import { buildStats, entryOf, needOf, ENTRY_LABELS, NEED_LABELS } from "./stats-service.js";
 
 const DAY = 24 * 3600 * 1000;
+const HOUR = 3600 * 1000;
 const NOTICE_RE = /^¡Gracias por escribir a MARTCOM! Nuestro horario de atención es/;
 const GENERIC_REPLY = "¿Me compartes un poco más sobre tu situación?";
 
@@ -90,6 +91,8 @@ export const EVENT_LABELS = {
   payment_extension_requested: "Pidió más tiempo para pagar (aviso a Cobranza)",
   repeated_answer_regenerated: "Respuesta fija repetida: la redactó la IA",
   capture_review_handoff: "Pasó a Captura (revisión de semanas)",
+  capture_intervention: "Captura intervino el chat",
+  capture_intervention_released: "Captura regresó el chat a Mia",
 };
 
 // Eventos que explican por qué Mia no contestó; van en el .txt junto a los mensajes.
@@ -378,6 +381,54 @@ export class MiaConsole {
     if (filter === "waiting") items = items.filter(i => i.waiting_schedule || i.followup);
     if (filter === "handoff") items = items.filter(i => i.handoff);
     return { items: items.sort((a, b) => ms(b.last_at) - ms(a.last_at)).slice(0, limit), total: items.length };
+  }
+
+  // ── Chats de Mia (Operations, pedido 3-nov) ──────────────────────
+  // Todas las conversaciones que atiende la IA, con las señales de que se está perdiendo
+  // la venta, para que Captura intervenga y trate de salvarla.
+  rescueList({ search = "", filter = "all", days = 7, limit = 300, now = new Date() } = {}) {
+    const byConv = this.eventsByConversation();
+    const since = now.getTime() - Math.max(1, Number(days) || 7) * DAY;
+    const q = norm(search).toLowerCase();
+    let items = [];
+    for (const memory of this.allMemories()) {
+      const id = Number(memory.id);
+      const events = byConv.get(id) || [];
+      const base = this.summarize(memory, events);
+      if (ms(base.last_at) < since) continue;
+      const has = types => events.some(e => types.includes(e.type));
+      const lastCustomerAt = ms([...events].reverse().find(e => e.details?.customer_text)?.timestamp);
+      const lastReplyAt = ms(events.filter(e => e.type === "ai_reply_sent").at(-1)?.timestamp);
+      const risks = [];
+      if (has(["frustration_detected", "conversation_patience_pause"])) risks.push({ key: "angry", label: "Cliente molesto" });
+      if (events.some(e => e.type === "ai_reply_sent" && e.details?.decision_source === "price_objection")) risks.push({ key: "price", label: "Objeción de precio" });
+      if (memory.sales_cycle?.deferral && memory.sales_cycle.deferral !== "closing") risks.push({ key: "deferred", label: base.deferral || "Pospuso" });
+      if (memory.sales_cycle?.deferral === "closing" && !base.authorized) risks.push({ key: "lost", label: "Se despidió sin comprar" });
+      if (has(["followup_no_response"])) risks.push({ key: "no_response", label: "Dejó de contestar" });
+      else if (!base.authorized && base.stage_rank >= 1 && lastReplyAt > lastCustomerAt && now.getTime() - lastReplyAt > 3 * HOUR) risks.push({ key: "silent", label: "Sin respuesta del cliente" });
+      if (has(["ai_error", "processing_error"])) risks.push({ key: "error", label: "Error de Mia" });
+      const intervention = memory.capture_intervention?.active ? { by: memory.capture_intervention.by || null, username: memory.capture_intervention.username || null, at: memory.capture_intervention.at || null } : null;
+      items.push({
+        ...base,
+        risks,
+        hot: !base.authorized && base.stage_rank >= 2,
+        intervention,
+        human: Boolean(base.handoff) || Boolean(memory.service_sale?.active),
+      });
+    }
+    if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q));
+    const counts = {
+      all: items.length,
+      risk: items.filter(i => i.risks.length && !i.authorized).length,
+      hot: items.filter(i => i.hot).length,
+      intervened: items.filter(i => i.intervention).length,
+      authorized: items.filter(i => i.authorized).length,
+    };
+    if (filter === "risk") items = items.filter(i => i.risks.length && !i.authorized);
+    if (filter === "hot") items = items.filter(i => i.hot);
+    if (filter === "intervened") items = items.filter(i => i.intervention);
+    if (filter === "authorized") items = items.filter(i => i.authorized);
+    return { items: items.sort((a, b) => ms(b.last_at) - ms(a.last_at)).slice(0, limit), total: items.length, counts };
   }
 
   async conversation(id) {

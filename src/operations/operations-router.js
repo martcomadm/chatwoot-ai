@@ -1,3 +1,4 @@
+import { interveneConversation, releaseConversation } from "./mia-intervention.js";
 import { closeSaleInService, returnSaleToMia } from "./customer-service/service-sale.js";
 import fs from "node:fs";
 import { BUILD_LABEL } from "./build-info.js";
@@ -34,7 +35,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
 const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null }) {
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -46,6 +47,9 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const base = String(config.chatwoot?.baseUrl || "").replace(/\/+$/, "");
     return `${base}/app/accounts/${config.chatwoot.accountId}/conversations/${sale.conversation_id}`;
   }
+
+  const canInterveneMia = user => hasArea(user, "captura");
+  const canSeeMiaChats = user => canInterveneMia(user) || (user?.areas || []).includes("observador");
 
   function fail(res, error, status = 400) { return res.status(status).json({ error: error?.message || String(error) }); }
 
@@ -134,11 +138,12 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const user = req.opsUser;
     res.json({
       user,
-      areas: AREAS.filter(area => hasArea(user, area.key)).map(area => ({ ...area })),
+      areas: [...AREAS.filter(area => hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : [])],
       visible_queues: visibleQueues(user),
       queue_labels: QUEUE_LABELS,
       can: {
         supervise: hasArea(user, "supervision"),
+        intervene: canInterveneMia(user),
         admin: hasArea(user, "admin"),
         lab: hasArea(user, "admin") && String(config.appEnv || "").toLowerCase() === "next",
       },
@@ -239,6 +244,32 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const sale = visibleSale(req, res);
     if (!sale) return;
     return sendConversation(res, sale.conversation_id, sale.customer?.nombre);
+  });
+
+  // ── Chats de Mia (pedido 3-nov): todas las conversaciones de la IA + intervención de Captura ──
+  router.get("/operations/api/mia-chats", (req, res) => {
+    if (!canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Tu usuario no tiene acceso a Chats de Mia", code: "forbidden" });
+    if (!miaConsole) return res.json({ items: [], total: 0, counts: {} });
+    res.json(miaConsole.rescueList({ search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7) }));
+  });
+  router.get("/operations/api/mia-chats/:id/conversation", async (req, res) => {
+    if (!canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Sin acceso", code: "forbidden" });
+    const memory = memories.get(req.params.id);
+    return sendConversation(res, Number(req.params.id), memory?.nombre || null);
+  });
+  router.post("/operations/api/mia-chats/:id/intervene", async (req, res) => {
+    if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden intervenir", code: "forbidden" });
+    try {
+      await interveneConversation({ memories, chatwoot, conversationId: req.params.id, user: req.opsUser, note: req.body?.note, audit, inspectorEvents });
+      res.json({ ok: true, chatwoot_url: chatwootConversationUrl({ conversation_id: Number(req.params.id) }) });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-chats/:id/release", async (req, res) => {
+    if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden regresar chats a Mia", code: "forbidden" });
+    try {
+      await releaseConversation({ memories, chatwoot, conversationId: req.params.id, user: req.opsUser, miaAgentId: config?.chatwoot?.agentId || null, note: req.body?.note, canForce: hasArea(req.opsUser, "supervision"), audit, inspectorEvents });
+      res.json({ ok: true });
+    } catch (error) { fail(res, error); }
   });
 
   // ── Atención a Clientes ─────────────────────────────────────────────────

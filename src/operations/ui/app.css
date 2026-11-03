@@ -23,6 +23,7 @@
   --area-observador: #5b6b7a;
   --area-atencion: #7a4f9c;
   --area-admin: #59636f;
+  --area-chats: #7a4fc4;
 
   --font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Atkinson Hyperlegible Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -57,6 +58,7 @@
     --area-observador: #b4c0cc;
     --area-atencion: #c3a3dc;
     --area-admin: #a9b3be;
+    --area-chats: #b394ec;
     --shadow-panel: -12px 0 32px rgba(0, 0, 0, 0.45);
     color-scheme: dark;
   }
@@ -417,4 +419,17 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
   .queue-row.case-row { grid-template-columns: minmax(0, 1fr) auto; }
   .queue-row.case-row > :nth-child(2), .queue-row.case-row > :nth-child(4) { display: none; }
   .queue-row.case-row > :nth-child(3) { display: block; }
+}
+
+/* Chats de Mia (3-nov) */
+.queue-row.mia-row { grid-template-columns: minmax(160px, 1.1fr) minmax(200px, 2fr) 130px minmax(160px, 1.4fr) 70px; }
+.mia-flags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+@media (max-width: 760px) {
+  .toolbar .segmented { flex-wrap: wrap; }
+  .queue-row.mia-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .queue-row.mia-row > :nth-child(2), .queue-row.mia-row > :nth-child(3) { display: none; }
+  .queue-row.mia-row > :nth-child(1) { grid-column: 1; grid-row: 1; }
+  .queue-row.mia-row > :nth-child(5) { display: block; grid-column: 2; grid-row: 1; }
+  .queue-row.mia-row > :nth-child(4) { display: flex; grid-column: 1 / -1; grid-row: 2; }
+  .queue-row.mia-row.queue-head { display: none; }
 }
