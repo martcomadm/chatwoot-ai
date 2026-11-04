@@ -257,7 +257,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Tu usuario no tiene acceso a Chats de Mia", code: "forbidden" });
     if (!miaConsole) return res.json({ items: [], total: 0, counts: {} });
     const showPhones = canSeeMiaPhones(req.opsUser);
-    const result = miaConsole.rescueList({ search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7), searchPhones: showPhones });
+    const result = miaConsole.rescueList({ search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7), page: Number(req.query.page || 1), searchPhones: showPhones });
     if (!showPhones) return res.json({ ...result, items: result.items.map(({ phone, ...item }) => item) });
     // Chats anteriores a que Mia guardara el celular: se busca en Chatwoot (hasta 40 por carga) y se guarda.
     const missing = result.items.filter(item => !item.phone).slice(0, 40);

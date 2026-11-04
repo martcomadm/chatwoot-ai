@@ -392,7 +392,7 @@ export class MiaConsole {
   // ── Chats de Mia (Operations, pedido 3-nov) ──────────────────────
   // Todas las conversaciones que atiende la IA, con las señales de que se está perdiendo
   // la venta, para que Captura intervenga y trate de salvarla.
-  rescueList({ search = "", filter = "all", days = 7, limit = 300, now = new Date(), searchPhones = false } = {}) {
+  rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false } = {}) {
     const byConv = this.eventsByConversation();
     const since = now.getTime() - Math.max(1, Number(days) || 7) * DAY;
     const q = norm(search).toLowerCase();
@@ -439,7 +439,12 @@ export class MiaConsole {
     if (filter === "hot") items = items.filter(i => i.hot);
     if (filter === "intervened") items = items.filter(i => i.intervention);
     if (filter === "authorized") items = items.filter(i => i.authorized);
-    return { items: items.sort((a, b) => ms(b.last_at) - ms(a.last_at)).slice(0, limit), total: items.length, counts };
+    // Páginas de 40 (pedido 4-nov).
+    const size = Math.min(200, Math.max(1, Number(pageSize) || 40));
+    const pages = Math.max(1, Math.ceil(items.length / size));
+    const current = Math.min(pages, Math.max(1, Math.floor(Number(page) || 1)));
+    const sorted = items.sort((a, b) => ms(b.last_at) - ms(a.last_at));
+    return { items: sorted.slice((current - 1) * size, current * size), total: items.length, counts, page: current, pages, page_size: size };
   }
 
   async conversation(id) {

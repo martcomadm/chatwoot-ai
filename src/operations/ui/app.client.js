@@ -1397,9 +1397,20 @@ async function renderMiaChats(view) {
   state.miaFilter = state.miaFilter || "risk";
   state.miaDays = state.miaDays || 7;
   let result;
-  try { result = await api(`/operations/api/mia-chats?filter=${encodeURIComponent(state.miaFilter)}&days=${state.miaDays}&q=${encodeURIComponent(state.filter.search || "")}`); }
+  state.miaPage = state.miaPage || 1;
+  try { result = await api(`/operations/api/mia-chats?filter=${encodeURIComponent(state.miaFilter)}&days=${state.miaDays}&page=${state.miaPage}&q=${encodeURIComponent(state.filter.search || "")}`); }
   catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudieron cargar los chats</strong>${esc(error.message)}</div>`; return; }
   state.miaChats = result.items || [];
+  state.miaPage = result.page || 1;
+  const pages = result.pages || 1;
+  const size = result.page_size || 40;
+  const from = result.total ? (state.miaPage - 1) * size + 1 : 0;
+  const to = Math.min(result.total || 0, state.miaPage * size);
+  const pager = pages > 1 ? `<nav class="mia-pager" aria-label="Páginas">
+      <button class="btn small" data-mia-page="${state.miaPage - 1}" ${state.miaPage <= 1 ? "disabled" : ""}>‹ Anterior</button>
+      <span class="muted">${from}–${to} de ${result.total} · página ${state.miaPage} de ${pages}</span>
+      <button class="btn small" data-mia-page="${state.miaPage + 1}" ${state.miaPage >= pages ? "disabled" : ""}>Siguiente ›</button>
+    </nav>` : "";
   const counts = result.counts || {};
   const rows = state.miaChats.length ? `<div class="queue-row queue-head mia-row" role="row"><span>Cliente</span><span>Último mensaje</span><span>Etapa</span><span>Señales</span><span>Hace</span></div>` + state.miaChats.map(c => `<button class="queue-row mia-row" role="row" data-mia-chat="${c.id}" ${state.miaChatId === c.id ? 'aria-current="true"' : ""}>
       <span class="cell-customer"><strong>${esc(c.name || "Sin nombre")}</strong><small class="mono">#${c.id}${c.phone ? ` · ${esc(c.phone)}` : ""}</small></span>
@@ -1415,7 +1426,9 @@ async function renderMiaChats(view) {
       <div class="segmented" role="group" aria-label="Periodo">${[[1, "Hoy"], [7, "7 días"], [30, "30 días"]].map(([d, l]) => `<button data-mia-days="${d}" aria-pressed="${state.miaDays === d}">${l}</button>`).join("")}</div>
       <input class="input" type="search" data-search placeholder="${state.me.can.mia_phones ? "Buscar nombre, #, celular o texto" : "Buscar nombre, # o texto"}" value="${esc(state.filter.search || "")}" style="max-width:260px">
     </div>
-    <div class="queue" role="table" aria-label="Chats de Mia">${rows}</div>`;
+    ${pager}
+    <div class="queue" role="table" aria-label="Chats de Mia">${rows}</div>
+    ${pager}`;
 }
 
 // La lista se actualiza sola cada minuto mientras nadie tenga un diálogo abierto.
@@ -1427,7 +1440,7 @@ async function openMiaChat(id) {
   id = Number(id);
   let c = (state.miaChats || []).find(item => item.id === id);
   // Desde un aviso el chat puede no estar en el filtro actual: se busca en "Todos".
-  if (!c && state.view === "chats" && state.miaFilter !== "all") { state.miaFilter = "all"; await renderView(); c = (state.miaChats || []).find(item => item.id === id); }
+  if (!c && state.view === "chats" && (state.miaFilter !== "all" || state.miaPage > 1)) { state.miaFilter = "all"; state.miaPage = 1; await renderView(); c = (state.miaChats || []).find(item => item.id === id); }
   if (!c) return toast("Ese chat ya no aparece en la lista");
   state.miaChatId = id;
   const mine = c.intervention && c.intervention.username === state.me.user.username;
@@ -1720,7 +1733,7 @@ function handleNotify(n) {
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
-  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days]");
+  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-page]");
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.act === "logout") return logout();
@@ -1734,8 +1747,9 @@ document.addEventListener("click", async event => {
   if (target.dataset.act === "reload-chat") return state.caseId ? loadChat(`/operations/api/cases/${encodeURIComponent(state.caseId)}/conversation`, state.caseId) : state.saleId && loadSaleChat(state.saleId);
   if (target.dataset.miaChat) return openMiaChat(target.dataset.miaChat);
   if (target.dataset.miaAct) { target.disabled = true; try { await miaChatAction(target.dataset.miaAct); } finally { target.disabled = false; } return; }
-  if (target.dataset.miaFilter) { state.miaFilter = target.dataset.miaFilter; return renderView(); }
-  if (target.dataset.miaDays) { state.miaDays = Number(target.dataset.miaDays); return renderView(); }
+  if (target.dataset.miaFilter) { state.miaFilter = target.dataset.miaFilter; state.miaPage = 1; return renderView(); }
+  if (target.dataset.miaDays) { state.miaDays = Number(target.dataset.miaDays); state.miaPage = 1; return renderView(); }
+  if (target.dataset.miaPage) { state.miaPage = Number(target.dataset.miaPage); await renderView(); document.getElementById("view")?.scrollIntoView?.({ block: "start" }); window.scrollTo?.({ top: 0 }); return; }
   if (target.dataset.case) return openCase(target.dataset.case);
   if (target.dataset.caseAct) { target.disabled = true; try { await caseAction(target.dataset.caseAct); } finally { target.disabled = false; } return; }
   if (target.dataset.caseFilter) { state.caseFilter = target.dataset.caseFilter; return renderView(); }
@@ -1758,6 +1772,7 @@ document.addEventListener("change", event => {
 
 const onSearch = debounce(value => {
   state.filter.search = value;
+  state.miaPage = 1;
   const input = document.querySelector("[data-search]");
   const caret = input?.selectionStart;
   if (state.view === "supervision") drawSupervision(document.getElementById("view"));

@@ -423,6 +423,7 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 
 /* Chats de Mia (3-nov) */
 .queue-row.mia-row { grid-template-columns: minmax(160px, 1.1fr) minmax(200px, 2fr) 130px minmax(160px, 1.4fr) 70px; }
+.mia-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
 .mia-flags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 @media (max-width: 760px) {
   .toolbar .segmented { flex-wrap: wrap; }
