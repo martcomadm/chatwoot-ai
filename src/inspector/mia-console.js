@@ -377,7 +377,9 @@ export class MiaConsole {
       waiting_schedule: queueIds.has(Number(memory.id)),
       followup: followIds.has(Number(memory.id)),
     }));
-    if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q));
+    const qDigits = q.replace(/\D/g, "");
+    if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q)
+      || (searchPhones && qDigits.length >= 4 && String(i.phone || "").replace(/\D/g, "").includes(qDigits)));
     // Los chats de prueba solo aparecen en su propio filtro.
     items = filter === "tests" ? items.filter(i => i.test) : items.filter(i => !i.test);
     if (filter === "authorized") items = items.filter(i => i.authorized);
@@ -390,7 +392,7 @@ export class MiaConsole {
   // ── Chats de Mia (Operations, pedido 3-nov) ──────────────────────
   // Todas las conversaciones que atiende la IA, con las señales de que se está perdiendo
   // la venta, para que Captura intervenga y trate de salvarla.
-  rescueList({ search = "", filter = "all", days = 7, limit = 300, now = new Date() } = {}) {
+  rescueList({ search = "", filter = "all", days = 7, limit = 300, now = new Date(), searchPhones = false } = {}) {
     const byConv = this.eventsByConversation();
     const since = now.getTime() - Math.max(1, Number(days) || 7) * DAY;
     const q = norm(search).toLowerCase();
@@ -418,6 +420,7 @@ export class MiaConsole {
         hot: !base.authorized && base.stage_rank >= 2,
         intervention,
         human: Boolean(base.handoff) || Boolean(memory.service_sale?.active),
+        phone: memory.contact_phone || null,
       });
     }
     if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q));

@@ -771,6 +771,9 @@ export class ConversationProcessor {
     }
     if (memory.sales_cycle?.authorized) planner = { action: "expediente_onboarding", question_key: memory.operations?.onboarding_next || null, specialized: true, operations: memory.operations };
     memory.ventas = sales;
+    // Celular del contacto para Chats de Mia (solo lo ven Supervisión y Admin; pedido 4-nov).
+    const contactPhone = extractContactPhone(conversation);
+    if (contactPhone && memory.contact_phone !== contactPhone) memory.contact_phone = contactPhone;
     memory.flujo = { fase: memory.sales_cycle?.authorized ? "operaciones" : "venta", siguiente_paso: planner.question_key };
     await this.memories.set(conversationId, memory);
 

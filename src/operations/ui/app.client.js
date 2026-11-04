@@ -1401,7 +1401,7 @@ async function renderMiaChats(view) {
   state.miaChats = result.items || [];
   const counts = result.counts || {};
   const rows = state.miaChats.length ? `<div class="queue-row queue-head mia-row" role="row"><span>Cliente</span><span>Último mensaje</span><span>Etapa</span><span>Señales</span><span>Hace</span></div>` + state.miaChats.map(c => `<button class="queue-row mia-row" role="row" data-mia-chat="${c.id}" ${state.miaChatId === c.id ? 'aria-current="true"' : ""}>
-      <span class="cell-customer"><strong>${esc(c.name || "Sin nombre")}</strong><small class="mono">#${c.id}</small></span>
+      <span class="cell-customer"><strong>${esc(c.name || "Sin nombre")}</strong><small class="mono">#${c.id}${c.phone ? ` · ${esc(c.phone)}` : ""}</small></span>
       <span class="cell-sub" style="margin:0">${esc(String(c.last_customer || c.last_reply || "—").slice(0, 90))}</span>
       <span>${esc(c.stage)}${c.plan ? `<span class="cell-sub">${esc(c.plan)}</span>` : ""}</span>
       <span class="mia-flags">${c.intervention ? `<span class="tag area" style="--area:${areaVar("chats")}">Intervenido · ${esc(c.intervention.by || "")}</span>` : ""}${c.risks.map(r => `<span class="tag ${RISK_TONE[r.key] || ""}">${esc(r.label)}</span>`).join("")}${!c.risks.length && !c.intervention ? '<span class="muted">—</span>' : ""}</span>
@@ -1412,7 +1412,7 @@ async function renderMiaChats(view) {
     <div class="toolbar">
       <div class="segmented" role="group">${MIA_FILTERS.map(([k, l]) => `<button data-mia-filter="${k}" aria-pressed="${state.miaFilter === k}">${esc(l)}${counts[k] != null ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
       <div class="segmented" role="group" aria-label="Periodo">${[[1, "Hoy"], [7, "7 días"], [30, "30 días"]].map(([d, l]) => `<button data-mia-days="${d}" aria-pressed="${state.miaDays === d}">${l}</button>`).join("")}</div>
-      <input class="input" type="search" data-search placeholder="Buscar nombre, # o texto" value="${esc(state.filter.search || "")}" style="max-width:260px">
+      <input class="input" type="search" data-search placeholder="${state.me.can.supervise ? "Buscar nombre, #, celular o texto" : "Buscar nombre, # o texto"}" value="${esc(state.filter.search || "")}" style="max-width:260px">
     </div>
     <div class="queue" role="table" aria-label="Chats de Mia">${rows}</div>`;
 }
@@ -1441,6 +1441,7 @@ async function openMiaChat(id) {
           ${c.intervention ? `<div class="notice" style="margin-top:10px"><strong>${esc(c.intervention.by || "Captura")} intervino este chat${c.intervention.at ? ` (${esc(dateTime(c.intervention.at))})` : ""}.</strong> Mia no contesta mientras esté asignado a esa persona en Chatwoot.</div>` : ""}
           ${c.human && !c.intervention ? `<div class="notice warn" style="margin-top:10px">Este chat ya pasó a una persona del equipo.</div>` : ""}
           <dl class="facts" style="margin-top:12px">
+            ${c.phone ? `<div><dt>Celular</dt><dd class="mono"><a href="tel:${esc(String(c.phone).replace(/[^\d+]/g, ""))}">${esc(c.phone)}</a></dd></div>` : ""}
             <div><dt>Etapa</dt><dd>${esc(c.stage)}</dd></div>
             <div><dt>Plan</dt><dd>${esc(c.plan || "—")}</dd></div>
             <div><dt>Respuestas de Mia</dt><dd>${c.replies}</dd></div>

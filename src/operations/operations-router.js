@@ -1,5 +1,6 @@
 import { interveneConversation, releaseConversation } from "./mia-intervention.js";
 import { closeSaleInService, returnSaleToMia } from "./customer-service/service-sale.js";
+import { extractContactPhone } from "./sale-factory.js";
 import fs from "node:fs";
 import { BUILD_LABEL } from "./build-info.js";
 import express from "express";
@@ -49,6 +50,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   }
 
   const canInterveneMia = user => hasArea(user, "captura");
+  // Celulares de los clientes: solo Supervisión y Admin (pedido 4-nov).
+  const canSeeMiaPhones = user => hasArea(user, "supervision");
   const canSeeMiaChats = user => canInterveneMia(user) || (user?.areas || []).includes("observador");
 
   function fail(res, error, status = 400) { return res.status(status).json({ error: error?.message || String(error) }); }
@@ -247,10 +250,23 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   });
 
   // ── Chats de Mia (pedido 3-nov): todas las conversaciones de la IA + intervención de Captura ──
-  router.get("/operations/api/mia-chats", (req, res) => {
+  router.get("/operations/api/mia-chats", async (req, res) => {
     if (!canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Tu usuario no tiene acceso a Chats de Mia", code: "forbidden" });
     if (!miaConsole) return res.json({ items: [], total: 0, counts: {} });
-    res.json(miaConsole.rescueList({ search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7) }));
+    const showPhones = canSeeMiaPhones(req.opsUser);
+    const result = miaConsole.rescueList({ search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7), searchPhones: showPhones });
+    if (!showPhones) return res.json({ ...result, items: result.items.map(({ phone, ...item }) => item) });
+    // Chats anteriores a que Mia guardara el celular: se busca en Chatwoot (hasta 40 por carga) y se guarda.
+    const missing = result.items.filter(item => !item.phone).slice(0, 40);
+    for (let i = 0; i < missing.length && chatwoot?.getConversation; i += 5) {
+      await Promise.all(missing.slice(i, i + 5).map(async item => {
+        try {
+          const phone = extractContactPhone(await chatwoot.getConversation(item.id));
+          if (phone) { item.phone = phone; await memories.merge(item.id, { contact_phone: phone }); }
+        } catch {}
+      }));
+    }
+    res.json(result);
   });
   router.get("/operations/api/mia-chats/:id/conversation", async (req, res) => {
     if (!canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Sin acceso", code: "forbidden" });

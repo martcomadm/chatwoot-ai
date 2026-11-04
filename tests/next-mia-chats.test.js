@@ -21,6 +21,8 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   users.create({ username: "pepe.captura", name: "Pepe Captura", areas: ["captura"], password: "clave-segura-123" });
   users.create({ username: "olga.obs", name: "Olga", areas: ["observador"], password: "clave-segura-123" });
   users.create({ username: "vale.valida", name: "Vale", areas: ["validacion"], password: "clave-segura-123" });
+  users.create({ username: "sofi.super", name: "Sofi", areas: ["supervision"], password: "clave-segura-123" });
+  users.create({ username: "ana.admin", name: "Ana", areas: ["admin"], password: "clave-segura-123" });
   const memories = new MemoryStore(path.join(dir, "m.json"));
   const events = new InspectorEventStore(path.join(dir, "e.json"));
   const now = Date.now();
@@ -36,6 +38,7 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   const chatwoot = {
     async assignConversation(id, agent) { cw.assigned.push([id, agent]); },
     async sendMessage(id, text, priv) { if (priv) cw.notes.push([id, text]); },
+    async getConversation(id) { return { id, meta: { sender: { phone_number: id === 12 ? "+5215511112222" : null } } }; },
     async getAllMessages() { return { payload: [{ id: 1, message_type: 0, content: "Está muy caro", created_at: Math.floor(now / 1000) }] }; },
     async getMessages() { return { payload: [] }; },
   };
@@ -55,6 +58,7 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
       return { status: r.status, body: await r.json().catch(() => null) };
     };
   };
+  const sofi = await as("sofi.super"); const ana = await as("ana.admin");
   const carla = await as("carla.captura"); const pepe = await as("pepe.captura"); const olga = await as("olga.obs"); const vale = await as("vale.valida");
 
   // Menú: Captura y Observador ven "Chats de Mia"; Validación no.
@@ -105,4 +109,18 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   assert.deepEqual(cw.assigned.at(-1), [10, 53]);
   assert.match(cw.notes.at(-1)[1], /^CAPTURA REGRESÓ EL CHAT A MIA/);
   assert.equal(memories.get(10).capture_intervention.active, false);
+
+  // Celulares (pedido 4-nov): solo Supervisión y Admin; los que faltan se buscan en Chatwoot y se guardan.
+  await memories.merge(10, { contact_phone: "+5215599998888" });
+  const supList = await sofi("/operations/api/mia-chats?filter=all");
+  assert.equal(supList.body.items.find(i => i.id === 10).phone, "+5215599998888");
+  assert.equal(supList.body.items.find(i => i.id === 12).phone, "+5215511112222", "se completó desde Chatwoot");
+  assert.equal(memories.get(12).contact_phone, "+5215511112222");
+  assert.equal((await ana("/operations/api/mia-chats?filter=all")).body.items.find(i => i.id === 10).phone, "+5215599998888");
+  assert.deepEqual((await sofi("/operations/api/mia-chats?filter=all&q=9999 8888".replace(" ", ""))).body.items.map(i => i.id), [10], "Supervisión busca por celular");
+  for (const who of [carla, olga]) {
+    const list = await who("/operations/api/mia-chats?filter=all");
+    assert.ok(list.body.items.every(i => !("phone" in i)), "Captura y Observador no ven celulares");
+    assert.equal((await who("/operations/api/mia-chats?filter=all&q=99998888")).body.items.length, 0, "ni pueden buscar por celular");
+  }
 });
