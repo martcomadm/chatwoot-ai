@@ -377,9 +377,7 @@ export class MiaConsole {
       waiting_schedule: queueIds.has(Number(memory.id)),
       followup: followIds.has(Number(memory.id)),
     }));
-    const qDigits = q.replace(/\D/g, "");
-    if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q)
-      || (searchPhones && qDigits.length >= 4 && String(i.phone || "").replace(/\D/g, "").includes(qDigits)));
+    if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q));
     // Los chats de prueba solo aparecen en su propio filtro.
     items = filter === "tests" ? items.filter(i => i.test) : items.filter(i => !i.test);
     if (filter === "authorized") items = items.filter(i => i.authorized);
@@ -423,7 +421,9 @@ export class MiaConsole {
         phone: memory.contact_phone || null,
       });
     }
-    if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q));
+    const qDigits = q.replace(/\D/g, "");
+    if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q)
+      || (searchPhones && qDigits.length >= 4 && String(i.phone || "").replace(/\D/g, "").includes(qDigits)));
     const counts = {
       all: items.length,
       risk: items.filter(i => i.risks.length && !i.authorized).length,
