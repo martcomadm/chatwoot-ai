@@ -19,14 +19,25 @@ function sawPlan(memory = {}) {
   return Boolean((c.pitched_plans || []).length || (c.explained_plans || []).length || (c.fully_explained_plans || []).length || c.selected_plan);
 }
 
+const DOC_LABEL = { curp: "CURP", nss: "NSS", ine: "INE" };
+
 function label(plan) { return plan === "plan_2" ? "Plan 2 ($1,500)" : plan === "plan_1" ? "Plan 1 ($1,100)" : "un plan"; }
 
 // Motivo por el que NO se avisa (o null si sí corresponde).
-export function coldLeadSkipReason(memory = {}, entry = {}, now = new Date(), { minHours = 2, maxHours = 24 } = {}) {
+// Punto 4 (4-nov): también quien ya aceptó iniciar pero lleva 4 h sin mandar documentos.
+export function alertKind(memory = {}) {
   const c = memory.sales_cycle || {};
-  if (c.authorized) return "authorized";
-  if (!sawPlan(memory)) return "no_plan_seen";
-  if (SKIP_DEFERRALS.has(String(c.deferral || ""))) return "deferred";
+  if (!c.authorized) return "cold_lead";
+  return memory.operations?.documents_complete ? null : "missing_docs";
+}
+
+export function coldLeadSkipReason(memory = {}, entry = {}, now = new Date(), { minHours = 2, maxHours = 24, docsHours = 4 } = {}) {
+  const c = memory.sales_cycle || {};
+  const kind = alertKind(memory);
+  if (!kind) return "documents_complete";
+  if (kind === "missing_docs") minHours = docsHours;
+  if (kind === "cold_lead" && !sawPlan(memory)) return "no_plan_seen";
+  if (kind === "cold_lead" && SKIP_DEFERRALS.has(String(c.deferral || ""))) return "deferred";
   if (memory.capture_intervention?.active) return "intervened";
   if (memory.service_sale?.active) return "service_sale";
   if (memory.handoff?.status) return "human";
@@ -40,8 +51,8 @@ export function coldLeadSkipReason(memory = {}, entry = {}, now = new Date(), { 
 }
 
 export class ColdLeadAlerts {
-  constructor({ followUpStore, memories, notifier, inspectorEvents = null, isOpen = () => true, minHours = 2, maxHours = 24 }) {
-    Object.assign(this, { followUpStore, memories, notifier, inspectorEvents, isOpen, minHours, maxHours });
+  constructor({ followUpStore, memories, notifier, inspectorEvents = null, isOpen = () => true, minHours = 2, maxHours = 24, docsHours = 4 }) {
+    Object.assign(this, { followUpStore, memories, notifier, inspectorEvents, isOpen, minHours, maxHours, docsHours });
   }
 
   async tick(now = new Date()) {
@@ -56,14 +67,21 @@ export class ColdLeadAlerts {
         const hours = Math.floor((now.getTime() - Date.parse(entry.mia_at)) / HOUR);
         const name = memory.nombre || "Cliente sin nombre";
         const to = this.notifier?.areaUsers?.("captura") || [];
-        await this.notifier?.notify?.({
+        const missing = (memory.operations?.documents_missing || []).map(k => DOC_LABEL[k] || k).join(", ");
+        const saleId = memory.sale_id || memory.operations?.sale_id || null;
+        await this.notifier?.notify?.(alertKind(memory) === "missing_docs" ? {
+          kind: "cold_lead", to, sale_id: saleId,
+          title: "Aceptó iniciar pero no manda documentos",
+          body: `${name} aceptó el ${label(planOf(memory))} y no contesta desde hace ${hours} h${missing ? ` · falta: ${missing}` : ""} · #${id}.`,
+          url: saleId ? `/operations/sales/${encodeURIComponent(saleId)}` : `/operations?area=chats&chat=${id}`,
+        } : {
           kind: "cold_lead", to,
           title: "Cliente interesado sin responder",
           body: `${name} vio el ${label(planOf(memory))} y no contesta desde hace ${hours} h · #${id}. Intervén desde Chats de Mia.`,
           url: `/operations?area=chats&chat=${id}`,
         });
         await this.memories.merge(id, { cold_lead_alert: { at: now.toISOString(), for_mia_at: entry.mia_at, to } });
-        try { await this.inspectorEvents?.record?.(id, "cold_lead_alert", { hours, plan: planOf(memory), to }); } catch {}
+        try { await this.inspectorEvents?.record?.(id, "cold_lead_alert", { hours, plan: planOf(memory), to, kind: alertKind(memory) }); } catch {}
         alerted++;
       }
     } finally { this.running = false; }

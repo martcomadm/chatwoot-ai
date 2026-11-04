@@ -1,4 +1,10 @@
 import { NEED_MENU_TEXT } from "../sales/need-menu.js";
+
+const DOC_TIPS = {
+  curp: "Si no la tienes a la mano, puedes consultarla gratis en gob.mx/curp con tu nombre y fecha de nacimiento, o mandarme una foto de tu INE.",
+  nss: "Si no lo tienes, dime y lo localizamos con tu CURP.",
+  ine: "Puede ser una foto de frente y otra de reverso, con buena luz y sin reflejos, donde se lean bien los datos.",
+};
 import fs from "node:fs";
 import path from "node:path";
 import { stopLabels } from "../chatwoot/labels.js";
@@ -81,10 +87,13 @@ export function followUpMessage(memory = {}, step = 0) {
     if (ops.documents_complete) return null; // ya lo atiende el equipo de Operaciones
     const key = ops.onboarding_next || ops.documents_missing?.[0] || null;
     const doc = key ? `tu ${onboardingLabel(key)}` : "la documentación pendiente";
+    // 4-nov (punto 4): de 8 que aceptaron, 3 no completaron documentos. Los recordatorios dicen cómo
+    // conseguir lo que falta y el último ofrece que un asesor le llame para ayudarle.
+    const tip = DOC_TIPS[key] ? ` ${DOC_TIPS[key]}` : "";
     return [
-      `¿Pudiste conseguir ${doc}? Cuando la tengas, envíamela por aquí y seguimos con tu trámite.`,
-      `Te recuerdo que tu expediente sigue abierto. Solo falta ${doc} para continuar; si tienes alguna dificultad para conseguirla, dime y te ayudo.`,
-      `Tu trámite sigue pendiente de ${doc}. Cuando la tengas a la mano, envíamela por aquí y continuamos sin problema.`,
+      `¿Pudiste conseguir ${doc}?${tip} ${key === "nss" ? "Si ya lo tienes, envíamelo" : "Cuando la tengas, envíamela"} por aquí y seguimos con tu trámite.`,
+      `Tu expediente sigue abierto y solo falta ${doc} para que podamos darte de alta.${tip} Si se te complica algo, dime y te ayudo.`,
+      "¿Prefieres que un asesor te llame y te ayude a completar tu expediente? Dime sí y a qué hora te queda bien, y te marcamos a este número.",
     ][Math.min(step, 2)];
   }
   const plan = planLabel(currentPlan(memory));

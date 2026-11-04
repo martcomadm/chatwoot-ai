@@ -667,7 +667,7 @@ export class ConversationProcessor {
     const b2b = orchestration.shouldHandoffB2B || memory.intent?.id === "PROVEEDOR";
     const frustrated = Number(memory.experiencia?.frustration_score || 0) >= 2 || judgment.shouldHandoff;
     const specialized = specializedAdviceHandoff(combinedText, memory);
-    const callOffer = memory.sales_cycle?.authorized ? null : acceptsCallOffer(combinedText, base.ultima_respuesta_agente);
+    const callOffer = acceptsCallOffer(combinedText, base.ultima_respuesta_agente);
     const wantsCall = Boolean(callOffer) || callRequest(combinedText);
     const wantsHuman = wantsCall || explicitHumanRequest(combinedText) || acceptsAdvisorOffer(combinedText, base.ultima_respuesta_agente);
     // "Ya tengo asesora, es Isela Galicia" / "Ya estoy pagando el plan 2" (casos reales 23 al 25-oct): no es venta.
@@ -696,7 +696,7 @@ export class ConversationProcessor {
     }
     if (wantsHuman || b2b || frustrated || specialized) {
       if (b2b) await this.labels.mergeSafe(conversationId, ["proveedor", this.config.ai.validationLabel], [], conversation);
-      const reason = callOffer ? `El cliente aceptó que un asesor le llame (último seguimiento)${callOffer.time ? `. Horario: "${callOffer.time}"` : ""}: llamarle a su número de WhatsApp.`
+      const reason = callOffer ? `El cliente aceptó que un asesor le llame (último seguimiento${memory.sales_cycle?.authorized ? ": ayudarle a completar su expediente" : ""})${callOffer.time ? `. Horario: "${callOffer.time}"` : ""}: llamarle a su número de WhatsApp.`
         : wantsCall ? "El cliente pide que lo llamen por teléfono (este número no recibe llamadas): regresarle la llamada."
         : wantsHuman ? "El cliente solicitó atención humana."
         : b2b ? "Solicitud comercial de proveedor/asesor."

@@ -39,7 +39,7 @@ test("no avisa: antes de 2 h, fuera de horario, sin plan visto, ya aceptó, posp
   assert.equal((await setup({ 10: pitched }, entry(3), { open: false }).alerts.tick(now)).alerted, 0);
   assert.equal(coldLeadSkipReason(pitched, { mia_at: ago(30) }, now), "too_old");
   assert.equal(coldLeadSkipReason({ sales_cycle: {} }, { mia_at: ago(3) }, now), "no_plan_seen");
-  assert.equal(coldLeadSkipReason({ sales_cycle: { ...pitched.sales_cycle, authorized: true } }, { mia_at: ago(3) }, now), "authorized");
+  assert.equal(coldLeadSkipReason({ sales_cycle: { ...pitched.sales_cycle, authorized: true }, operations: { documents_complete: true } }, { mia_at: ago(3) }, now), "documents_complete");
   assert.equal(coldLeadSkipReason({ sales_cycle: { ...pitched.sales_cycle, deferral: "later" } }, { mia_at: ago(3) }, now), "deferred");
   assert.equal(coldLeadSkipReason({ ...pitched, capture_intervention: { active: true } }, { mia_at: ago(3) }, now), "intervened");
   assert.equal(coldLeadSkipReason({ ...pitched, handoff: { status: "assigned" } }, { mia_at: ago(3) }, now), "human");
@@ -49,4 +49,16 @@ test("si vuelve a quedarse callado después de contestar, se avisa otra vez", as
   const { alerts, sent } = setup({ 10: { ...pitched, cold_lead_alert: { for_mia_at: ago(30) } } }, [{ conversationId: 10, mia_at: ago(2) }]);
   assert.equal((await alerts.tick(now)).alerted, 1);
   assert.equal(sent.length, 1);
+});
+
+// Punto 4 (4-nov): aceptó iniciar pero no manda documentos.
+test("aceptó pero no manda documentos: aviso a Captura a las 4 h con lo que falta y enlace al expediente", async () => {
+  const accepted = { nombre: "Luis Pérez", sales_cycle: { authorized: true, selected_plan: "plan_2", deferral: "later" }, operations: { documents_complete: false, documents_missing: ["nss", "ine"], sale_id: "MART-20261104-00007" } };
+  assert.equal(coldLeadSkipReason(accepted, { mia_at: ago(3) }, now), "too_soon", "a las 3 h todavía no");
+  const { alerts, sent } = setup({ 20: accepted }, [{ conversationId: 20, mia_at: ago(4.5) }]);
+  assert.equal((await alerts.tick(now)).alerted, 1, "aunque haya dicho que después, ya aceptó: se avisa");
+  assert.equal(sent[0].title, "Aceptó iniciar pero no manda documentos");
+  assert.match(sent[0].body, /^Luis Pérez aceptó el Plan 2 \(\$1,500\) y no contesta desde hace 4 h · falta: NSS, INE · #20/);
+  assert.equal(sent[0].url, "/operations/sales/MART-20261104-00007");
+  assert.equal(sent[0].sale_id, "MART-20261104-00007");
 });

@@ -180,7 +180,7 @@ test("tercer seguimiento: ofrece que un asesor le llame (con plan, pensión y ge
   assert.match(followUpMessage({ sales_cycle: { recommended_plan: "plan_1" } }, 2), /^¿Prefieres que un asesor te llame unos minutos y te explique el Plan 1 con calma\? Dime sí y a qué hora/);
   assert.match(followUpMessage({ ultima_respuesta_agente: CASE_Q }, 2), /asesor te llame.*pensión/);
   assert.match(followUpMessage({}, 2), /asesor te llame.*opciones/);
-  assert.match(followUpMessage({ sales_cycle: { authorized: true }, operations: {} }, 2), /Tu trámite sigue pendiente/, "con trámite iniciado sigue el recordatorio de documentos");
+  assert.match(followUpMessage({ sales_cycle: { authorized: true }, operations: {} }, 2), /ayude a completar tu expediente/, "con trámite iniciado, la llamada es para completar el expediente");
 });
 
 test("aceptar la llamada: 'sí', 'a las 5', 'mañana en la tarde'; no: 'no gracias', 'por mensaje'", () => {
@@ -200,4 +200,14 @@ test("'A las 5' al último seguimiento: pasa con un asesor para llamada y se con
   c.state.memory = { ...c.state.memory, ultima_respuesta_agente: followUpMessage({ sales_cycle: { recommended_plan: "plan_1" } }, 2) };
   assert.match(await c.say("A las 5"), /^¡Perfecto! Le dejo tu horario a un asesor para que te marque a este número/);
   assert.ok(!c.state.memory.sales_cycle?.authorized, "no abre trámite: es una llamada");
+});
+
+test("recordatorios de documentos: cómo conseguir lo que falta y, al final, oferta de llamada", () => {
+  const m = k => ({ sales_cycle: { authorized: true }, operations: { onboarding_next: k, documents_missing: [k] } });
+  assert.match(followUpMessage(m("curp"), 0), /gob\.mx\/curp/);
+  assert.match(followUpMessage(m("nss"), 0), /lo localizamos con tu CURP\. Si ya lo tienes, envíamelo por aquí/);
+  assert.match(followUpMessage(m("ine"), 1), /solo falta tu INE.*frente y otra de reverso/s);
+  const last = followUpMessage(m("ine"), 2);
+  assert.match(last, /asesor te llame y te ayude a completar tu expediente/);
+  assert.ok(acceptsCallOffer("Sí, a las 6", last)?.time, "también vale con el trámite iniciado");
 });
