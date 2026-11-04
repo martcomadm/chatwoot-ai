@@ -138,3 +138,37 @@ test("tras la recomendación corta, un 'sí' recibe la explicación completa, no
   await c.say("Servicio médico");
   assert.match(await c.say("Si"), /^Claro\. El Plan 1 incluye.*\$480/s);
 });
+
+// Punto 1 (4-nov): el segundo seguimiento ofrece un menú numerado; responder "2" sigue la venta.
+import { followUpMessage } from "../src/core/follow-up.js";
+import { NEED_MENU_TEXT, menuChoiceText } from "../src/sales/need-menu.js";
+
+test("segundo seguimiento sin plan: menú numerado (general y pensión); con plan sigue igual", () => {
+  assert.equal(followUpMessage({ ultima_respuesta_agente: "¿actualmente cuentas con IMSS?" }, 1), NEED_MENU_TEXT);
+  assert.equal(followUpMessage({ ultima_respuesta_agente: CASE_Q }, 1), NEED_MENU_TEXT);
+  assert.match(followUpMessage({ ultima_respuesta_agente: CASE_Q }, 0), /en qué año empezaste a cotizar/, "el primero repite la pregunta del caso y vale para el diagnóstico");
+  assert.match(followUpMessage({ sales_cycle: { recommended_plan: "plan_1" } }, 1), /iniciemos tu trámite con el Plan 1/);
+});
+
+test("respuestas al menú", () => {
+  const t = x => menuChoiceText(NEED_MENU_TEXT, x);
+  assert.match(t("2"), /semanas para mi pensión/);
+  assert.match(t("La 1"), /servicio médico/);
+  assert.match(t("opción 3 por favor"), /AFORE e INFONAVIT/);
+  assert.match(t("3️⃣"), /AFORE e INFONAVIT/);
+  assert.match(t("el uno"), /servicio médico/);
+  assert.match(t("1 y 2"), /semanas/);
+  assert.equal(t("Tengo 2 hijos y quiero el seguro"), null, "un número dentro de otra frase no es elegir");
+  assert.equal(t("Empecé en el 85"), null);
+  assert.equal(menuChoiceText("¿Quieres que iniciemos tu trámite?", "2"), null, "sin menú, un número no es una opción");
+});
+
+test("del menú a iniciar: '2' → plan → explicación → sí", async () => {
+  const c = conversation();
+  await c.say("¡Hola! Quiero más información");
+  c.state.memory = { ...c.state.memory, ultima_respuesta_agente: NEED_MENU_TEXT };
+  assert.match(await c.say("2"), /Plan 1.*\$1,100/s);
+  assert.match(await c.say("Si"), /¿Quieres que iniciemos tu trámite\?$/);
+  await c.say("Si");
+  assert.equal(c.state.memory.sales_cycle.authorized, true);
+});

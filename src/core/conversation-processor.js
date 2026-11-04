@@ -14,6 +14,7 @@ import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
 import { adOpeningDecision } from "../sales/ad-openings.js";
+import { menuChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
@@ -519,7 +520,7 @@ export class ConversationProcessor {
       }
     }
     // "Si.laberdad.tengo.apenas.55.años." (caso real 19-oct): puntos en lugar de espacios.
-    const combinedText = fixCommonTypos(undotted(batch.map(m => m.content || "").filter(Boolean).join("\n").trim()));
+    let combinedText = fixCommonTypos(undotted(batch.map(m => m.content || "").filter(Boolean).join("\n").trim()));
     if (!combinedText && !batch.some(hasAttachments)) {
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
@@ -572,6 +573,12 @@ export class ConversationProcessor {
       if (byHuman && String(lastOutgoing.content).trim() !== String(base.ultima_respuesta_agente || "").trim()) {
         base = { ...base, ultima_respuesta_agente: String(lastOutgoing.content).trim() };
       }
+    }
+    // Respuesta al menú numerado del seguimiento ("2", "la 3"): se traduce a la necesidad para seguir la venta.
+    const menuChoice = menuChoiceText(base.ultima_respuesta_agente, combinedText);
+    if (menuChoice) {
+      await this.record(conversationId, "need_menu_choice", { customer_text: combinedText.slice(0, 40), as: menuChoice });
+      combinedText = menuChoice;
     }
     const intent = classifyIntent(combinedText, base);
     const salesCyclePatch = analyzeNextSale(combinedText, base).patch;

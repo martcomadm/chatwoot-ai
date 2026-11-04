@@ -1,3 +1,4 @@
+import { NEED_MENU_TEXT } from "../sales/need-menu.js";
 import fs from "node:fs";
 import path from "node:path";
 import { stopLabels } from "../chatwoot/labels.js";
@@ -96,14 +97,15 @@ export function followUpMessage(memory = {}, step = 0) {
   }
   if (pensionContext(memory)) {
     return [
-      "¿Sigues por aquí? Si me dices hace cuánto dejaste de cotizar y en qué año empezaste, te explico cómo puedes seguir sumando semanas para tu pensión.",
-      "Hola de nuevo. Con nosotros puedes seguir sumando semanas para tu pensión y además tener servicio médico del IMSS. ¿Te gustaría que te explique cómo funciona?",
+      "¿Sigues por aquí? Si me dices hace cuánto dejaste de cotizar y en qué año empezaste a cotizar, te explico cómo puedes seguir sumando semanas para tu pensión.",
+      // 4-nov: el segundo seguimiento ofrece opciones numeradas (responder "2" es más fácil que contar su historial).
+      NEED_MENU_TEXT,
       "Te escribo para saber si aún te interesa seguir sumando semanas para tu pensión. Si más adelante quieres retomarlo, aquí estaré para ayudarte.",
     ][Math.min(step, 2)];
   }
   return [
     "¿Sigues por aquí? Con gusto te ayudo a revisar qué plan se ajusta mejor a lo que buscas.",
-    "Hola de nuevo. Si te interesa contar con servicio médico del IMSS y seguir cotizando semanas, puedo explicarte las opciones en un momento. ¿Te gustaría?",
+    NEED_MENU_TEXT,
     "Te escribo para saber si aún te interesa la información. Si más adelante quieres retomarla, aquí estaré para ayudarte.",
   ][Math.min(step, 2)];
 }

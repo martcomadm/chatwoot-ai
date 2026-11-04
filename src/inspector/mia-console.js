@@ -95,6 +95,7 @@ export const EVENT_LABELS = {
   repeated_answer_regenerated: "Respuesta fija repetida: la redactó la IA",
   capture_review_handoff: "Pasó a Captura (revisión de semanas)",
   capture_intervention: "Captura intervino el chat",
+  need_menu_choice: "Eligió opción del menú",
   capture_intervention_released: "Captura regresó el chat a Mia",
 };
 
