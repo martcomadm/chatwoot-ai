@@ -51,8 +51,10 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
 
   const canInterveneMia = user => hasArea(user, "captura");
   // Celulares de los clientes: solo Supervisión y Admin (pedido 4-nov).
-  const canSeeMiaPhones = user => hasArea(user, "supervision");
-  const canSeeMiaChats = user => canInterveneMia(user) || (user?.areas || []).includes("observador");
+  // Cobranza también (4-nov): ve Chats de Mia (sin intervenir) con los celulares.
+  const isCobranza = user => (user?.areas || []).includes("cobranza");
+  const canSeeMiaPhones = user => hasArea(user, "supervision") || isCobranza(user);
+  const canSeeMiaChats = user => canInterveneMia(user) || isCobranza(user) || (user?.areas || []).includes("observador");
 
   function fail(res, error, status = 400) { return res.status(status).json({ error: error?.message || String(error) }); }
 
@@ -147,6 +149,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       can: {
         supervise: hasArea(user, "supervision"),
         intervene: canInterveneMia(user),
+        mia_phones: canSeeMiaPhones(user),
         admin: hasArea(user, "admin"),
         lab: hasArea(user, "admin") && String(config.appEnv || "").toLowerCase() === "next",
       },

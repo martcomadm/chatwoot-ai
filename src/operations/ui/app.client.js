@@ -1412,7 +1412,7 @@ async function renderMiaChats(view) {
     <div class="toolbar">
       <div class="segmented" role="group">${MIA_FILTERS.map(([k, l]) => `<button data-mia-filter="${k}" aria-pressed="${state.miaFilter === k}">${esc(l)}${counts[k] != null ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
       <div class="segmented" role="group" aria-label="Periodo">${[[1, "Hoy"], [7, "7 días"], [30, "30 días"]].map(([d, l]) => `<button data-mia-days="${d}" aria-pressed="${state.miaDays === d}">${l}</button>`).join("")}</div>
-      <input class="input" type="search" data-search placeholder="${state.me.can.supervise ? "Buscar nombre, #, celular o texto" : "Buscar nombre, # o texto"}" value="${esc(state.filter.search || "")}" style="max-width:260px">
+      <input class="input" type="search" data-search placeholder="${state.me.can.mia_phones ? "Buscar nombre, #, celular o texto" : "Buscar nombre, # o texto"}" value="${esc(state.filter.search || "")}" style="max-width:260px">
     </div>
     <div class="queue" role="table" aria-label="Chats de Mia">${rows}</div>`;
 }

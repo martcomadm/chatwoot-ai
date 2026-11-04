@@ -22,6 +22,7 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   users.create({ username: "olga.obs", name: "Olga", areas: ["observador"], password: "clave-segura-123" });
   users.create({ username: "vale.valida", name: "Vale", areas: ["validacion"], password: "clave-segura-123" });
   users.create({ username: "sofi.super", name: "Sofi", areas: ["supervision"], password: "clave-segura-123" });
+  users.create({ username: "cris.cobranza", name: "Cris", areas: ["cobranza"], password: "clave-segura-123" });
   users.create({ username: "ana.admin", name: "Ana", areas: ["admin"], password: "clave-segura-123" });
   const memories = new MemoryStore(path.join(dir, "m.json"));
   const events = new InspectorEventStore(path.join(dir, "e.json"));
@@ -118,6 +119,11 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   assert.equal(memories.get(12).contact_phone, "+5215511112222");
   assert.equal((await ana("/operations/api/mia-chats?filter=all")).body.items.find(i => i.id === 10).phone, "+5215599998888");
   assert.deepEqual((await sofi("/operations/api/mia-chats?filter=all&q=9999 8888".replace(" ", ""))).body.items.map(i => i.id), [10], "Supervisión busca por celular");
+  const cris = await as("cris.cobranza");
+  assert.ok((await cris("/operations/api/me")).body.areas.some(a => a.key === "chats"), "Cobranza ve Chats de Mia");
+  assert.equal((await cris("/operations/api/me")).body.can.intervene, false);
+  assert.equal((await cris("/operations/api/mia-chats?filter=all")).body.items.find(i => i.id === 10).phone, "+5215599998888", "Cobranza ve celulares");
+  assert.equal((await cris("/operations/api/mia-chats/10/intervene", {})).status, 403, "Cobranza no interviene");
   for (const who of [carla, olga]) {
     const list = await who("/operations/api/mia-chats?filter=all");
     assert.ok(list.body.items.every(i => !("phone" in i)), "Captura y Observador no ven celulares");
