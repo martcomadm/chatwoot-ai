@@ -46,7 +46,7 @@ test("un seguimiento que ya se mandó en la conversación no se repite", async (
   assert.match(sent[0], /^Hola de nuevo\. ¿Te gustaría que iniciemos tu trámite con el Plan 1\?/);
   assert.equal(memory.followups_sent.length, 2);
   // Si ya se usaron todos los mensajes, no se manda nada.
-  memory.followups_sent = [0, 1, 2].map(k => ["¿Te quedó alguna duda sobre el Plan 1? Con gusto te la resuelvo.", "Hola de nuevo. ¿Te gustaría que iniciemos tu trámite con el Plan 1? Si tienes alguna duda, con gusto te la resuelvo.", "Te escribo para saber si aún te interesa el Plan 1. Si quieres iniciar o tienes alguna pregunta, aquí estoy para ayudarte."][k]);
+  memory.followups_sent = [0, 1, 2].map(k => ["¿Te quedó alguna duda sobre el Plan 1? Con gusto te la resuelvo.", "Hola de nuevo. ¿Te gustaría que iniciemos tu trámite con el Plan 1? Si tienes alguna duda, con gusto te la resuelvo.", "¿Prefieres que un asesor te llame unos minutos y te explique el Plan 1 con calma? Dime sí y a qué hora te queda bien, y te marcamos a este número."][k]);
   service.afterReply(5, { customerAt: T0, now: T0 });
   await service.tick(new Date(T0.getTime() + 20 * 60 * 1000));
   assert.equal(sent.length, 1);

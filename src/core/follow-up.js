@@ -92,7 +92,8 @@ export function followUpMessage(memory = {}, step = 0) {
     return [
       `¿Te quedó alguna duda sobre el ${plan}? Con gusto te la resuelvo.`,
       `Hola de nuevo. ¿Te gustaría que iniciemos tu trámite con el ${plan}? Si tienes alguna duda, con gusto te la resuelvo.`,
-      `Te escribo para saber si aún te interesa el ${plan}. Si quieres iniciar o tienes alguna pregunta, aquí estoy para ayudarte.`,
+      // 4-nov (punto 3): el último seguimiento ofrece una llamada; a mucha gente le es más fácil hablar que escribir.
+      `¿Prefieres que un asesor te llame unos minutos y te explique el ${plan} con calma? Dime sí y a qué hora te queda bien, y te marcamos a este número.`,
     ][Math.min(step, 2)];
   }
   if (pensionContext(memory)) {
@@ -100,13 +101,13 @@ export function followUpMessage(memory = {}, step = 0) {
       "¿Sigues por aquí? Si me dices hace cuánto dejaste de cotizar y en qué año empezaste a cotizar, te explico cómo puedes seguir sumando semanas para tu pensión.",
       // 4-nov: el segundo seguimiento ofrece opciones numeradas (responder "2" es más fácil que contar su historial).
       NEED_MENU_TEXT,
-      "Te escribo para saber si aún te interesa seguir sumando semanas para tu pensión. Si más adelante quieres retomarlo, aquí estaré para ayudarte.",
+      "¿Prefieres que un asesor te llame unos minutos y revise contigo cómo seguir sumando semanas para tu pensión? Dime sí y a qué hora te queda bien, y te marcamos a este número.",
     ][Math.min(step, 2)];
   }
   return [
     "¿Sigues por aquí? Con gusto te ayudo a revisar qué plan se ajusta mejor a lo que buscas.",
     NEED_MENU_TEXT,
-    "Te escribo para saber si aún te interesa la información. Si más adelante quieres retomarla, aquí estaré para ayudarte.",
+    "¿Prefieres que un asesor te llame unos minutos y te explique las opciones con calma? Dime sí y a qué hora te queda bien, y te marcamos a este número.",
   ][Math.min(step, 2)];
 }
 

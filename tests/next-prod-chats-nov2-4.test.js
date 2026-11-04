@@ -172,3 +172,32 @@ test("del menú a iniciar: '2' → plan → explicación → sí", async () => {
   await c.say("Si");
   assert.equal(c.state.memory.sales_cycle.authorized, true);
 });
+
+// Punto 3 (4-nov): el último seguimiento ofrece una llamada de un asesor.
+import { acceptsCallOffer } from "../src/core/human-request.js";
+
+test("tercer seguimiento: ofrece que un asesor le llame (con plan, pensión y general)", () => {
+  assert.match(followUpMessage({ sales_cycle: { recommended_plan: "plan_1" } }, 2), /^¿Prefieres que un asesor te llame unos minutos y te explique el Plan 1 con calma\? Dime sí y a qué hora/);
+  assert.match(followUpMessage({ ultima_respuesta_agente: CASE_Q }, 2), /asesor te llame.*pensión/);
+  assert.match(followUpMessage({}, 2), /asesor te llame.*opciones/);
+  assert.match(followUpMessage({ sales_cycle: { authorized: true }, operations: {} }, 2), /Tu trámite sigue pendiente/, "con trámite iniciado sigue el recordatorio de documentos");
+});
+
+test("aceptar la llamada: 'sí', 'a las 5', 'mañana en la tarde'; no: 'no gracias', 'por mensaje'", () => {
+  const L = followUpMessage({ sales_cycle: { recommended_plan: "plan_1" } }, 2);
+  assert.deepEqual(acceptsCallOffer("Si", L), { time: null });
+  assert.equal(acceptsCallOffer("A las 5", L).time, "A las 5");
+  assert.ok(acceptsCallOffer("mañana en la tarde", L).time);
+  assert.equal(acceptsCallOffer("No gracias", L), null);
+  assert.equal(acceptsCallOffer("Ya no me interesa", L), null);
+  assert.equal(acceptsCallOffer("Mejor por mensaje", L), null);
+  assert.equal(acceptsCallOffer("Si", "¿Quieres que iniciemos tu trámite?"), null, "sin la oferta, un sí es otra cosa");
+});
+
+test("'A las 5' al último seguimiento: pasa con un asesor para llamada y se confirma al cliente", async () => {
+  const c = conversation();
+  await c.say("¡Hola! Quiero más información");
+  c.state.memory = { ...c.state.memory, ultima_respuesta_agente: followUpMessage({ sales_cycle: { recommended_plan: "plan_1" } }, 2) };
+  assert.match(await c.say("A las 5"), /^¡Perfecto! Le dejo tu horario a un asesor para que te marque a este número/);
+  assert.ok(!c.state.memory.sales_cycle?.authorized, "no abre trámite: es una llamada");
+});

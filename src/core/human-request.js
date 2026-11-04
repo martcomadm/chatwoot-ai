@@ -70,3 +70,23 @@ export function callRequest(text) {
 }
 
 export const CALL_HANDOFF_TEXT = "Este número de WhatsApp no recibe llamadas, pero con gusto un asesor te llama. Ya le dejo el contexto de lo que platicamos para que no tengas que repetirlo. ¿A qué número y en qué horario te queda mejor que te marquemos?";
+
+// Último seguimiento (4-nov): "¿Prefieres que un asesor te llame…? Dime sí y a qué hora…".
+// "Sí", "a las 5", "mañana en la tarde", "después de las 6" aceptan la llamada.
+export const CALL_OFFER_MARK = "prefieres que un asesor te llame";
+const TIME_RE = /\b(?:a las|alas|despues de las|antes de las|entre las|de las)\s*\d{1,2}(?::\d{2})?|\b\d{1,2}(?::\d{2})?\s*(?:am|pm|hrs?|horas)\b|\b(?:en la|por la)\s+(?:manana|tarde|noche)\b|\b(?:ahorita|ahora|ya|cuando gusten|cuando quieran|a cualquier hora|cualquier hora|hoy|manana)\b/;
+export function acceptsCallOffer(text, lastReply = "") {
+  if (!norm(lastReply).includes(CALL_OFFER_MARK)) return null;
+  const value = norm(text).replace(/[^a-z0-9n: ]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!value || /^(?:no|nop|nel)\b|\bno (?:gracias|me llamen|me marquen|puedo|quiero|me interesa)\b|\bya no\b|\bpor mensaje\b|\bpor (?:aqui|escrito|whats)\b/.test(value)) return null;
+  const yes = /^(?:si+|sip|claro|ok|okay|va|vale|sale|por favor|porfavor|de acuerdo|me parece|esta bien|bueno|perfecto|adelante|orale)\b/.test(value);
+  const time = TIME_RE.test(value);
+  if (!yes && !time) return null;
+  if (!time && value.split(" ").length > 6) return null;
+  return { time: time ? String(text || "").trim().slice(0, 120) : null };
+}
+export function callOfferReply(accepted) {
+  return accepted?.time
+    ? "¡Perfecto! Le dejo tu horario a un asesor para que te marque a este número, y también el contexto de lo que platicamos para que no tengas que repetirlo."
+    : "¡Perfecto! Un asesor te va a llamar a este número y ya le dejo el contexto de lo que platicamos. ¿En qué horario te queda mejor que te marque?";
+}
