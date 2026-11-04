@@ -366,6 +366,7 @@ async function start() {
   await renderView();
   if (state.saleId) await openSale(state.saleId, { push: false });
   if (params.get("case")) await openCase(params.get("case"));
+  if (params.get("chat") && state.view === "chats") await openMiaChat(params.get("chat"));
   startEvents();
 }
 
@@ -1390,7 +1391,7 @@ async function renderCustomerService(view) {
 
 // ── Chats de Mia (3-nov): todas las conversaciones de la IA; Captura interviene para salvar la venta ──
 const MIA_FILTERS = [["risk", "En riesgo"], ["hot", "Interesados"], ["all", "Todos"], ["intervened", "Intervenidos"], ["authorized", "Aceptaron"]];
-const RISK_TONE = { angry: "bad", lost: "bad", price: "warn", deferred: "warn", no_response: "warn", silent: "", error: "bad" };
+const RISK_TONE = { cold: "bad", angry: "bad", lost: "bad", price: "warn", deferred: "warn", no_response: "warn", silent: "", error: "bad" };
 async function renderMiaChats(view) {
   view.style.setProperty("--area", areaVar("chats"));
   state.miaFilter = state.miaFilter || "risk";
@@ -1424,8 +1425,10 @@ async function openMiaChat(id) {
   closePanel(false);
   closeCasePanel();
   id = Number(id);
-  const c = (state.miaChats || []).find(item => item.id === id);
-  if (!c) return;
+  let c = (state.miaChats || []).find(item => item.id === id);
+  // Desde un aviso el chat puede no estar en el filtro actual: se busca en "Todos".
+  if (!c && state.view === "chats" && state.miaFilter !== "all") { state.miaFilter = "all"; await renderView(); c = (state.miaChats || []).find(item => item.id === id); }
+  if (!c) return toast("Ese chat ya no aparece en la lista");
   state.miaChatId = id;
   const mine = c.intervention && c.intervention.username === state.me.user.username;
   const buttons = [];
@@ -1620,6 +1623,8 @@ async function initNotifications() {
     const id = url?.pathname.match(/^\/operations\/sales\/([^/]+)/)?.[1];
     if (id) openSale(decodeURIComponent(id));
     const caseId = url?.searchParams.get("case");
+    const chatId = url?.searchParams.get("chat");
+    if (chatId && state.me.areas.some(a => a.key === "chats")) { (state.view === "chats" ? openMiaChat(chatId) : go("chats").then(() => openMiaChat(chatId))); return; }
     if (caseId) { if (state.view !== "atencion" && state.me.areas.some(a => a.key === "atencion")) go("atencion").then(() => openCase(caseId)); else openCase(caseId); }
   });
 }
@@ -1672,7 +1677,7 @@ function playChime(kind) {
   try {
     unlockSound();
     if (!audioCtx) return;
-    const notes = kind === "issue" || kind === "overdue" ? [784, 659, 523] : [659, 880, 1175];
+    const notes = kind === "issue" || kind === "overdue" || kind === "cold_lead" ? [784, 659, 523] : [659, 880, 1175];
     const NOTE = 0.32, GAP = 0.05, PAUSE = 0.45;
     const round = notes.length * (NOTE + GAP) + PAUSE;
     // Compresor: sube el volumen percibido sin que se distorsione.
@@ -1701,13 +1706,14 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { no
 
 function handleNotify(n) {
   playChime(n.kind);
-  toast(`${n.title}${n.body ? `: ${n.body}` : ""}`, n.kind === "issue" || n.kind === "overdue" ? "bad" : "");
+  toast(`${n.title}${n.body ? `: ${n.body}` : ""}`, n.kind === "issue" || n.kind === "overdue" || n.kind === "cold_lead" ? "bad" : "");
   if (document.hidden) { notifyState.unread += 1; updateTitle(); }
   // Sin Web Push en este dispositivo: aviso del sistema mientras la página siga abierta.
   if (document.hidden && !notifyState.subscribed && "Notification" in window && Notification.permission === "granted") {
     try {
       const note = new Notification(n.title || "MARTCOM Operations", { body: n.body || "", tag: n.sale_id ? `${n.sale_id}:${n.kind}` : undefined, icon: "/operations/pwa/icon-192.png" });
-      note.onclick = () => { window.focus(); if (n.sale_id) openSale(n.sale_id); note.close(); };
+      const chatId = n.url ? new URL(n.url, location.origin).searchParams.get("chat") : null;
+      note.onclick = () => { window.focus(); if (n.sale_id) openSale(n.sale_id); else if (chatId) (state.view === "chats" ? openMiaChat(chatId) : go("chats").then(() => openMiaChat(chatId))); note.close(); };
     } catch {}
   }
 }

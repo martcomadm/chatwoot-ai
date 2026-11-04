@@ -18,6 +18,7 @@ import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
 import { createOperationsRouter } from "./operations/operations-router.js";
 import { PushStore } from "./operations/notifications/push-store.js";
 import { OpsNotifier } from "./operations/notifications/ops-notifier.js";
+import { ColdLeadAlerts } from "./operations/cold-lead-alerts.js";
 import { CaseStore } from "./operations/customer-service/case-store.js";
 import { CustomerService } from "./operations/customer-service/customer-service.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
@@ -125,6 +126,9 @@ try {
   if (followUps) {
     followUps.isOpen = now => processor.inSchedule(now);
     followUps.start();
+    // Cliente que vio el plan y lleva 2 h sin contestar: aviso a Captura (4-nov).
+    const coldLeads = new ColdLeadAlerts({ followUpStore: followUps.store, memories, notifier: opsNotifier, inspectorEvents, isOpen: now => processor.inSchedule(now) });
+    coldLeads.start();
   }
   // Rescate: cada 15 min (y al arrancar) retoma chats que se quedaron solo con el aviso
   // de horario o con un mensaje del cliente que nunca se procesó.

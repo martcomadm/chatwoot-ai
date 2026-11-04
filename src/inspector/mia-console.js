@@ -96,6 +96,7 @@ export const EVENT_LABELS = {
   capture_review_handoff: "Pasó a Captura (revisión de semanas)",
   capture_intervention: "Captura intervino el chat",
   need_menu_choice: "Eligió opción del menú",
+  cold_lead_alert: "Aviso a Captura: interesado sin responder",
   capture_intervention_released: "Captura regresó el chat a Mia",
 };
 
@@ -412,6 +413,8 @@ export class MiaConsole {
       if (has(["followup_no_response"])) risks.push({ key: "no_response", label: "Dejó de contestar" });
       else if (!base.authorized && base.stage_rank >= 1 && lastReplyAt > lastCustomerAt && now.getTime() - lastReplyAt > 3 * HOUR) risks.push({ key: "silent", label: "Sin respuesta del cliente" });
       if (has(["ai_error", "processing_error"])) risks.push({ key: "error", label: "Error de Mia" });
+      // Aviso a Captura de cliente interesado sin responder (4-nov): vigente mientras no vuelva a escribir.
+      if (memory.cold_lead_alert?.at && !base.authorized && lastReplyAt <= ms(memory.cold_lead_alert.at)) risks.unshift({ key: "cold", label: "Interesado sin responder" });
       const intervention = memory.capture_intervention?.active ? { by: memory.capture_intervention.by || null, username: memory.capture_intervention.username || null, at: memory.capture_intervention.at || null } : null;
       items.push({
         ...base,
