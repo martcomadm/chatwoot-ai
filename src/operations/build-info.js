@@ -1,3 +1,3 @@
 // Versión visible en Operations (debajo de "Operations NEXT") para confirmar qué quedó desplegado.
 // Se actualiza con cada entrega.
-export const BUILD_LABEL = "03-nov · Chats de Mia + intervención de Captura";
+export const BUILD_LABEL = "04-nov · Diagnóstico del caso y cierre directo";

@@ -28,7 +28,7 @@ const LATER_RE = [
   // "lunes o martes", "voy de salida… le mando mensaje", "sería ahora que renuncie".
   /\b(?:lo|la)\s+estoy\s+(?:considerando|pensando|analizando|viendo|revisando)\b|\b(?:estoy|estamos)\s+(?:platicando|viendo|consultando|hablando)(?:lo)?\s+con\s+(?:mi|mis)\b/,
   /\b(?:te|le|les)\s+(?:lo\s+|los\s+|las\s+)?(?:mando|envio|paso|comparto)\s+(?:manana|el lunes|el martes|en la semana|mas tarde|al rato|despues)\b|\bmanana\s+(?:te|le|les)\s+(?:mando|envio|paso|escribo)\b/,
-  /\b(?:para|hasta|a partir de)\s+(?:el\s+)?(?:siguiente|proximo|otro)\s+mes\b|\b(?:el\s+)?(?:1|primero)\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b|\b(?:la\s+)?(?:proxima|siguiente|otra)\s+semana\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado)\s+o\s+(?:lunes|martes|miercoles|jueves|viernes|sabado)\b/,
+  /\b(?:para|hasta|a partir de)\s+(?:el\s+)?(?:siguiente|proximo|otro)\s+mes\b|\b(?:el\s+)?(?:1|primero)\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b(?!\s+(?:de|del)\s+\d{2,4})|\b(?:la\s+)?(?:proxima|siguiente|otra)\s+semana\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado)\s+o\s+(?:lunes|martes|miercoles|jueves|viernes|sabado)\b/,
   /\bvoy de salida\b|\b(?:le|te)\s+mando\s+mensaje\b.{0,25}\b(?:regrese|regreso|llegue|pueda)\b|\bestoy ocupad[oa]\b/,
   /\b(?:seria|sera|cuando)\s+(?:ahora\s+)?(?:que\s+)?(?:renuncie|me liquiden|deje de trabajar|salga del trabajo|me den de baja)\b/,
   /\b(?:me|nos)\s+vuelvo\s+a\s+(?:comunicar|poner en contacto)|\b(?:me|nos)\s+volvemos\s+a\s+comunicar|\b(?:te|le|les)\s+vuelvo\s+a\s+(?:escribir|marcar|contactar)\b/,

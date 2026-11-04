@@ -81,7 +81,8 @@ export function contextualNextStep(memory = {}) {
   // Sin plan identificado se pregunta qué busca (antes salía "¿Hay algo más…?" porque la IA
   // había anotado una necesidad en texto libre; caso Laura, 17-oct).
   else options.push("Para orientarte mejor, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?");
-  if (plan) options.push("¿Hay algo más en lo que te pueda ayudar?");
+  // 04-nov: "¿Hay algo más en lo que te pueda ayudar?" sonaba a despedida justo cuando el cliente dijo "sí me interesa" (Irma).
+  if (plan) options.push(`Si te parece bien, ¿iniciamos tu trámite con el ${label}?`);
   else options.push("Cuéntame un poco más de lo que buscas y te digo qué plan te conviene: ¿te interesa sobre todo el servicio médico o también aportar a tu AFORE?");
   const last = String(memory?.ultima_respuesta_agente || "").trim();
   return options.find(option => !last.endsWith(option)) || options.at(-1);

@@ -97,14 +97,14 @@ function affirmativeFollowUp(text = "") {
   // "Si.", "Porfavor.", "Porfavor explíqueme…!!" también son un sí (casos reales del 15-oct).
   // "Aver expliqueme", "a ver, explíqueme", "Espliqueme" (casos reales 19 y 20-oct).
   const value = norm(text).replace(/^(?:a ver|aver|haber|aber)\b[ ,.]*/, "").replace(/\besplique/g, "explique").replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
-  return /^(?:(?:si|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno|me parece bien|me parece|muy bien|y gracias|gracias)\s*)+(?:(?:explicame|cuentame|dime|por favor|y gracias|gracias)\s*)*$/.test(value) && !/^(?:y gracias|gracias)/.test(value)
+  return /^(?:(?:si+|sip|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno|me parece bien|me parece|muy bien|y gracias|gracias)\s*)+(?:(?:explicame|cuentame|dime|por favor|y gracias|gracias)\s*)*$/.test(value) && !/^(?:y gracias|gracias)/.test(value)
     || /^(?:explicame|cuentame)(?: por favor)?$/.test(value)
     || /\b(?:si|por favor)\s+(?:explicame|cuentame|dime)\b/.test(value);
 }
 
 function priorAgentOfferedExplanation(memory = {}) {
   const previous = norm(memory?.ultima_respuesta_agente || "");
-  return /quieres que te explique como funciona/.test(previous)
+  return /(?:quieres|te gustaria|deseas|gustas) que te explique como funciona/.test(previous)
     || /si quieres, te explico como funciona/.test(previous)
     || /puedo explicarte como funciona/.test(previous)
     || /te explico como funciona/.test(previous);
@@ -123,10 +123,16 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   if (!explicitExplanationRequest && !contextualAffirmative) return null;
   // "¿Quieres que te explique cómo funciona el Plan 2?" → explicar ese plan (caso 17-oct: explicó el 1).
   const offered = /explique como funciona el plan ([12])/.exec(norm(memory?.ultima_respuesta_agente || ""))?.[1];
-  const plan = offered ? `plan_${offered}` : effectivePlan(memory);
+  // "¿Te gustaría que te explique cómo funciona para cuando lo necesites?" sin plan aún (sigue cotizando con su
+  // trabajo, 1-nov): se explica el Plan 1 en lugar de volver a ofrecer la explicación.
+  const plan = offered ? `plan_${offered}` : effectivePlan(memory) || (contextualAffirmative ? "plan_1" : null);
   // Ya se explicó este plan: no se manda otra vez el mismo bloque (caso real: Silvia recibió
   // dos veces la explicación completa del Plan 2).
-  if (contextualAffirmative && !explicitExplanationRequest && (memory?.sales_cycle?.explained_plans || []).includes(plan)) {
+  // La recomendación corta ("…¿Quieres que te explique cómo funciona?") cuenta como plan mencionado, no explicado:
+  // al "sí" se le debe la explicación completa, no un resumen (04-nov).
+  // Conversaciones anteriores al cambio (sin fully_explained_plans) siguen con explained_plans (caso Silvia).
+  const fully = memory?.sales_cycle?.fully_explained_plans || memory?.sales_cycle?.explained_plans || [];
+  if (contextualAffirmative && !explicitExplanationRequest && fully.includes(plan)) {
     const label = plan === "plan_2" ? "Plan 2" : "Plan 1";
     return { reply: `Te resumo el ${label}: ${plan === "plan_2" ? "$1,500 MXN mensuales; servicio médico del IMSS, semanas cotizadas, aportaciones a AFORE e INFONAVIT" : "$1,100 MXN mensuales; servicio médico del IMSS y semanas cotizadas"}. Para iniciar solo necesitamos CURP, NSS e INE. ¿Quieres que iniciemos tu trámite o prefieres que un asesor revise tu caso primero?`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" };
   }

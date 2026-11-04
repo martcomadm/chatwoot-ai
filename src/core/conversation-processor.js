@@ -14,6 +14,7 @@ import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
 import { adOpeningDecision } from "../sales/ad-openings.js";
+import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
@@ -583,7 +584,7 @@ export class ConversationProcessor {
     // Respuesta a "¿en qué año empezaste a cotizar?" (apertura del anuncio de pensión): basta el año.
     const askedStartYear = /en que ano empezaste a cotizar/.test(String(base.ultima_respuesta_agente || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ñ/g, "n"));
     const yearAnswer = askedStartYear && /\b(?:19[5-8]\d|199[0-6])\b|\b(?:el|del|en el|desde el|desde|en)\s+(?:[5-8]\d|9[0-6])\b(?!\s*a(?:n|ñ)os)/i.test(combinedText);
-    if (startedBefore1997(combinedText) || yearAnswer) fastPatch.pension_data = { ...(fastPatch.pension_data || {}), cotizo_antes_1997: true };
+    if (startedBefore1997(combinedText) || yearAnswer || parseCaseData(combinedText, { askedStartYear }).ley === 73) fastPatch.pension_data = { ...(fastPatch.pension_data || {}), cotizo_antes_1997: true };
     if (containsNss(combinedText)) fastPatch.nss_recibido = true;
     const facts = extractConversationFacts(combinedText, base);
     const reliability = analyzeReliability(combinedText, base, {
@@ -830,11 +831,16 @@ export class ConversationProcessor {
       await this.record(conversationId, "advisory_turn", { text: combinedText, commercial_need: memory.commercial_need || null });
     }
     const adOpening = adOpeningDecision(base, combinedText);
+    // 04-nov: respuesta a "¿hace cuánto dejaste de cotizar y en qué año empezaste?" con su caso (Ley 73/97), plan y cierre.
+    // Si además menciona un tema que tiene su propia respuesta (ISSSTE, revisar semanas, Modalidad 40…), manda esa.
+    const caseCompatible = !directRequest || ["price", "pension_general", "pension_orientation", "pension_min_term", "rights_recovery", "min_weeks", "missing_weeks", "few_weeks_left", "lost_rights"].includes(directRequest.answerKey);
+    const caseDiagnosis = mediaDecision || adOpening || !caseCompatible ? null : caseDiagnosisDecision(base, combinedText);
     if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
     else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
     else if (creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
     else if (featureRejection) decision = protectDeterministicDecision(featureRejection, "feature_rejection");
     else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
+    else if (caseDiagnosis) decision = protectDeterministicDecision(caseDiagnosis, `case_diagnosis:${caseDiagnosis.case_diagnosis}`);
     else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
     else if (medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
     else if (memory.sales_cycle?.authorized && onboardingDecision?.priority) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
@@ -1117,10 +1123,22 @@ export class ConversationProcessor {
       const cycle = memory.sales_cycle || {};
       memory = { ...memory, commercial_need: { ...(memory.commercial_need || {}), afore_infonavit: false }, sales_cycle: { ...cycle, recommended_plan: "plan_1", selected_plan: cycle.selected_plan === "plan_2" ? null : cycle.selected_plan || null, pitched_plans: arrays(cycle.pitched_plans, ["plan_1"]) } };
     }
+    // Diagnóstico del caso: el plan queda recomendado y explicado, así un "sí" abre el trámite.
+    if (/^case_diagnosis:(?!reprompt)/.test(decisionSource) && decision.plan) {
+      const cycle = memory.sales_cycle || {};
+      memory = { ...memory, sales_cycle: { ...cycle, recommended_plan: cycle.selected_plan || decision.plan, pitched_plans: arrays(cycle.pitched_plans, [decision.plan]), explained_plans: arrays(cycle.explained_plans, [decision.plan]) } };
+      if (decision.case_data?.ley === 73) memory = { ...memory, pension_data: { ...(memory.pension_data || {}), cotizo_antes_1997: true } };
+    }
     // Recordar qué plan ya se recomendó o explicó para no repetir el mismo mensaje después.
+    if (decisionSource === "contextual_plan_explanation" || /^case_diagnosis:(?!reprompt)/.test(decisionSource)) {
+      const fullPlan = decision.plan || effectivePlan(memory);
+      if (fullPlan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), fully_explained_plans: arrays(memory.sales_cycle?.fully_explained_plans, [fullPlan]) } };
+    }
     const pitchKey = { compact_plan_recommendation: "pitched_plans", contextual_plan_explanation: "explained_plans" }[decisionSource];
     const pitchedPlan = pitchKey ? effectivePlan(memory) : null;
     if (pitchedPlan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), [pitchKey]: arrays(memory.sales_cycle?.[pitchKey], [pitchedPlan]) } };
+    // Desde 04-nov se distingue "recomendado" de "explicado completo" (ver contextualPlanExplanation).
+    if (memory.sales_cycle && !Array.isArray(memory.sales_cycle.fully_explained_plans)) memory = { ...memory, sales_cycle: { ...memory.sales_cycle, fully_explained_plans: [] } };
     // Si la IA explicó un plan con su detalle (precio + salario registrado o lo que incluye), cuenta
     // como explicado: antes el respaldo volvía a ofrecer "¿Quieres que te explique cómo funciona?".
     // Ya se le respondió una duda de legitimidad: si vuelve a dudar, se le ofrece un asesor.

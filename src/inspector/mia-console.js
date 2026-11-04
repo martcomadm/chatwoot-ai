@@ -37,6 +37,9 @@ export function sourceLabel(source = "") {
   const s = String(source || "");
   if (SOURCE_LABELS[s]) return SOURCE_LABELS[s];
   if (s.startsWith("commitment:")) return "Regla · cierre de venta";
+  if (s.startsWith("ad_opening:")) return "Regla · apertura del anuncio";
+  if (s === "case_diagnosis:reprompt") return "Regla · repite pregunta del caso";
+  if (s.startsWith("case_diagnosis:")) return "Regla · diagnóstico del caso";
   if (s.startsWith("direct:")) return "Respuesta oficial";
   return s || "—";
 }
@@ -160,6 +163,7 @@ const REPLACED_LABELS = {
   respuesta_larga: "Respuesta demasiado larga",
   multiples_preguntas: "Hacía más de una pregunta",
   respuesta_demasiado_similar_a_la_anterior: "Casi igual a la respuesta anterior",
+  pide_datos_antes_de_aceptar: "Pedía nombre, edad o actividad antes de que el cliente aceptara",
   nombre_ya_conocido: "Volvía a pedir el nombre",
   edad_ya_conocida: "Volvía a pedir la edad",
   actividad_ya_conocida: "Volvía a pedir la actividad",

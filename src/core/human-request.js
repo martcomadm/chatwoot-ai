@@ -22,6 +22,11 @@ const PATTERNS = [
   // "llamada con un agente que no sea IA", "alguien que no sea AI" (casos reales 19-oct, con faltas).
   /\b(?:alguien|persona|agente|asesor|asesora|humano)\s+(?:que|sue|q|k|ke)\s+no\s+sea[^a-z]{0,6}(?:una?\s+)?(?:ia|ai|bot|robot|maquina|inteligencia artificial)\b/,
   /\bllamada con (?:un |una |el |la |mi )?(?:agente|asesor|asesora|ejecutivo|persona)\b/,
+  // Molestia porque le contesta un sistema (caso real 2-nov, Irma: "no sé si es una computadora la que me está
+  // contestando, siempre les pregunto lo mismo y no me contestan" y luego "pinche computadoras"): pasa a una persona.
+  /\b(?:es|sea|son)\s+(?:una?\s+)?(?:computadora|maquina|robot|bot|grabadora|contestadora)s?\b.{0,40}\b(?:contest|respond)\w*/,
+  /\b(?:me|nos)\s+(?:esta\s+)?(?:contesta|responde|atiende)\s+(?:una?\s+)?(?:computadora|maquina|robot|bot|contestadora)\b/,
+  /\bpinches?\s+(?:computadoras?|maquinas?|robots?|bots?)\b/,
 ];
 
 export function explicitHumanRequest(text) {

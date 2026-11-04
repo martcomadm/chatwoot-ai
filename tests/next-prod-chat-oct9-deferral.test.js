@@ -85,5 +85,7 @@ test("si la IA abre con 'Mia de MARTCOM.' sin saludo, se completa la presentaci�
     handoffRouter: {}, workflow: null,
   });
   await processor.process(22, { ids: ["500"], webhookMessages: new Map([["500", message]]) });
-  assert.equal(sent[0], "¡Hola! Soy Mia de MARTCOM. Para comenzar con tu afiliación al IMSS, ¿me confirmas tu nombre completo?");
+  // Se completa la presentación; desde 04-nov la pregunta de nombre se descarta antes de que el cliente acepte.
+  assert.match(sent[0], /^¡Hola! Soy Mia de MARTCOM\. /);
+  assert.doesNotMatch(sent[0], /nombre/);
 });

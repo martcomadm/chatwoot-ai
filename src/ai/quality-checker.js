@@ -29,6 +29,11 @@ function similarity(a,b){
   return common/Math.max(aa.size,bb.size);
 }
 
+const PERSONAL_DATA_RE=/(?:tu|su) nombre(?: completo)?|como te llamas|con quien tengo el gusto|(?:cual es|me (?:indicas|confirmas|compartes|dices|podrias indicar)|me puedes decir) (?:tu|su) edad|que edad tienes|cuantos anos tienes|a que te dedicas|a que se dedica|cual es tu (?:ocupacion|actividad)|en que trabajas/;
+export function asksPersonalData(reply=""){
+  const questions=String(reply||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").match(/[^.!?]*\?/g)||[];
+  return questions.some(q=>PERSONAL_DATA_RE.test(q));
+}
 export function checkReply(reply,{memory,questionKey,maxChars=850,customerText=""}){
   const text=String(reply||"").trim();
   const reasons=[];
@@ -45,6 +50,9 @@ export function checkReply(reply,{memory,questionKey,maxChars=850,customerText="
     reasons.push("respuesta_demasiado_similar_a_la_anterior");
   }
 
+  // 04-nov: la IA seguía pidiendo nombre, edad o actividad antes de que el cliente aceptara (6+ chats del 2 al 4-nov,
+  // p. ej. "Si por favor" → "¿Cuál es tu nombre completo?"). Esos datos salen de la CURP al iniciar el trámite.
+  if(!memory?.sales_cycle?.authorized&&asksPersonalData(text)) reasons.push("pide_datos_antes_de_aceptar");
   if(questionKey==="nombre"&&memory.nombre) reasons.push("nombre_ya_conocido");
   if(questionKey==="edad"&&memory.edad) reasons.push("edad_ya_conocida");
   if(questionKey==="actividad"&&memory.actividad) reasons.push("actividad_ya_conocida");

@@ -18,9 +18,10 @@ test("pensión con Plan 2 elegido: habla del Plan 2, reconoce Ley 73 y ofrece as
   const o = orchestrateConversation("Y de cuanto alcansaria mi pension ??", silvia);
   assert.match(o.directAnswer, /Plan 2, de \$1,500/);
   assert.match(o.directAnswer, /Ley 73/);
-  assert.match(o.directAnswer, /comunique con un asesor/);
+  // 04-nov: propone iniciar y deja la opción del asesor.
+  assert.match(o.directAnswer, /¿Quieres que iniciemos tu trámite o prefieres que un asesor revise tu caso primero\?$/);
   assert.doesNotMatch(o.directAnswer, /Plan 1/);
-  assert.equal(acceptsAdvisorOffer("Si", o.directAnswer), true);
+  assert.equal(acceptsAdvisorOffer("Mejor que lo revise un asesor", o.directAnswer), true);
 });
 
 test("'Oriéntame por favor' en contexto de pensión: orientación + asesor", () => {
