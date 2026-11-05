@@ -7,7 +7,7 @@
 
 const app = document.getElementById("app");
 const TOKEN_KEY = "mia-inspector-token";
-const state = { stats: null, sq: { group: "week", from: "", to: "", cmpMode: "prev", cmpFrom: "", cmpTo: "", preset: "12w" }, sMetric: "nuevas", token: "", view: "hoy", live: null, convs: null, convFilter: "all", convSearch: "", conv: null, convTab: "chat", quality: null, qDays: 7, qFlag: "", funnel: null, fDays: 30, adminToken: "", timer: null };
+const state = { stats: null, sq: { group: "week", from: "", to: "", cmpMode: "prev", cmpFrom: "", cmpTo: "", preset: "12w" }, sMetric: "nuevas", token: "", view: "hoy", live: null, convs: null, convFilter: "all", convSearch: "", conv: null, convTab: "chat", quality: null, qDays: 7, qFlag: "", funnel: null, fDays: 30, impact: null, iq: { since: "", to: "" }, adminToken: "", timer: null };
 
 const esc = value => String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 const store = { get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } }, set(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} } };
@@ -98,7 +98,7 @@ function gate(message = "") {
 function logout(message) { state.token = ""; store.set(TOKEN_KEY, ""); gate(message); }
 
 // ── Estructura ─────────────────────────────────────────────────────────
-const VIEWS = [["hoy", "Hoy"], ["estadisticas", "Estadísticas"], ["conversaciones", "Conversaciones"], ["calidad", "Calidad"], ["embudo", "Embudo y configuración"]];
+const VIEWS = [["hoy", "Hoy"], ["impacto", "Impacto"], ["estadisticas", "Estadísticas"], ["conversaciones", "Conversaciones"], ["calidad", "Calidad"], ["embudo", "Embudo y configuración"]];
 
 function shell() {
   const live = state.live;
@@ -123,6 +123,7 @@ async function render() {
     if (state.view === "hoy") view.innerHTML = renderLive();
     if (state.view === "conversaciones") { if (!state.convs) await loadConvs(); view.innerHTML = renderConversations(); scrollChat(); }
     if (state.view === "estadisticas") { if (!state.stats) await loadStats(); view.innerHTML = renderStats(); }
+    if (state.view === "impacto") { if (!state.impact) await loadImpact(); view.innerHTML = renderImpact(); }
     if (state.view === "calidad") { if (!state.quality) await loadQuality(); view.innerHTML = renderQuality(); }
     if (state.view === "embudo") { if (!state.funnel) await loadFunnel(); view.innerHTML = renderFunnel(); }
   } catch (error) { if (error.message !== "401") view.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
@@ -312,6 +313,63 @@ function delta(metric, cur, prev) {
   return { text: `${arrow} ${Math.abs(Math.round((diff / prev) * 1000) / 10)}%`, cls };
 }
 
+// ── Impacto de las mejoras (5-nov) ─────────────────────────────────
+async function loadImpact() {
+  const p = new URLSearchParams();
+  if (state.iq.since) p.set("since", state.iq.since);
+  if (state.iq.to) p.set("to", state.iq.to);
+  state.impact = await api(`/inspector/api/v2/impact?${p}`);
+  state.iq.since = state.impact.since; state.iq.to = state.impact.after.to;
+}
+const pctTxt = v => (v === null || v === undefined ? "—" : `${String(v).replace(".", ".")}%`);
+function impactDelta(after, before, good = "up") {
+  if (after === null || before === null || after === undefined || before === undefined) return "";
+  const d = Math.round((after - before) * 10) / 10;
+  if (!d) return `<span class="delta">igual</span>`;
+  const better = good === "up" ? d > 0 : d < 0;
+  return `<span class="delta ${better ? "up" : "down"}">${d > 0 ? "▲" : "▼"} ${Math.abs(d)} pts</span>`;
+}
+function renderImpact() {
+  const i = state.impact;
+  const A = i.after, B = i.before;
+  const kpi = (label, after, before, fmt = v => v, good = "up", isPct = false) => `<div class="kpi"><span>${esc(label)}</span><b>${esc(fmt(after))}</b><small>${isPct ? impactDelta(after, before, good) : ""} antes ${esc(fmt(before))}</small></div>`;
+  const tool = (name, what, sent, outcome, outcomePct, extra = "") => `<tr><th scope="row">${esc(name)}<small class="muted">${esc(what)}</small></th><td data-label="Clientes">${sent}</td><td data-label="Resultado">${outcome}</td><td data-label="%"><b>${pctTxt(outcomePct)}</b></td><td data-label="Además">${extra || "—"}</td></tr>`;
+  const entries = i.entries.filter(e => e.before.nuevas + e.after.nuevas > 0).map(e => `<tr><th scope="row">${esc(e.label)}</th><td data-label="Antes: chats">${e.before.nuevas}</td><td data-label="Antes: conversión">${pctTxt(e.before.conversion)}</td><td data-label="Después: chats">${e.after.nuevas}</td><td data-label="Después: conversión"><b>${pctTxt(e.after.conversion)}</b> ${impactDelta(e.after.conversion, e.before.conversion)}</td></tr>`).join("");
+  return `<div class="head"><div><h1>Impacto de las mejoras</h1><p>Después: ${esc(A.from)} a ${esc(A.to)}${i.partial_day ? " (hoy en curso)" : ""} · Antes: ${esc(B.from)} a ${esc(B.to)} · ${i.days} días cada uno</p></div></div>
+    <section class="card controls"><div class="card-body">
+      <form id="impact-form" class="sform" autocomplete="off">
+        <label class="field"><span>Fecha del cambio</span><input type="date" name="since" value="${esc(state.iq.since)}"></label>
+        <label class="field"><span>Medir hasta</span><input type="date" name="to" value="${esc(state.iq.to)}"></label>
+        <button class="btn small">Actualizar</button>
+      </form>
+      <p class="muted small">Se comparan las conversaciones que empezaron en cada periodo. El periodo "antes" tiene el mismo número de días, justo antes de la fecha del cambio.</p>
+      ${i.note ? `<p class="notice">${esc(i.note)}</p>` : ""}
+    </div></section>
+    <h2>Ventas</h2>
+    <div class="kpis">
+      ${kpi("Conversaciones nuevas", A.nuevas, B.nuevas)}
+      ${kpi("Aceptaron iniciar", A.aceptaron, B.aceptaron)}
+      ${kpi("Conversión", A.conversion, B.conversion, pctTxt, "up", true)}
+      ${kpi("Con documentos completos", A.documentos, B.documentos)}
+      ${kpi("Aprobación del equipo 👍", A.ratings.approval, B.ratings.approval, pctTxt, "up", true)}
+    </div>
+    <section class="card"><div class="card-head"><h2>Cada mejora</h2><small>en las conversaciones del periodo "después"</small></div><div class="card-body tscroll">
+      <table class="stable itable"><thead><tr><th scope="col">Herramienta</th><th scope="col">Clientes</th><th scope="col">Resultado</th><th scope="col">%</th><th scope="col">Además</th></tr></thead><tbody>
+        ${tool("Diagnóstico del caso", "Ley 73 / 97 + plan en un mensaje", A.diagnosis.sent, `${A.diagnosis.accepted} aceptaron`, A.diagnosis.accepted_pct)}
+        ${tool("Menú numerado", "segundo seguimiento", A.menu.sent, `${A.menu.answered} contestaron con número`, A.menu.answered_pct, `${A.menu.accepted} aceptaron (${pctTxt(A.menu.accepted_pct)})`)}
+        ${tool("Oferta de llamada", "último seguimiento", A.call.sent, `${A.call.took} pidieron la llamada`, A.call.took_pct, `${A.call.accepted} aceptaron (${pctTxt(A.call.accepted_pct)})`)}
+        ${tool("Aviso: interesado sin responder", "a Captura a las 2 h", A.alert_lead.sent, `${A.alert_lead.accepted} terminaron aceptando`, A.alert_lead.accepted_pct)}
+        ${tool("Aviso: no manda documentos", "a Captura a las 4 h", A.alert_docs.sent, `${A.alert_docs.accepted} completaron documentos`, A.alert_docs.accepted_pct)}
+        ${tool("Intervenciones de Captura", "ventas salvadas", A.intervened.sent, `${A.intervened.saved} aceptaron después de intervenir`, A.intervened.saved_pct, `${A.intervened.saved_docs} con documentos`)}
+        <tr><th scope="row">Respuestas del equipo<small class="muted">veces que Mia usó una</small></th><td data-label="Veces" colspan="4" class="left">${A.team_answers}</td></tr>
+        <tr><th scope="row">Calificaciones<small class="muted">👍 / 👎 en Chats de Mia</small></th><td data-label="Total" colspan="4" class="left">👍 ${A.ratings.up} · 👎 ${A.ratings.down}</td></tr>
+      </tbody></table>
+    </div></section>
+    <section class="card"><div class="card-head"><h2>Conversión por anuncio</h2><small>antes vs después</small></div><div class="card-body tscroll">
+      ${entries ? `<table class="stable itable"><thead><tr><th scope="col">Entrada</th><th scope="col">Antes: chats</th><th scope="col">Antes: conversión</th><th scope="col">Después: chats</th><th scope="col">Después: conversión</th></tr></thead><tbody>${entries}</tbody></table>` : `<div class="empty">Sin conversaciones en estos periodos.</div>`}
+    </div></section>`;
+}
+
 function renderStats() {
   const s = state.stats;
   const q = state.sq;
@@ -483,7 +541,7 @@ app.addEventListener("click", async event => {
   if (el.dataset.preset) { applyPreset(el.dataset.preset); await loadStats(); return render(); }
   if (el.dataset.sgroup) { state.sq.group = el.dataset.sgroup; state.sq.preset = ""; state.sq.from = ""; state.sq.to = ""; await loadStats(); return render(); }
   if (el.dataset.metric) { state.sMetric = el.dataset.metric; return render(); }
-  if (el.dataset.view) { state.view = el.dataset.view; if (state.view === "hoy") await loadLive(); return render(); }
+  if (el.dataset.view) { state.view = el.dataset.view; if (state.view === "hoy") await loadLive(); if (state.view === "impacto") await loadImpact(); return render(); }
   if (el.dataset.open) return openConversation(el.dataset.open);
   if (el.dataset.convFilter) { state.convFilter = el.dataset.convFilter; await loadConvs(); return render(); }
   if (el.dataset.convTab) { state.convTab = el.dataset.convTab; return render(); }
@@ -516,6 +574,11 @@ app.addEventListener("keydown", event => { if (event.key === "Enter" && event.ta
 app.addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.target;
+  if (form.id === "impact-form") {
+    const d = new FormData(form);
+    state.iq = { since: String(d.get("since") || ""), to: String(d.get("to") || "") };
+    await loadImpact(); return render();
+  }
   if (form.id === "stats-form") {
     const d = new FormData(form);
     Object.assign(state.sq, { from: String(d.get("from") || ""), to: String(d.get("to") || ""), cmpMode: String(d.get("cmp") || "prev"), cmpFrom: String(d.get("cmp_from") || ""), cmpTo: String(d.get("cmp_to") || ""), preset: "" });

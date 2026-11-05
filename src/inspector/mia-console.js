@@ -6,6 +6,7 @@ import path from "node:path";
 // la cola de fuera de horario y la cola de seguimientos.
 
 import { describeSchedule, localClock, nextOpeningDate, parseSchedule } from "../core/business-hours.js";
+import { buildImpact } from "./impact-service.js";
 import { buildStats, entryOf, needOf, ENTRY_LABELS, NEED_LABELS } from "./stats-service.js";
 
 const DAY = 24 * 3600 * 1000;
@@ -214,8 +215,8 @@ export const FLAG_LABELS = {
 };
 
 export class MiaConsole {
-  constructor({ config, memories, inspectorEvents, afterHours = null, followUps = null, isOpen = () => true, isMiaPaused = () => false, operationsConfig = null, chatwoot = null, selfSenders = null, testFile = null, saleStore = null }) {
-    Object.assign(this, { config, memories, inspectorEvents, afterHours, followUps, isOpen, isMiaPaused, operationsConfig, chatwoot, selfSenders, testFile, saleStore });
+  constructor({ config, memories, inspectorEvents, afterHours = null, followUps = null, isOpen = () => true, isMiaPaused = () => false, operationsConfig = null, chatwoot = null, selfSenders = null, testFile = null, saleStore = null, replyFeedback = null }) {
+    Object.assign(this, { config, memories, inspectorEvents, afterHours, followUps, isOpen, isMiaPaused, operationsConfig, chatwoot, selfSenders, testFile, saleStore, replyFeedback });
     this.manualTests = new Set();
     if (testFile) {
       try { this.manualTests = new Set((JSON.parse(fs.readFileSync(testFile, "utf8"))?.ids || []).map(Number)); }
@@ -710,6 +711,13 @@ export class MiaConsole {
     const tests = this.testIds();
     const sales = (this.saleStore?.list?.() || []).filter(s => !tests.has(Number(s.conversation_id)));
     return buildStats({ memories: this.allMemories(), eventsByConv: this.eventsByConversation(), sales, timezone: this.timezone(), group, from, to, compareFrom, compareTo, now });
+  }
+
+  // Tablero de impacto de las mejoras (5-nov).
+  impact({ since, to, now = new Date() } = {}) {
+    const tests = this.testIds();
+    const byConv = new Map([...this.eventsByConversation()].filter(([id]) => !tests.has(Number(id))));
+    return buildImpact({ memories: this.allMemories(), eventsByConv: byConv, feedback: this.replyFeedback?.items || [], timezone: this.timezone(), since, to, now });
   }
 
   // ── Embudo y configuración ───────────────────────────────────────

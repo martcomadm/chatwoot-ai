@@ -295,3 +295,16 @@ a { color: var(--focus); }
   .sform .field.fgroup { flex-basis: 100%; }
   .trend { min-width: 640px; }
 }
+
+/* Impacto (5-nov) */
+.stable th small { display: block; font-weight: 400; }
+.kpi small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.itable td.left { text-align: left; }
+@media (max-width: 760px) {
+  .itable thead { display: none; }
+  .itable, .itable tbody, .itable tr, .itable th, .itable td { display: block; width: 100%; }
+  .itable tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .itable th[scope="row"] { padding: 0 0 6px; border: 0; }
+  .itable td { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border: 0; text-align: right; }
+  .itable td::before { content: attr(data-label); color: var(--muted); text-align: left; }
+}

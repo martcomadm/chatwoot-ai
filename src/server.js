@@ -208,7 +208,7 @@ try {
     return res.status(200).json({ received: true, ignored: true, reason: "assignee_not_allowed" });
   });
 
-  const miaConsole = new MiaConsole({ config, memories, inspectorEvents, afterHours, followUps, operationsConfig, chatwoot, selfSenders, saleStore,
+  const miaConsole = new MiaConsole({ config, memories, inspectorEvents, afterHours, followUps, operationsConfig, chatwoot, selfSenders, saleStore, replyFeedback,
     testFile: path.join(config.storage.dataDir, "inspector-test-conversations.json"),
     isOpen: now => processor.inSchedule(now), isMiaPaused: () => opsSettings.miaPaused() });
   // Preguntas que Mia no supo: lo que contestó una persona en chats que pasaron al equipo.
