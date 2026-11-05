@@ -40,6 +40,8 @@ export function sourceLabel(source = "") {
   if (s.startsWith("commitment:")) return "Regla · cierre de venta";
   if (s.startsWith("ad_opening:")) return "Regla · apertura del anuncio";
   if (s.startsWith("team_answer:")) return "Respuesta del equipo";
+  if (s === "reactivation_reply") return "Regla · respuesta a reactivación";
+  if (s === "no_contact") return "Regla · no quiere mensajes";
   if (s === "case_diagnosis:reprompt") return "Regla · repite pregunta del caso";
   if (s.startsWith("case_diagnosis:")) return "Regla · diagnóstico del caso";
   if (s.startsWith("direct:")) return "Respuesta oficial";
@@ -98,6 +100,8 @@ export const EVENT_LABELS = {
   capture_review_handoff: "Pasó a Captura (revisión de semanas)",
   capture_intervention: "Captura intervino el chat",
   need_menu_choice: "Eligió opción del menú",
+  reactivation_sent: "Reactivación: plantilla enviada",
+  reactivation_failed: "Reactivación: no se pudo enviar",
   reply_rated: "El equipo calificó una respuesta",
   cold_lead_alert: "Aviso a Captura: interesado sin responder",
   capture_intervention_released: "Captura regresó el chat a Mia",

@@ -19,6 +19,7 @@ import { createOperationsRouter } from "./operations/operations-router.js";
 import { PushStore } from "./operations/notifications/push-store.js";
 import { OpsNotifier } from "./operations/notifications/ops-notifier.js";
 import { ColdLeadAlerts } from "./operations/cold-lead-alerts.js";
+import { ReactivationService } from "./operations/reactivation-service.js";
 import { TeamAnswerStore } from "./knowledge/team-answers.js";
 import { LearningInbox } from "./knowledge/learning-inbox.js";
 import { ReplyFeedbackStore } from "./knowledge/reply-feedback.js";
@@ -133,6 +134,9 @@ try {
   // Revisión de semanas: con los capturistas (2-nov).
   processor.captureReview = new CaptureReviewRouter({ users: opsUsers, chatwoot, notifier: opsNotifier, file: path.join(config.storage.dataDir, "capture-review-rotation.json") });
   processor.onCustomerServiceMessage = (conversationId, text, sale) => customerService.customerWrote(conversationId, text, { sale });
+  // Reactivación de prospectos con plantillas aprobadas (5-nov). Apagada hasta encenderla en Operations.
+  const reactivation = new ReactivationService({ memories, inspectorEvents, templates, chatwoot, settings: opsSettings, miaAgentId: config.chatwoot.agentId, isOpen: now => processor.inSchedule(now) });
+  reactivation.start();
   // Al abrir, Mia retoma uno por uno los chats que escribieron fuera de horario.
   if (followUps) {
     followUps.isOpen = now => processor.inSchedule(now);
@@ -214,7 +218,7 @@ try {
   // Preguntas que Mia no supo: lo que contestó una persona en chats que pasaron al equipo.
   const learningInbox = new LearningInbox({ file: path.join(config.storage.dataDir, "mia-learning.json"), memories, chatwoot, selfSenders });
   learningInbox.start();
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox, replyFeedback, experiments }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox, replyFeedback, experiments, reactivation }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot, miaConsole }));
 
   app.listen(config.port, "0.0.0.0", () => {

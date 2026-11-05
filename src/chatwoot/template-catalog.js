@@ -8,6 +8,7 @@
 
 export const TEMPLATE_CATALOG = Object.freeze([
   // ── Reactivar prospectos (Marketing) ──
+  // También es el seguimiento fuera de la ventana de 24 h (5-nov: reemplaza a saludodia3, que no existe).
   { name: "seguimiento3", sid: "HXeb436fed1c53dc4469afdbf566fc5c7c", category: "marketing", use: "reactivation",
     text: "Buen día. Te escribo para saber si aún te interesa continuar con tu afiliación al IMSS.\nCon gusto puedo apoyarte a iniciar el proceso hoy mismo." },
   { name: "saludodia2", sid: "HX2b94ae005ff7368105daeb88c6cd5711", category: "marketing", use: "reactivation",
@@ -19,6 +20,7 @@ export const TEMPLATE_CATALOG = Object.freeze([
   { name: "planes", sid: "HX76f1d806eba39db701888019d8493998", category: "marketing", use: "reactivation",
     text: "Le mando los planes que manejamos:\n\nPlan 1\n1. Servicio médico completo\n2. Cotización de semanas\n\nPlan 2\n1. Servicio médico completo\n2. Cotización de semanas\n3. Aportaciones a su AFORE\n4. Suma de puntos en Infonavit" },
   // ── Documentos (Utility) ──
+  // 5-nov: se usa así (solo dice CURP y NSS); la INE la pide Mia después.
   { name: "recordatorio1", sid: "HX0fb0f8cff106c8f6a02bdf02d5c494b4", category: "utility", use: "documents",
     text: "Para continuar con tu afiliación al IMSS solo necesitamos:\n• CURP\n• Número de Seguro Social\nEn cuanto me los compartas podemos iniciar tu registro." },
   // ── Vigencia y referidos ──
@@ -29,7 +31,8 @@ export const TEMPLATE_CATALOG = Object.freeze([
   { name: "recomendacion2", sid: "HXfa7ecf449ab8f8d0ce89cd2b49256dd5", category: "marketing", use: "referral",
     text: "Si algún familiar o conocido necesita afiliación al IMSS, puedes compartirle mi contacto.\nCon gusto lo apoyamos." },
   // ── Cobranza (Utility) ──
-  { name: "cobrodia1", sid: "HX6b0c5063c9d2b266af01e35e76abd870", category: "utility", use: "payment_reminder",
+  // 5-nov: no usarla en automático (dice "Evita recargos"; el recargo no aplica siempre).
+  { name: "cobrodia1", sid: "HX6b0c5063c9d2b266af01e35e76abd870", category: "utility", use: "payment_reminder", auto: false,
     text: "Hola, 👋\nTe recordamos que tu pago pronto va vencer.\n\nEvita recargos y mantén tu servicio activo 💼\n\nResponde PAGAR para enviarte opciones de pago" },
   { name: "seguimientocobro1", sid: "HXf3b969d9baa7db3ec87f951c25174367", category: "utility", use: "payment_followup",
     text: "¡Buen día!\nMe gustaría poder apoyarle ya que no he recibido respuesta suya, y es importante registrar su pago para evitar que su servicio se vea afectado.\n¿Hay algo en lo que pueda ayudarle?" },

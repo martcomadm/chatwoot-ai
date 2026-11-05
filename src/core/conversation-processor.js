@@ -14,6 +14,7 @@ import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
 import { adOpeningDecision } from "../sales/ad-openings.js";
+import { asksNoContact, reactivationReplyDecision, resumeDate } from "../sales/reactivation.js";
 import { menuChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
@@ -861,8 +862,13 @@ export class ConversationProcessor {
     // Respuestas del equipo con frases del cliente (Operations → Respuestas de Mia, 4-nov): texto exacto.
     const teamMatch = mediaDecision || adOpening || containsCurp(combinedText) || containsNss(combinedText) ? null : this.teamAnswers?.match?.(combinedText);
     const teamDecision = teamMatch ? { reply: teamMatch.answer, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", team_answer: teamMatch.id } : null;
+    // Reactivación (5-nov): "sí" a una plantilla → recordatorio del plan con cierre, o el menú si no hay plan.
+    const reactivationReply = mediaDecision || adOpening ? null : reactivationReplyDecision(base, combinedText);
+    const noContactDecision = asksNoContact(combinedText) && !base.sales_cycle?.authorized ? { reply: "Entendido, ya no te enviaremos mensajes. Si más adelante quieres información sobre tu afiliación al IMSS, escríbenos por aquí y con gusto te ayudamos.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" } : null;
     if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
+    else if (noContactDecision) decision = protectDeterministicDecision(noContactDecision, "no_contact");
     else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
+    else if (reactivationReply) decision = protectDeterministicDecision(reactivationReply, "reactivation_reply");
     else if (teamDecision) decision = protectDeterministicDecision(teamDecision, `team_answer:${teamMatch.id}`);
     else if (creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
     else if (featureRejection) decision = protectDeterministicDecision(featureRejection, "feature_rejection");
@@ -1150,7 +1156,15 @@ export class ConversationProcessor {
       operations: { ...(memory.operations || {}), onboarding_last_requested: decisionState.onboarding_requirement || memory.operations?.onboarding_last_requested || null },
     };
     // El cliente pospuso o cerró la plática: se guarda el motivo para el embudo del inspector.
-    if (deferral) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: new Date().toISOString() } };
+    if (deferral) {
+      // Reactivación (5-nov): si dijo cuándo retoma ("en la quincena"), ese día se le escribe.
+      const nowIso = new Date().toISOString();
+      memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: nowIso, deferral_text: combinedText.slice(0, 200), deferral_resume_date: resumeDate(combinedText, nowIso) } };
+    }
+    // Pidió que no le escribamos: sin seguimientos ni reactivación.
+    if (asksNoContact(combinedText)) memory = { ...memory, no_contact: { at: new Date().toISOString(), text: combinedText.slice(0, 200) } };
+    // Contestó a una plantilla de reactivación.
+    if (memory.reactivation?.awaiting_reply) memory = { ...memory, reactivation: { ...memory.reactivation, awaiting_reply: false, replied_at: new Date().toISOString() } };
     // Descartó AFORE/INFONAVIT o el Plan 2: desde ahora se habla del Plan 1 (también en los seguimientos).
     if (decisionSource === "feature_rejection") {
       const cycle = memory.sales_cycle || {};

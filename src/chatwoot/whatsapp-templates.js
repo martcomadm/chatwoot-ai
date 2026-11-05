@@ -9,7 +9,8 @@
 export const TEMPLATE_TEXTS = Object.freeze({
   validity: "¡Buen día!\nAgradecemos su paciencia y confianza.\nLe informo que usted ya cuenta con vigencia de manera exitosa en sistema.\n\nAyúdeme confirmando, para que le pueda hacer llegar su archivo de Vigencia de Derechos.\nPor favor, muchas gracias.",
   referral: "Si algún familiar o conocido necesita afiliación al IMSS, puedes compartirle mi contacto.\nCon gusto lo apoyamos.",
-  followUp24h: "Hola, buen día.\nSi aún estás interesado en afiliarte al IMSS, con gusto puedo ayudarte a iniciar tu proceso.",
+  // 5-nov: saludodia3 no existe en Twilio; se usa seguimiento3.
+  followUp24h: "Buen día. Te escribo para saber si aún te interesa continuar con tu afiliación al IMSS.\nCon gusto puedo apoyarte a iniciar el proceso hoy mismo.",
 });
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -50,6 +51,18 @@ export class WhatsAppTemplates {
     if (!name) return null;
     const list = await this.catalog();
     return list.find(t => t?.friendly_name === name && String(t?.status || "").toLowerCase() === "approved") || null;
+  }
+
+  // Plantilla por su nombre en Twilio (reactivación, 5-nov).
+  async sendNamed(conversationId, name) {
+    let template;
+    try { template = (await this.catalog()).find(t => t?.friendly_name === name && String(t?.status || "").toLowerCase() === "approved") || null; }
+    catch (error) { return { sent: false, reason: "catalog_error", error: String(error?.message || error).slice(0, 200) }; }
+    if (!template) return { sent: false, reason: "template_not_synced", name };
+    try {
+      await this.chatwoot.sendTemplate(conversationId, { content: template.body || "", name: template.friendly_name, language: template.language, category: template.category });
+    } catch (error) { return { sent: false, reason: "send_error", error: String(error?.message || error).slice(0, 200) }; }
+    return { sent: true, name: template.friendly_name };
   }
 
   // { sent: true, name } o { sent: false, reason }

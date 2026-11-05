@@ -460,3 +460,10 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 .ab-col { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .ab-col.win { border-color: var(--area, var(--line)); box-shadow: 0 0 0 1px var(--area, var(--line)) inset; }
 @media (max-width: 760px) { .ab-grid { grid-template-columns: 1fr; } }
+
+/* Reactivación (5-nov) */
+.react-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 12px 0 16px; }
+.react-kpi { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 10px 12px; display: grid; gap: 2px; align-content: start; }
+.react-kpi span { color: var(--muted); font-size: .85em; }
+.react-kpi b { font-size: 1.6em; line-height: 1.2; }
+.react-kpi small { color: var(--muted); font-size: .8em; overflow-wrap: anywhere; }

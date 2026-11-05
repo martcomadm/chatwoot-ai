@@ -33,6 +33,17 @@ export class OpsSettingsStore {
     return this.miaStatus();
   }
 
+  // Reactivación de prospectos con plantillas (5-nov): apagada hasta que Supervisión la encienda.
+  reactivation() { return { enabled: Boolean(this.data.reactivation?.enabled), daily_cap: Number(this.data.reactivation?.daily_cap || 100), changed_at: this.data.reactivation?.changed_at || null, changed_by: this.data.reactivation?.changed_by || null }; }
+  setReactivation({ enabled, daily_cap } = {}, actor = null) {
+    const current = this.reactivation();
+    const cap = daily_cap === undefined ? current.daily_cap : Number(daily_cap);
+    if (!Number.isFinite(cap) || cap < 1 || cap > 1000) throw new Error("El tope diario debe estar entre 1 y 1,000 mensajes");
+    this.data.reactivation = { enabled: enabled === undefined ? current.enabled : Boolean(enabled), daily_cap: Math.round(cap), changed_at: now(), changed_by: actor };
+    this.persist();
+    return this.reactivation();
+  }
+
   snapshot() {
     return {
       alert_hours: this.alertHours(),

@@ -1518,6 +1518,7 @@ async function renderMiaAnswers(view) {
   try {
     [answers, learning, state.miaFeedback] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null), state.answersTab === "rated" ? api("/operations/api/mia-feedback") : Promise.resolve(null)]);
     state.miaExperiments = state.answersTab === "ab" ? await api("/operations/api/mia-experiments") : null;
+    state.miaReactivation = state.answersTab === "react" ? await api("/operations/api/reactivation") : null;
   } catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudo cargar</strong>${esc(error.message)}</div>`; return; }
   state.miaAnswers = answers.items || [];
   state.miaLearning = learning?.items || [];
@@ -1525,6 +1526,7 @@ async function renderMiaAnswers(view) {
       <button data-answers-tab="team" aria-pressed="${state.answersTab === "team"}">Respuestas del equipo (${state.miaAnswers.length})</button>
       <button data-answers-tab="learn" aria-pressed="${state.answersTab === "learn"}">Preguntas que Mia no supo (${answers.open_learning || 0})</button>
       <button data-answers-tab="rated" aria-pressed="${state.answersTab === "rated"}">Correcciones 👎 (${answers.open_feedback || 0})</button>
+      <button data-answers-tab="react" aria-pressed="${state.answersTab === "react"}">Reactivación</button>
       <button data-answers-tab="ab" aria-pressed="${state.answersTab === "ab"}">Pruebas A/B</button>
       <button data-answers-tab="fixed" aria-pressed="${state.answersTab === "fixed"}">Reglas fijas</button>
     </div>`;
@@ -1545,6 +1547,24 @@ async function renderMiaAnswers(view) {
         <p class="learn-a"><span class="muted small">Contestó ${esc(i.by || "el equipo")}</span><br>${esc(i.answer)}</p>
         <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="convert" data-learn-id="${esc(i.id)}">Convertir en respuesta de Mia</button><button class="btn small quiet" data-answer-act="dismiss" data-learn-id="${esc(i.id)}">Descartar</button></span></footer>
       </article>`).join("")}</div>` : `<div class="empty"><strong>Sin preguntas pendientes</strong>Cuando una persona del equipo conteste en un chat que pasó con ella, aparecerá aquí.</div>`);
+  } else if (state.answersTab === "react") {
+    const r = state.miaReactivation || {};
+    const cfg = r.config || {};
+    const res = r.results || {};
+    const NAMES = { seguimiento3: "Día 2 · seguimiento3", procesoafiliacion1: "Día 7 · procesoafiliacion1", saludodia2: "Día 30 · saludodia2", recordatorio1: "Documentos · recordatorio1" };
+    body = r.available === false ? `<div class="empty">Reactivación no disponible.</div>` : `
+      <div class="notice ${cfg.enabled ? "" : "warn"}"><strong>${cfg.enabled ? "Encendida" : "Apagada"}</strong> · tope ${cfg.daily_cap} mensajes al día · enviados hoy: ${r.sent_today || 0}${cfg.changed_by ? ` · cambió ${esc(cfg.changed_by.name || cfg.changed_by.username || "")} ${esc(dateTime(cfg.changed_at))}` : ""}
+        <div class="actions" style="margin-top:8px"><button class="btn small ${cfg.enabled ? "" : "primary"}" data-answer-act="react-toggle">${cfg.enabled ? "Apagar" : "Encender"}</button><button class="btn small quiet" data-answer-act="react-cap">Cambiar tope diario</button></div></div>
+      <p class="muted">A quien no compró y dejó de escribir: día 2 <strong>seguimiento3</strong>, día 7 <strong>procesoafiliacion1</strong>, día 30 <strong>saludodia2</strong> (o el día que dijo que retomaba, p. ej. "en la quincena"). A quien aceptó y no mandó documentos: <strong>recordatorio1</strong> una vez. Solo de 10:00 a 19:00, nunca a quien no le interesa, se equivocó, pidió no recibir mensajes o está con una persona.</p>
+      <div class="react-kpis">
+        <div class="react-kpi"><span>Listos para enviar ahora</span><b>${r.pending_now || 0}</b><small>${Object.entries(r.pending_by_template || {}).map(([k, v]) => `${esc(NAMES[k] || k)}: ${v}`).join(" · ") || "—"}</small></div>
+        <div class="react-kpi"><span>Clientes contactados</span><b>${res.contacted || 0}</b></div>
+        <div class="react-kpi"><span>Contestaron</span><b>${res.replied || 0}</b><small>${res.contacted ? Math.round((res.replied / res.contacted) * 100) : 0}%</small></div>
+        <div class="react-kpi"><span>Aceptaron iniciar</span><b>${res.accepted || 0}</b></div>
+        <div class="react-kpi"><span>Completaron documentos</span><b>${res.docs_completed || 0}</b><small>tras recordatorio1</small></div>
+        <div class="react-kpi"><span>Pidieron no recibir mensajes</span><b>${res.no_contact || 0}</b></div>
+      </div>
+      ${(r.recent || []).length ? `<h3>Últimos envíos</h3><div class="answer-list">${r.recent.map(x => `<article class="answer-card"><header><strong>${esc(x.name || "Cliente")}</strong><small class="mono muted">#${x.id} · ${esc(dateTime(x.at))}</small></header><p class="small">${esc(NAMES[x.template] || x.template)} ${x.replied ? '<span class="tag ok">Contestó</span>' : ""}</p></article>`).join("")}</div>` : ""}`;
   } else if (state.answersTab === "ab") {
     const ex = state.miaExperiments || { slots: [], items: [] };
     const cell = r => `${r.sent} enviados · <strong>${r.replied_pct ?? "—"}%</strong> contestaron · <strong>${r.accepted_pct ?? "—"}%</strong> aceptaron · ${r.docs} con documentos`;
@@ -1615,6 +1635,15 @@ async function miaAnswerAction(target) {
   }
   if (act === "fb-archive") {
     if (await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(target.dataset.fbId)}/archive`, { method: "POST", body: {} }), "Archivada: ya no se usa como ejemplo")) renderView();
+  }
+  if (act === "react-toggle") {
+    const on = !state.miaReactivation?.config?.enabled;
+    const ok = await ask({ title: on ? "Encender reactivación" : "Apagar reactivación", text: on ? `Se empezarán a enviar plantillas aprobadas (Marketing) a prospectos que no compraron, hasta ${state.miaReactivation?.config?.daily_cap || 100} al día. Ahora mismo hay ${state.miaReactivation?.pending_now || 0} listos.` : "Se dejan de enviar plantillas de reactivación.", confirm: on ? "Encender" : "Apagar", danger: !on });
+    if (ok && await run(() => api("/operations/api/reactivation", { method: "POST", body: { enabled: on } }), on ? "Reactivación encendida" : "Reactivación apagada")) renderView();
+  }
+  if (act === "react-cap") {
+    const data = await ask({ title: "Tope diario de reactivación", fields: [{ name: "cap", label: "Mensajes máximos por día", type: "number", required: true, value: String(state.miaReactivation?.config?.daily_cap || 100) }], confirm: "Guardar" });
+    if (data && await run(() => api("/operations/api/reactivation", { method: "POST", body: { daily_cap: Number(data.cap) } }), "Tope actualizado")) renderView();
   }
   if (act === "ab-new") {
     const slots = (state.miaExperiments?.slots || []).filter(sl => !sl.active);

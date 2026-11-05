@@ -42,7 +42,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
 const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null, replyFeedback = null, experiments = null }) {
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null, replyFeedback = null, experiments = null, reactivation = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -360,6 +360,41 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       res.json({ ok: true });
     } catch (error) { fail(res, error); }
   });
+  // Reactivación de prospectos con plantillas (5-nov).
+  router.get("/operations/api/reactivation", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    if (!reactivation) return res.json({ available: false });
+    const all = memories.list?.() || [];
+    const contacted = all.filter(m => (m.reactivation?.sent || []).length || m.reactivation?.docs_reminder_at);
+    const firstSent = m => Date.parse(m.reactivation?.sent?.[0]?.at || m.reactivation?.docs_reminder_at || "") || 0;
+    const preview = reactivation.plan();
+    const byTemplate = {};
+    for (const item of preview) byTemplate[item.template] = (byTemplate[item.template] || 0) + 1;
+    res.json({
+      available: true,
+      config: settings.reactivation(),
+      sent_today: reactivation.sentToday(),
+      pending_now: preview.length,
+      pending_by_template: byTemplate,
+      results: {
+        contacted: contacted.length,
+        replied: contacted.filter(m => Date.parse(m.reactivation?.replied_at || "") > firstSent(m)).length,
+        accepted: contacted.filter(m => m.sales_cycle?.authorized && !m.reactivation?.docs_reminder_at).length,
+        docs_completed: contacted.filter(m => m.reactivation?.docs_reminder_at && m.operations?.documents_complete).length,
+        no_contact: all.filter(m => m.no_contact).length,
+      },
+      recent: contacted.flatMap(m => [...(m.reactivation?.sent || []).map(x => ({ id: Number(m.id), name: m.nombre || null, template: x.template, at: x.at })), ...(m.reactivation?.docs_reminder_at ? [{ id: Number(m.id), name: m.nombre || null, template: "recordatorio1", at: m.reactivation.docs_reminder_at }] : [])].map(x => ({ ...x, replied: Date.parse(m.reactivation?.replied_at || "") > Date.parse(x.at) }))).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 30),
+    });
+  });
+  router.post("/operations/api/reactivation", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try {
+      const config = settings.setReactivation({ enabled: req.body?.enabled, daily_cap: req.body?.daily_cap }, actorOf(req.opsUser));
+      audit.record("reactivation.config", actorOf(req.opsUser), config);
+      res.json({ ok: true, config });
+    } catch (error) { fail(res, error); }
+  });
+
   // Pruebas A/B de mensajes (4-nov).
   router.get("/operations/api/mia-experiments", (req, res) => {
     if (!teachGuard(req, res)) return;

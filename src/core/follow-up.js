@@ -18,7 +18,7 @@ import { effectivePlan, discussedPlan } from "../sales/progressive-disclosure.js
 // a los 20 min, 3 h y 20 h). Si el cliente escribe, la serie se cancela y se vuelve a
 // programar con la siguiente respuesta de Mia. Todo ocurre dentro de la ventana de 24 h
 // de WhatsApp (contada desde el último mensaje del cliente). Al cerrarse la ventana sin
-// respuesta, Mia manda una vez la plantilla aprobada de seguimiento (saludodia3), en
+// respuesta, Mia manda una vez la plantilla aprobada de seguimiento (seguimiento3), en
 // horario de atención, pone la etiqueta "no_contesta" y deja de escribir.
 
 export const DEFAULT_FOLLOW_UP_MINUTES = [20, 180, 1200];
@@ -214,6 +214,8 @@ export class FollowUpService {
         // Antes del día que dijo el cliente no sale nada, ni la plantilla (caso real 22-oct: dijo "el lunes"
         // y a los 20 minutos recibió "¿Pudiste conseguir tu CURP?").
         if (entry.not_before && now.getTime() < Date.parse(entry.not_before)) continue;
+        // Pidió que no le escribamos (5-nov): se cancela la serie.
+        if (this.memories.get(id)?.no_contact) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "no_contact" }); continue; }
         const windowClosed = now.getTime() > this.windowEnd(entry);
         const due = this.dueAt(entry);
         if (!windowClosed && (due === null || now.getTime() < due || !this.isOpen(now))) continue;

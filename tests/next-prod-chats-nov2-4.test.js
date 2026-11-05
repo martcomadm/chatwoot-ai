@@ -263,3 +263,26 @@ test("prueba A/B en la apertura de 'revisar mi caso': manda su versión, registr
   assert.match(await c.say("Empecé en 1988 y dejé de cotizar en 2010"), /Ley 73/);
   assert.ok(c.state.memory.experiments[exp.id].replied_at, "contestó");
 });
+
+// Reactivación (5-nov): cómo responde Mia cuando el cliente contesta la plantilla, o pide no recibir mensajes.
+test("reactivación en el flujo: 'Sí' a seguimiento3 → recordatorio del plan → 'Sí' abre el trámite", async () => {
+  const c = conversation();
+  for (const t of ["¡Hola! Quiero más información", "No", "Servicio médico"]) await c.say(t);
+  c.state.memory = { ...c.state.memory, ultima_respuesta_agente: "Buen día. Te escribo para saber si aún te interesa continuar con tu afiliación al IMSS.\nCon gusto puedo apoyarte a iniciar el proceso hoy mismo.", reactivation: { sent: [{ step: 1, template: "seguimiento3", at: "2026-11-07T17:00:00Z" }], awaiting_reply: true } };
+  assert.match(await c.say("Sí, todavía me interesa"), /^¡Qué gusto! Te recuerdo: el Plan 1 cuesta \$1,100.*¿Quieres que iniciemos tu trámite\?$/s);
+  assert.equal(c.state.memory.reactivation.awaiting_reply, false);
+  assert.ok(c.state.memory.reactivation.replied_at);
+  await c.say("Sí");
+  assert.equal(c.state.memory.sales_cycle.authorized, true);
+});
+
+test("'en la quincena' guarda la fecha para reactivar; 'ya no me manden mensajes' corta todo", async () => {
+  const c = conversation();
+  for (const t of ["¡Hola! Quiero más información", "No", "Servicio médico"]) await c.say(t);
+  await c.say("Ahorita no, mejor en la quincena");
+  assert.match(String(c.state.memory.sales_cycle.deferral_resume_date || ""), /^\d{4}-\d{2}-(15|28|29|30|31)$/);
+  const d = conversation();
+  await d.say("¡Hola! Quiero más información");
+  assert.match(await d.say("Ya no me manden mensajes"), /^Entendido, ya no te enviaremos mensajes/);
+  assert.ok(d.state.memory.no_contact);
+});
