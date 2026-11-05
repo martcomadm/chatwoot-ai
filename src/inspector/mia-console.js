@@ -104,6 +104,7 @@ export const EVENT_LABELS = {
   reactivation_failed: "Reactivación: no se pudo enviar",
   reply_rated: "El equipo calificó una respuesta",
   cold_lead_alert: "Aviso a Captura: interesado sin responder",
+  scheduled_start: "Aceptó con fecha: alta programada (aviso a Captura)",
   capture_intervention_released: "Captura regresó el chat a Mia",
 };
 

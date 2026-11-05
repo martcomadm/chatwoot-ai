@@ -1,3 +1,4 @@
+import { SCHEDULE_OFFER_MARK } from "./scheduled-start.js";
 import { plausibleName } from "../semantic/name-validator.js";
 // Cuando el cliente pospone ("ahorita no tengo dinero", "yo le aviso") o cierra la
 // plática ("no, todo bien, gracias"), Mia debe despedirse con amabilidad y dejar de
@@ -13,12 +14,14 @@ const NO_MONEY_RE = [
   /\bno tengo (?:ahorita |ahora |por el momento )?(?:la |una )?(?:forma|manera|modo) de pagar\b/,
   /\b(?:ahorita|por el momento|por ahora|de momento|en este momento)\b.{0,40}\bno (?:puedo pagar|tengo (?:dinero|para)|cuento con|cuanto con|me alcanza)\b/,
   /\bestoy (?:corta|corto|sin dinero|sin lana)\b/,
+  // "Dame oportunidad de organizar mis gastos", "no tengo ingresos" (casos reales 3 y 5-nov).
+  /\b(?:organizar|acomodar|ajustar|ordenar|nivelar)(?:me)?\s+(?:con\s+)?(?:mis|los|mi)\s+(?:gastos?|finanzas|cuentas|pagos|quincena)\b|\bno (?:tengo|cuento con) (?:ingresos|trabajo ni dinero|entradas)\b/,
   // "No conseguí el dinero para depositarlo" (caso real 19-oct, con faltas).
   /\bno\s*(?:consegui|consigi|consigui|junte|pude juntar|pude conseguir|alcance)\b.{0,25}\b(?:dinero|lana|pago|deposit\w*|pagar)\b/,
 ];
 
 const LATER_RE = [
-  /\b(?:yo )?(?:le|les|los|las|te) (?:aviso|escribo|contacto|marco|busco|confirmo)\b/,
+  /\b(?:yo )?(?:le|les|los|las|te) (?:aviso|abiso|escribo|contacto|marco|busco|confirmo)\b/,
   /\bcuando (?:yo )?(?:pueda|tenga|junte|me paguen|cobre|lo tenga|tenga el dinero)\b/,
   /\b(?:mas adelante|despues (?:le|les|te) (?:escribo|aviso)|luego (?:le|les|te) (?:escribo|aviso)|otro dia)\b/,
   /\blo (?:voy a pensar|pienso|consulto|platico|reviso|checo|analizo)\b/,
@@ -191,6 +194,9 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   // "mañana le envío papeles"; casos reales 21 y 22-oct): se le dice qué tener listo.
   const startLater = kind === "later" && /\b(?:papeles|documentos|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
   if (startLater) reply = String(memory.ultima_respuesta_agente || "").includes(START_LATER_MARK) ? "" : `Perfecto${name}. Cuando tengas a la mano tu CURP, NSS e INE, ${START_LATER_MARK}${plan ? ` con ${plan}` : ""}.`;
+  // Sin dinero por ahora (5-nov: la objeción más común, y siempre terminaba en despedida): una vez se le dice que
+  // hoy no paga nada y se le ofrece programar el alta para cuando tenga el pago.
+  else if (kind === "no_money" && plan && !memory.sales_cycle?.schedule_offered && !lastReply.includes(SCHEDULE_OFFER_MARK)) reply = `Entiendo${name}, no te preocupes. Para iniciar hoy no pagas nada: el primer pago se hace hasta que tu alta ya aparece vigente. Si te ayuda, dejamos tu trámite listo y programamos tu alta para cuando tengas el pago (por ejemplo, tu próxima quincena). ${SCHEDULE_OFFER_MARK}`;
   else if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
   else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando puedas, ${CLOSING_MARK} y con gusto continuamos con tu trámite. Aquí estaré para ayudarte.`;
   // Un "gracias" después de que Mia ya se despidió no necesita otra respuesta.
@@ -200,6 +206,7 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
     question_key: null,
     add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     deferral: startLater ? "start_later" : kind || "closing",
+    ...(reply.includes(SCHEDULE_OFFER_MARK) ? { schedule_offer: true } : {}),
   };
 }
 

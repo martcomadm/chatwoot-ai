@@ -22,6 +22,13 @@ export const OPERATIONAL_MODEL_ANSWER='Tu alta se realiza con una empresa y, ade
 
 export function detectDirectRequest(text){
   const v=norm(text);
+  // "Debo aportar $1,100 al mes y con eso cubre el servicio médico y aporte al afore?" (caso real 4-nov: le
+  // repitieron los precios). El Plan 1 no aporta a AFORE: se le dice claro y se le ofrece el Plan 2.
+  if(/\b(?:1[,.]?100|mil cien|plan\s*(?:1|uno))\b.{0,80}\b(?:afore|infonavit)\b|\b(?:afore|infonavit)\b.{0,60}\b(?:1[,.]?100|mil cien|plan\s*(?:1|uno))\b/.test(v) && /[?¿]|\b(?:cubre|incluye|aporta|aporte|entra|tambien|verdad|viene)\b/.test(String(text||'').toLowerCase()) && !/\bno\s+(?:aporta|incluye|tiene|da|cubre|contempla|maneja)\b/.test(v) && !/\b(?:1[,.]?500|plan\s*(?:2|dos))\b/.test(v)) return {type:'plan1_afore_question',priority:'high',answerKey:'plan1_afore_question'};
+  // "El plan 1 también es con la continuación de semanas, verdad?" (caso real 4-nov, quedó sin respuesta).
+  if(/\bplan\s*(?:1|uno)\b.{0,50}\b(?:semanas|cotiza\w*|servicio medico)\b/.test(v) && /[?¿]|\b(?:verdad|tambien|cierto|incluye)\b/.test(String(text||'').toLowerCase()) && !/\b(?:afore|infonavit|plan\s*(?:2|dos)|cuanto|costo|precio)\b/.test(v)) return {type:'plan1_confirm',priority:'high',answerKey:'plan1_confirm'};
+  // "Y los pagos al IMSS lo haría yo directo al seguro" (caso real 2-nov: recibió "¿Hay algo más en lo que te pueda ayudar?").
+  if(/\b(?:pagos?|pagar|pagaria|pago|cuotas?|aportaciones)\b.{0,40}\bdirect\w*\s+(?:al?\s+)?(?:el\s+)?(?:imss|seguro)\b|\b(?:pagos?|cuotas?)\s+(?:al|del)\s+(?:imss|seguro)\b.{0,40}\b(?:yo|direct\w*|ustedes|quien)\b/.test(v)) return {type:'pay_to_imss',priority:'high',answerKey:'pay_to_imss'};
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
   // Proveedores que ofrecen su servicio ("ofrezco la siguiente plataforma… costo $350", caso real 26-oct).
   if(/\b(?:ofrezco|ofrecemos|vendo|vendemos)\b.{0,40}\b(?:plataforma|servicio de|sistema|documentos|tramites)\b|\bcosto de la plataforma\b|\bcuento con referencias\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
@@ -128,6 +135,17 @@ export function detectDirectRequest(text){
   {
     const m=v.match(/\b(?:me|m|nos)\s+faltan?\s+(?:como\s+|unas\s+|solo\s+)?(\d{1,3})\s+semanas\b/);
     if(m && Number(m[1])>0 && Number(m[1])<=150) return {type:'few_weeks_left',priority:'high',answerKey:'few_weeks_left',weeks:Number(m[1]),pre1997:false};
+  }
+  // "Si soy ley 73 tengo 589 semanas", "Ahora me reconocen 520 semanas" (casos reales 3 y 4-nov: la primera recibió
+  // "¿Tienes alguna duda sobre el Plan 1…?"). Con sus semanas y su ley se le dice cuánto le falta.
+  {
+    const m=v.match(/\b(?:tengo|tiene|cuento con|llevo|me reconocen|me aparecen|reconocidas|aparecen|son)\s+(?:como\s+|unas\s+|mas de\s+|casi\s+|alrededor de\s+|aproximadamente\s+)?(\d{2,4})\s+semanas\b/);
+    // Solo el dato (mensaje corto); si cuenta más (edad, Modalidad 40, su esposo, su salario…) lo contesta la IA.
+    if(m && Number(m[1])>=20 && Number(m[1])<=2600 && v.length<=70 && !/\bfaltan?\b|\b(?:cuanto|monto|me toca\w*|constancia|modalidad|mod|issste|espos\w*|marido|mama|papa|hij\w*|salario|sueldo|patron|empresa|anos|edad|pagar|como|puede|volver|activ\w*|pension\w*|jubil\w*|esperando)\b/.test(v)){
+      const year=Number(v.match(/\b(19[4-9]\d|20[0-2]\d)\b/)?.[1]||0);
+      const ley=/\b(?:ley|regimen)\s*73\b/.test(v)?73:/\b(?:ley|regimen)\s*97\b/.test(v)?97:year&&year<=1996?73:year>=1998?97:null;
+      return {type:'weeks_status',priority:'high',answerKey:'weeks_status',weeks:Number(m[1]),ley};
+    }
   }
   // "¿Cuántas semanas necesito para pensionarme?": mínimo 500 (Ley 73) y 800 (Ley 97), confirmado 26-oct.
   if(/\b(?:cuantas|minimo de|minimas?|cuantas son las) semanas\b.{0,50}\b(?:pension\w*|jubil\w*|retir\w*)\b|\b(?:pension\w*|jubil\w*)\b.{0,50}\b(?:cuantas semanas|semanas minimas|minimo de semanas|semanas se necesitan|semanas necesito)\b/.test(v)
@@ -263,6 +281,19 @@ export function directAnswerText(request){
   if(request.answerKey==='beneficiary') return `Sí. Con tu alta con nosotros puedes registrar como beneficiarios a ${request.partner?'tu pareja (aunque vivan en unión libre)':'tu pareja'}, a tus hijos menores de 16 años y a tus padres, sujeto a validación del IMSS. Está incluido desde el Plan 1, de $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`;
   if(request.answerKey==='info_free') return 'No, la información no tiene ningún costo: con gusto te resuelvo tus dudas por aquí. Solo pagas la mensualidad del plan si decides afiliarte: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes. ¿Qué te gustaría saber?';
   if(request.answerKey==='plan1_no_afore'&&request.feature==='incapacidades') return 'Al contrario: el Plan 1 ($1,100 MXN mensuales) sí incluye incapacidad por enfermedad, conforme a las reglas del IMSS, además de servicio médico y semanas cotizadas. Lo que no manejamos en ningún plan es la incapacidad por accidente o riesgo de trabajo, porque no trabajas para nosotros. El Plan 2 ($1,500 MXN mensuales) suma además AFORE e INFONAVIT. ¿Cuál te interesa más?';
+  if(request.answerKey==='plan1_afore_question') return 'El Plan 1 ($1,100 MXN mensuales) cubre el servicio médico del IMSS y tus semanas cotizadas, pero no incluye aportaciones a AFORE ni puntos INFONAVIT. Si quieres que también se aporte a tu AFORE, eso lo incluye el Plan 2, de $1,500 MXN mensuales. ¿Cuál te interesa más?';
+  if(request.answerKey==='weeks_status'){
+    const n=request.weeks, ley=request.ley;
+    const time=missing=>{const months=Math.max(1,Math.ceil(missing/4.3));return months>=24?`unos ${Math.round(months/12)} años`:`unos ${months} ${months===1?'mes':'meses'}`;};
+    const plan='Con el Plan 1 ($1,100 MXN mensuales) te damos de alta ante el IMSS con un salario diario registrado de $480 MXN: sigues sumando semanas y tienes servicio médico.';
+    if(ley===73&&n>=500) return `¡Buena noticia! Con ${n} semanas en Ley 73 ya cumples las 500 semanas mínimas. Para tramitar tu pensión te falta reactivar tus derechos: necesitas al menos 13 meses de afiliación, y eso es justo lo que hacemos. ${plan} ¿Quieres que iniciemos tu trámite?`;
+    if(ley===73) return `Con ${n} semanas en Ley 73 te faltan unas ${500-n} para las 500 mínimas. Con nosotros sumas alrededor de 4 semanas por mes, así que te tomaría ${time(500-n)}; además necesitas al menos 13 meses de afiliación antes de tramitar tu pensión. ${plan} ¿Quieres que iniciemos tu trámite?`;
+    if(ley===97&&n>=800) return `Con ${n} semanas ya tienes las 800 semanas mínimas de la Ley 97. Mientras llegas a la edad para pensionarte, puedes seguir sumando semanas y tener servicio médico. ${plan} ¿Quieres que iniciemos tu trámite?`;
+    if(ley===97) return `Con ${n} semanas en Ley 97 te faltan unas ${800-n} para las 800 mínimas. Con nosotros sumas alrededor de 4 semanas por mes, así que te tomaría ${time(800-n)}. ${plan} ¿Quieres que iniciemos tu trámite?`;
+    return `Gracias por el dato: ${n} semanas. Si empezaste a cotizar antes del 1 de julio de 1997 (Ley 73) se necesitan 500 semanas, y si fue después (Ley 97), 800. ¿Recuerdas en qué año empezaste a cotizar? Con eso te digo cuánto te falta.`;
+  }
+  if(request.answerKey==='plan1_confirm') return 'Sí, el Plan 1 ($1,100 MXN mensuales) incluye la continuación de tus semanas cotizadas con un salario diario registrado de $480 MXN, además del servicio médico del IMSS para ti y tus beneficiarios. Lo único que no incluye son las aportaciones a AFORE e INFONAVIT, que van en el Plan 2. ¿Quieres que iniciemos tu trámite con el Plan 1?';
+  if(request.answerKey==='pay_to_imss') return 'No, tú no le pagas directo al IMSS. Pagas solo tu mensualidad a MARTCOM ($1,100 MXN en el Plan 1 o $1,500 MXN en el Plan 2) y con eso quedas dado de alta ante el IMSS con un salario diario registrado de $480 MXN. El primer pago se hace hasta que tu alta ya aparece vigente, por transferencia, depósito u OXXO. ¿Quieres que iniciemos tu trámite?';
   if(request.answerKey==='plan1_no_afore') return 'Correcto: el Plan 1 ($1,100 MXN mensuales) incluye servicio médico del IMSS y semanas cotizadas, pero no aportaciones a AFORE ni puntos INFONAVIT. Si quieres que también se aporte a tu AFORE, eso lo incluye el Plan 2, de $1,500 MXN mensuales. ¿Cuál te interesa más?';
   if(request.answerKey==='are_you_ai') return 'Sí, soy Mia, la asistente virtual de MARTCOM 😊 Con gusto te resuelvo tus dudas por aquí, y si prefieres hablar con una persona del equipo, también te puedo comunicar con un asesor. ¿En qué te ayudo?';
   if(request.answerKey==='weeks_review') return 'Con gusto. Para revisar cuántas semanas tienes cotizadas te comunico con nuestro equipo de Captura: ellos sacan tu constancia de semanas con tu CURP o tu NSS. Si los tienes a la mano, compártelos por aquí y en un momento te atienden.';
@@ -364,10 +395,15 @@ export function startedBefore1997(text=''){
 // Enriquecer una pregunta con el contexto del cliente (plan, Ley 73, si ya se le explicó, confianza).
 function enrich(direct,text,memory){
   if(!direct) return direct;
+  if(direct.answerKey==='weeks_status'&&!direct.ley){
+    const pre=memory?.pension_data?.cotizo_antes_1997;
+    if(pre===true) return {...direct,ley:73};
+    if(pre===false) return {...direct,ley:97};
+  }
   // Crédito INFONAVIT activo: no se ofrece el Plan 2 (22-oct).
   if(memory?.sales_cycle?.infonavit_credit){
-    if(['price','payment_frequency','not_free','fees','payment_duration'].includes(direct.answerKey)) return {...direct,type:'credit_price',answerKey:'credit_price'};
-    if(['plan_2_contributions','disability','plan1_no_afore'].includes(direct.answerKey)||(direct.answerKey==='services'&&direct.plan==='plan_2')) return {...direct,type:'credit_plan2',answerKey:'credit_plan2'};
+    if(['price','payment_frequency','not_free','fees','payment_duration','pay_to_imss'].includes(direct.answerKey)) return {...direct,type:'credit_price',answerKey:'credit_price'};
+    if(['plan_2_contributions','disability','plan1_no_afore','plan1_afore_question','plan1_confirm'].includes(direct.answerKey)||(direct.answerKey==='services'&&direct.plan==='plan_2')) return {...direct,type:'credit_plan2',answerKey:'credit_plan2'};
     if(direct.answerKey==='services') return {...direct,plan:'plan_1'};
     if(direct.answerKey==='which_plan') return {...direct,plan:'plan_1'};
   }

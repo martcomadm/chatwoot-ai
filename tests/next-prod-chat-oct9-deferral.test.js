@@ -37,7 +37,11 @@ test("'sí quiero pero no tengo dinero' no autoriza el trámite", () => {
 
 test("respuestas: empática sin insistir, y no repite la despedida", () => {
   const memory = { nombre: "Maria Esther Granados Ortiz", sales_cycle: { recommended_plan: "plan_1" }, ultima_respuesta_agente: "Para iniciar necesitamos CURP, NSS e INE del titular." };
-  const money = deferralDecision(memory, "ahorita no cuánto con dinero");
+  // 5-nov: la primera vez se le dice que hoy no paga y se le ofrece programar el alta.
+  const offer = deferralDecision(memory, "ahorita no cuánto con dinero");
+  assert.match(offer.reply, /^Entiendo, Maria, no te preocupes\. Para iniciar hoy no pagas nada.*¿Para qué fecha te acomoda\?$/);
+  assert.equal(offer.schedule_offer, true);
+  const money = deferralDecision({ ...memory, sales_cycle: { ...memory.sales_cycle, schedule_offered: true } }, "ahorita no cuánto con dinero");
   assert.equal(money.reply, "Entiendo, Maria, no te preocupes. Cuando tengas la posibilidad, escríbeme por aquí y con gusto retomamos tu trámite con el Plan 1. Aquí estaré para ayudarte.");
   assert.doesNotMatch(money.reply, /\$|documentos|¿/);
   const thanks = deferralDecision(memory, "A ok muchas gracias");

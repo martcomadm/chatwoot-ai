@@ -18,6 +18,8 @@ import { asksNoContact, reactivationReplyDecision, resumeDate } from "../sales/r
 import { menuChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
+import { scheduledStartIntro, scheduledStartNote } from "../sales/scheduled-start.js";
+import { TEMPLATE_TEXTS } from "../chatwoot/whatsapp-templates.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
 import { arrays, hasAttachments, isContact, isIncoming, messagesOf } from "../utils/conversation.js";
 import { stopLabels } from "../chatwoot/labels.js";
@@ -1122,12 +1124,20 @@ export class ConversationProcessor {
       if (!already && this.templates?.enabled?.("followUp24h")) result = await this.templates.send(conversationId, "followUp24h");
       await this.record(conversationId, "reply_outside_window", { reply: decision.reply, template: result });
       this.followUps?.cancel?.(conversationId);
-      if (result.sent) memory = { ...memory, reengage_template_at: new Date().toISOString(), ultima_respuesta_agente: "Hola, buen día. Si aún estás interesado en afiliarte al IMSS, con gusto puedo ayudarte a iniciar tu proceso." };
+      if (result.sent) memory = { ...memory, reengage_template_at: new Date().toISOString(), ultima_respuesta_agente: TEMPLATE_TEXTS.followUp24h };
       await this.memories.set(conversationId, memory);
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
+    // Aceptó con fecha ("en unos 10 días", "la segunda quincena"; 5-nov): se le confirma que el alta se
+    // programa y que hoy no paga, y Captura recibe la fecha en una nota privada.
+    const scheduledNow = memory.sales_cycle?.authorized && memory.sales_cycle?.scheduled_start && !base.sales_cycle?.scheduled_start ? memory.sales_cycle.scheduled_start : null;
+    if (scheduledNow && decision.reply) decision.reply = `${scheduledStartIntro(scheduledNow)} ${String(decision.reply).replace(/^(?:¡?perfecto[.!,]*\s*)/i, "")}`.trim();
     await this.chatwoot.sendMessage(conversationId, decision.reply);
+    if (scheduledNow) {
+      try { await this.chatwoot.sendMessage(conversationId, scheduledStartNote(scheduledNow), true); } catch {}
+      await this.record(conversationId, "scheduled_start", { when: scheduledNow.when, text: scheduledNow.text });
+    }
     if (decisionState.plan_change_request) {
       const label = decisionState.plan_change_request === "plan_2" ? "Plan 2 ($1,500)" : "Plan 1 ($1,100)";
       try { await this.chatwoot.sendMessage(conversationId, `MÍA → OPERACIONES\nEl cliente pide cambiar su trámite al ${label}. Un supervisor puede cambiarlo desde el expediente (Cambiar plan).`, true); } catch {}
@@ -1159,7 +1169,7 @@ export class ConversationProcessor {
     if (deferral) {
       // Reactivación (5-nov): si dijo cuándo retoma ("en la quincena"), ese día se le escribe.
       const nowIso = new Date().toISOString();
-      memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: nowIso, deferral_text: combinedText.slice(0, 200), deferral_resume_date: resumeDate(combinedText, nowIso) } };
+      memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: nowIso, deferral_text: combinedText.slice(0, 200), deferral_resume_date: resumeDate(combinedText, nowIso), ...(deferral.schedule_offer ? { schedule_offered: true } : {}) } };
     }
     // Pidió que no le escribamos: sin seguimientos ni reactivación.
     if (asksNoContact(combinedText)) memory = { ...memory, no_contact: { at: new Date().toISOString(), text: combinedText.slice(0, 200) } };
@@ -1175,6 +1185,7 @@ export class ConversationProcessor {
       const cycle = memory.sales_cycle || {};
       memory = { ...memory, sales_cycle: { ...cycle, recommended_plan: cycle.selected_plan || decision.plan, pitched_plans: arrays(cycle.pitched_plans, [decision.plan]), explained_plans: arrays(cycle.explained_plans, [decision.plan]) } };
       if (decision.case_data?.ley === 73) memory = { ...memory, pension_data: { ...(memory.pension_data || {}), cotizo_antes_1997: true } };
+      else if (decision.case_data?.ley === 97 && memory.pension_data?.cotizo_antes_1997 !== true) memory = { ...memory, pension_data: { ...(memory.pension_data || {}), cotizo_antes_1997: false } };
     }
     // Recordar qué plan ya se recomendó o explicó para no repetir el mismo mensaje después.
     if (decisionSource === "contextual_plan_explanation" || /^case_diagnosis:(?!reprompt)/.test(decisionSource)) {
@@ -1202,7 +1213,7 @@ export class ConversationProcessor {
     await this.memories.markProcessedMany(conversationId, messageIds);
     // Programar seguimientos si el cliente deja de contestar (no si acaba de rechazar).
     // Quien quiere iniciar después ("el lunes", "mañana te mando los papeles") sí recibe recordatorio.
-    if (this.followUps && !decisionState.onboarding_declined && decision.reply !== ONBOARDING_DECLINED_TEXT && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later")
+    if (this.followUps && !decisionState.onboarding_declined && decision.reply !== ONBOARDING_DECLINED_TEXT && !negatesCommitment(combinedText) && (!deferral || deferral.deferral === "start_later" || deferral.schedule_offer)
       // La IA ya se despidió ("Cuando quieras retomar…, que tengas buen día"): no se le insiste (casos reales 27-oct).
       && !(isClosingReply(decision.reply) && !memory.sales_cycle?.authorized)) {
       const lastCustomerAt = Math.max(0, ...batch.map(m => Number(m.created_at || 0))) * 1000 || Date.now();

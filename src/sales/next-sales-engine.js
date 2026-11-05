@@ -1,3 +1,5 @@
+import { detectScheduledStart, SCHEDULE_OFFER_MARK } from "./scheduled-start.js";
+import { saysStart } from "./commitment-flow.js";
 import { hasActiveInfonavitCredit } from "./infonavit-credit.js";
 import { negatesCommitment } from "./commitment-negation.js";
 import { confirmsStart, genericInterest } from "./start-confirmation.js";
@@ -158,12 +160,14 @@ export function analyzeNextSale(text, memory = {}) {
   const explicitSelection = noPlan2(detectExplicitPlanSelection(value));
   const plan = detectedPlan || previous.recommended_plan || previous.selected_plan || null;
   // "Sí" justo después de "¿Quieres que iniciemos tu trámite?" también es autorización.
-  const authorizationPhrase = detectAuthorization(value) || confirmsStart(text, memory);
+  const authorizationPhrase = detectAuthorization(value) || confirmsStart(text, memory) || saysStart(text);
   const altaInterest = detectAltaInterest(value);
   // "Quiero darme de alta" durante exploración expresa intención de compra, no autorización
   // operativa. NEXT solo abre expediente después de que ya existe contexto de plan/propuesta.
   // "Sí quiero, pero ahorita no tengo dinero" pospone: no es autorización.
-  const authorized = authorizationPhrase && commercialContextReady(memory) && !detectDeferral(text);
+  // "Me gustaría que se realizara ahora pero el pago sería en unos 10 días" (5-nov): acepta con fecha.
+  const scheduled = previous.authorized ? null : detectScheduledStart(text, { offered: String(memory?.ultima_respuesta_agente || "").includes(SCHEDULE_OFFER_MARK) });
+  const authorized = commercialContextReady(memory) && ((authorizationPhrase && !detectDeferral(text)) || Boolean(scheduled));
   const priceObjection = hasAny(value, PRICE_OBJECTION_PATTERNS);
   const rejected = negatesCommitment(value);
   const interest = !rejected && (altaInterest || authorizationPhrase || Boolean(explicitSelection) || hasAny(value, INTEREST_PATTERNS) || genericInterest(text));
@@ -200,6 +204,7 @@ export function analyzeNextSale(text, memory = {}) {
       interested: Boolean(previous.interested || interest),
       authorized: Boolean(previous.authorized || authorized),
       authorization_text: authorized ? String(text || "").trim() : previous.authorization_text || null,
+      ...(authorized && scheduled ? { scheduled_start: { ...scheduled, at: new Date().toISOString() } } : {}),
       price_objection_count: Number(previous.price_objection_count || 0) + (priceObjection ? 1 : 0),
       last_signal_at: new Date().toISOString(),
     },

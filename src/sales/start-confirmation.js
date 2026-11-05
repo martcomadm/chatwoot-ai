@@ -22,7 +22,10 @@ const SHORT_AFFIRMATIVE_RE = /^(?:(?:si+|sip|claro|ok|okay|okey|oki|va|vale|sale
 const AGENT_ASKED_TO_START_RE = /(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos|inicie|comience|empiece|proceda|demos de alta|te demos de alta|te de de alta|tramitemos|prepare|preparemos|registre|realice|realicemos)|(?:quieres|deseas|te gustaria) (?:iniciar|comenzar|empezar|proceder|contratar|continuar con el tramite)|confirmas que (?:deseas|quieres) (?:iniciar|comenzar|proceder)|confirmas que (?:iniciemos|comencemos|empecemos|procedamos|te demos de alta)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) (?:tramite|alta)|si estas de acuerdo, podemos iniciar|iniciamos (?:tu|el) tramite|(?:proceder|iniciar|continuar|seguir) con (?:el|tu) tramite\?|para iniciar necesito que me envies/;
 
 export function genericInterest(text) {
-  const value = norm(text);
+  // "Pero si me inyeresa", "Pues sí me interesó" (caso real 5-nov: recibió una pregunta genérica).
+  const value = norm(text)
+    .replace(/\bin[yt]ere[sz][ao]\b|\binteres[o]\b/g, "interesa")
+    .replace(/^(?:(?:pero|pues|y|ah|a|bueno pero|claro que)[ ,]+)+/, "");
   return Boolean(value) && !negatesCommitment(value) && GENERIC_INTEREST_RE.test(value);
 }
 

@@ -34,6 +34,9 @@ export function agentStartedConversation(conversation, miaAgentId, selfSenders =
   return !msgs.some(m => isOutgoing(m) && !isHuman(m));
 }
 
+// Palabras que siguen a "que siga / que continúe" y no son nombres de asesores.
+const NOT_A_NAME = new Set(["sin", "con", "igual", "asi", "activo", "activa", "vigente", "cotizando", "pagando", "corriendo", "normal", "bien", "mismo", "misma", "el", "la", "los", "las", "mi", "mis", "su", "sus", "mas", "siempre", "todo", "mientras", "hasta", "desde", "en", "por", "para", "cuando", "como", "si", "no", "ya", "aun", "todavia", "despues", "luego", "un", "una", "contando", "sumando", "funcionando", "vigencia", "seguro", "servicio", "afiliado", "afiliada", "inscrito", "inscrita", "dado", "dada", "de"]);
+
 // "Ya tengo asesora, es Isela Galicia", "Mi asesor es…", "Solo una cosa más, me atiende la Srta. Isela".
 // Devuelve el nombre si lo dice, true si no, o null.
 export function mentionsOwnAdvisor(text = "") {
@@ -50,6 +53,10 @@ export function mentionsOwnAdvisor(text = "") {
   for (const re of patterns) {
     const m = v.match(re);
     if (!m) continue;
+    // "Si quiero que siga sin interrupción", "que continúe activo/vigente" (caso real 5-nov: se pasó la
+    // conversación a "Sin Interrupcion"). Hablan de su seguro, no de un asesor.
+    const first = String(m[1] || "").split(" ")[0];
+    if (NOT_A_NAME.has(first)) continue;
     const name = String(m[1] || "").replace(/\b(?:gracias|saludos|y|pero|con|mi|tramite)\b.*$/, "").trim();
     if (!name || /^(?:que|para|de|el|la|en|es|un|una|el tramite)$/.test(name)) return true;
     return name.replace(/\b\w/g, c => c.toUpperCase());

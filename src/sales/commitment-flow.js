@@ -16,6 +16,15 @@ const START_RE = /^(?:(?:si|ok|pues|bueno|va|entonces|claro)[ ,]+)*(?:lo|la)\s+(
 const SELECTION_RE = /\b(?:me quedo con|elijo|prefiero|escojo|seria|sera|va a ser)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|^(?:(?:y|pero|si|mejor)\s+)?(?:para|con|en)\s+(?:el\s+)?plan\s*(1|uno|2|dos)(?:\s+(?:por favor|porfa|mejor|entonces))?[ .!]*$|\bmejor el (?:plan\s*)?(?:1|uno|2|dos)\b/;
 const INTEREST_ONLY_RE = /\bme interesa(?:\s+(?:adquirir|contratar|tomar|elegir|escoger))?(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b|\b(?:quiero|deseo)\s+(?:adquirir|contratar|tomar)(?:\s+el)?\s+plan\s*(1|uno|2|dos)\b/;
 
+// Misma frase que abre el trámite en commitmentDecision; next-sales-engine la usa para autorizar (5-nov: Mia
+// respondía "Confirmo que deseas iniciar…" pero la venta no quedaba autorizada).
+export function saysStart(text) {
+  const v = norm(text);
+  // "¿Si iniciamos el trámite hoy, cuándo pago?" pregunta, no acepta.
+  if (!v || negatesCommitment(v) || (/[?¿]/.test(String(text)) && /^(?:y\s+)?si\s+(?:iniciamos|empezamos|comenzamos|inicio|empiezo|hacemos)\b/.test(v))) return false;
+  return START_RE.test(v);
+}
+
 export function commitmentDecision(memory = {}, combinedText = "") {
   const text = norm(combinedText);
   const cycle = memory.sales_cycle || {};
