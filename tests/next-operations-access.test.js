@@ -134,7 +134,7 @@ test("cada área solo ve y opera su propia cola", async t => {
   // Desde el 27-oct Supervisión ve y trabaja todas las áreas.
   assert.equal((await team["sergio.super"](`/operations/api/sales/${captureSale.sale_id}/capture/start`, { method: "POST" })).status, 200, "Supervisión ejecuta acciones de área");
   const supMe = await team["sergio.super"]("/operations/api/me");
-  assert.deepEqual(supMe.body.areas.map(a => a.key).filter(k => !["supervision", "observador", "admin"].includes(k)).sort(), ["atencion", "captura", "chats", "cobranza", "validacion", "vigencia"]);
+  assert.deepEqual(supMe.body.areas.map(a => a.key).filter(k => !["supervision", "observador", "admin"].includes(k)).sort(), ["atencion", "captura", "chats", "cobranza", "respuestas", "validacion", "vigencia"]);
   assert.ok(!supMe.body.areas.some(a => a.key === "admin"), "Supervisión no entra a Admin");
 });
 
