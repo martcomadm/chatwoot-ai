@@ -211,3 +211,25 @@ test("recordatorios de documentos: cómo conseguir lo que falta y, al final, ofe
   assert.match(last, /asesor te llame y te ayude a completar tu expediente/);
   assert.ok(acceptsCallOffer("Sí, a las 6", last)?.time, "también vale con el trámite iniciado");
 });
+
+// Caso real 4-nov (Nadia): mandó "5222066084-0" y Mia volvió a pedir el NSS.
+import { containsNss, extractFast, nssCheckDigitOk } from "../src/memory/fast-extractor.js";
+
+test("NSS con guion antes del último dígito o con espacios se reconoce (dígito verificador del IMSS)", () => {
+  assert.equal(nssCheckDigitOk("52220660840"), true);
+  assert.equal(containsNss("5222066084-0"), true);
+  assert.equal(containsNss("mi nss es 52-22-06-6084-0"), true);
+  assert.equal(containsNss("52 22 06 6084 0"), true);
+  assert.equal(extractFast("5222066084-0", {}).nss_valor, "52220660840");
+  assert.equal(containsNss("+52 1 55 1234 5678"), false, "un celular no es NSS");
+  assert.equal(containsNss("5512345678"), false);
+});
+
+test("flujo de Nadia: CURP y luego '5222066084-0' → ya no vuelve a pedir el NSS", async () => {
+  const c = conversation();
+  for (const t of ["¡Hola! Quiero más información", "No", "Servicio médico", "Si por favor", "Si"]) await c.say(t);
+  assert.match(await c.say("ROMN061018MJCJRDA5"), /NSS/);
+  const r = await c.say("5222066084-0");
+  assert.doesNotMatch(r, /compárteme por favor el NSS/);
+  assert.equal(c.state.memory.nss_valor, "52220660840");
+});

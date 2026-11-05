@@ -8,6 +8,23 @@ const clean = value => String(value || "").trim();
 const lower = value => clean(value).toLowerCase();
 
 const NSS_RE = /\b\d{2}[\s-]?\d{2}[\s-]?\d{2}[\s-]?\d{5}\b/;
+// 11 dígitos con guiones, puntos o espacios en cualquier lugar ("5222066084-0", caso real 4-nov: Mia
+// pidió el NSS dos veces). Como así también podría ser un teléfono, se acepta solo si el dígito
+// verificador del IMSS cuadra.
+const NSS_LOOSE_RE = /(?<![\d])\d(?:[\s.-]?\d){10}(?![\d])/g;
+export function nssCheckDigitOk(digits){
+  const d=String(digits||"").replace(/\D/g,"");
+  if(d.length!==11) return false;
+  let sum=0;
+  for(let i=0;i<10;i++){ let v=Number(d[i])*(i%2?2:1); sum+=v>9?v-9:v; }
+  return (10-sum%10)%10===Number(d[10]);
+}
+function findNss(raw){
+  const strict=String(raw||"").match(NSS_RE);
+  if(strict) return String(strict[0]).replace(/\D/g,"");
+  for(const m of String(raw||"").matchAll(NSS_LOOSE_RE)){ const d=m[0].replace(/\D/g,""); if(nssCheckDigitOk(d)) return d; }
+  return null;
+}
 
 const NAME_STOP_WORDS = new Set([
   "hola","buen","buenas","tardes","dias","día","informacion","información",
@@ -160,10 +177,10 @@ export function extractFast(text,memory={}){
   if(curp.valid){ patch.curp_recibida=true; patch.curp_valor=curp.value; }
   const subject=resolveSubject(raw,memory);
   if(subject.patch.caso_sujeto) patch.caso_sujeto=subject.patch.caso_sujeto;
-  const nssMatch=raw.match(NSS_RE);
-  if(nssMatch){
+  const nssValue=findNss(raw);
+  if(nssValue){
     patch.nss_recibido=true;
-    patch.nss_valor=String(nssMatch[0]).replace(/\D/g,"");
+    patch.nss_valor=nssValue;
   }
 
   if(patch.intereses.infonavit || patch.intereses.afore) patch.necesidad_principal="plan_2";
@@ -176,4 +193,4 @@ export function extractFast(text,memory={}){
 }
 
 export function containsCurp(text){return containsNormalizedCurp(clean(text));}
-export function containsNss(text){return NSS_RE.test(clean(text));}
+export function containsNss(text){return Boolean(findNss(clean(text)));}

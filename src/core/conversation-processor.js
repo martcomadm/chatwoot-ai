@@ -593,6 +593,12 @@ export class ConversationProcessor {
     const yearAnswer = askedStartYear && /\b(?:19[5-8]\d|199[0-6])\b|\b(?:el|del|en el|desde el|desde|en)\s+(?:[5-8]\d|9[0-6])\b(?!\s*a(?:n|ñ)os)/i.test(combinedText);
     if (startedBefore1997(combinedText) || yearAnswer || parseCaseData(combinedText, { askedStartYear }).ley === 73) fastPatch.pension_data = { ...(fastPatch.pension_data || {}), cotizo_antes_1997: true };
     if (containsNss(combinedText)) fastPatch.nss_recibido = true;
+    // Si Mia está esperando el NSS y el cliente manda solo un número de 11 dígitos (con guiones o
+    // espacios), se toma aunque el dígito verificador no cuadre: Captura lo valida en el expediente.
+    else if ((base.operations?.onboarding_next === "nss" || /compárteme por favor el NSS/.test(String(base.ultima_respuesta_agente || ""))) && /^[\s\d.\-]+$/.test(combinedText) && combinedText.replace(/\D/g, "").length === 11) {
+      fastPatch.nss_recibido = true;
+      fastPatch.nss_valor = combinedText.replace(/\D/g, "");
+    }
     const facts = extractConversationFacts(combinedText, base);
     const reliability = analyzeReliability(combinedText, base, {
       ...fastPatch,
