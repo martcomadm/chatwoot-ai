@@ -34,7 +34,7 @@ test("Respuestas de Mia: permisos, alta/edición/borrado y convertir lo que cont
   ] }; } };
   const replyFeedback = new ReplyFeedbackStore(path.join(dir, "fb.json"));
   const teamAnswers = new TeamAnswerStore(path.join(dir, "ta.json"));
-  const learningInbox = new LearningInbox({ file: path.join(dir, "li.json"), memories, chatwoot });
+  const learningInbox = new LearningInbox({ file: path.join(dir, "li.json"), memories, chatwoot, selfSenders: { isOwn: m => Number(m.sender?.id) === 53 } });
   const audit = new OpsAuditStore(path.join(dir, "a.json"));
   const saleStore = new SaleStore(path.join(dir, "s.json"));
   const app = express(); app.use(express.json());
