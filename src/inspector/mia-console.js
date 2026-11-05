@@ -38,6 +38,7 @@ export function sourceLabel(source = "") {
   if (SOURCE_LABELS[s]) return SOURCE_LABELS[s];
   if (s.startsWith("commitment:")) return "Regla · cierre de venta";
   if (s.startsWith("ad_opening:")) return "Regla · apertura del anuncio";
+  if (s.startsWith("team_answer:")) return "Respuesta del equipo";
   if (s === "case_diagnosis:reprompt") return "Regla · repite pregunta del caso";
   if (s.startsWith("case_diagnosis:")) return "Regla · diagnóstico del caso";
   if (s.startsWith("direct:")) return "Respuesta oficial";

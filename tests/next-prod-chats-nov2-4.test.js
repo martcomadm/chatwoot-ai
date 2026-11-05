@@ -28,6 +28,7 @@ function conversation() {
     const m = { id: n, message_type: 0, sender_type: "Contact", sender: { type: "contact" }, private: false, content, attachments: [], created_at: Math.floor(Date.now() / 1000) };
     const before = state.sent.length;
     const p = new ConversationProcessor({
+      teamAnswers: state.teamAnswers || null,
       config: { chatwoot: { inboxId: 7, agentId: 53 }, ai: { validationLabel: "validacion", publicName: "Mia de MARTCOM", maxReplyChars: 850 }, operations: {} },
       chatwoot: { async getConversation() { return { id: 5, inbox_id: 7, meta: { assignee: { id: 53 }, sender: { id: 1 } }, labels: [], messages: [m] }; }, async sendMessage(_i, t, priv) { if (!priv) state.sent.push(t); }, async getMessages() { return { payload: [] }; } },
       labels: { async mergeSafe() { return []; } },
@@ -232,4 +233,16 @@ test("flujo de Nadia: CURP y luego '5222066084-0' → ya no vuelve a pedir el NS
   const r = await c.say("5222066084-0");
   assert.doesNotMatch(r, /compárteme por favor el NSS/);
   assert.equal(c.state.memory.nss_valor, "52220660840");
+});
+
+// Respuestas del equipo (4-nov): con frase del cliente, Mia contesta con el texto exacto.
+import { TeamAnswerStore } from "../src/knowledge/team-answers.js";
+test("respuesta del equipo con frase: Mia contesta el texto exacto, sin IA; sin coincidencia sigue normal", async () => {
+  const c = conversation();
+  c.state.teamAnswers = new TeamAnswerStore(null);
+  c.state.teamAnswers.create({ topic: "Pago con tarjeta", answer: "Por ahora el pago es por transferencia, depósito u OXXO; no aceptamos tarjeta. ¿Quieres que iniciemos tu trámite?", phrases: "pagar con tarjeta" });
+  await c.say("¡Hola! Quiero más información");
+  c.state.ai.length = 0;
+  assert.equal(await c.say("¿Se puede pagar con tarjeta?"), "Por ahora el pago es por transferencia, depósito u OXXO; no aceptamos tarjeta. ¿Quieres que iniciemos tu trámite?");
+  assert.equal(c.state.ai.length, 0, "no pasó por la IA");
 });

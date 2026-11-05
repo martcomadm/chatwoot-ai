@@ -30,7 +30,9 @@ export class AiServices {
       } catch {}
       this._knowledge = knowledgeWithSchedule(text);
     }
-    return this._knowledge;
+    // Respuestas aprobadas por el equipo desde Operations (se leen en cada turno: sin redespliegue).
+    const team = this.teamAnswers?.promptBlock?.() || "";
+    return team ? `${this._knowledge}\n\n${team}` : this._knowledge;
   }
 
   // Nota de voz → texto (OpenAI). Ver src/ai/audio.js.

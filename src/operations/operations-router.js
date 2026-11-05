@@ -1,6 +1,12 @@
 import { interveneConversation, releaseConversation } from "./mia-intervention.js";
 import { closeSaleInService, returnSaleToMia } from "./customer-service/service-sale.js";
 import { extractContactPhone } from "./sale-factory.js";
+import { MARTCOM_KNOWLEDGE } from "../knowledge/martcom.js";
+
+// Reglas confirmadas que ya vienen en el sistema (solo lectura en "Respuestas de Mia").
+function fixedRules() {
+  return MARTCOM_KNOWLEDGE.split("\n").filter(line => /confirmad[oa]/i.test(line) && /^\s*-/.test(line) && !/datos confirmados/i.test(line)).map(line => line.replace(/^\s*-\s*/, "").trim());
+}
 import fs from "node:fs";
 import { BUILD_LABEL } from "./build-info.js";
 import express from "express";
@@ -36,7 +42,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
 const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null }) {
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -50,6 +56,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   }
 
   const canInterveneMia = user => hasArea(user, "captura");
+  const canTeachMia = user => hasArea(user, "supervision");
   // Celulares de los clientes: solo Supervisión y Admin (pedido 4-nov).
   // Cobranza también (4-nov): ve Chats de Mia (sin intervenir) con los celulares.
   const isCobranza = user => (user?.areas || []).includes("cobranza");
@@ -143,7 +150,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const user = req.opsUser;
     res.json({
       user,
-      areas: [...AREAS.filter(area => hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : [])],
+      areas: [...AREAS.filter(area => hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : [])],
       visible_queues: visibleQueues(user),
       queue_labels: QUEUE_LABELS,
       can: {
@@ -289,6 +296,66 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       await releaseConversation({ memories, chatwoot, conversationId: req.params.id, user: req.opsUser, miaAgentId: config?.chatwoot?.agentId || null, note: req.body?.note, canForce: hasArea(req.opsUser, "supervision"), audit, inspectorEvents });
       res.json({ ok: true });
     } catch (error) { fail(res, error); }
+  });
+
+  // ── Respuestas de Mia (4-nov): el equipo enseña a Mia sin redespliegue ──
+  const teachGuard = (req, res) => {
+    if (!canTeachMia(req.opsUser)) { res.status(403).json({ error: "Solo Supervisión y Admin pueden editar las respuestas de Mia", code: "forbidden" }); return false; }
+    if (!teamAnswers) { res.status(503).json({ error: "Respuestas de Mia no disponibles" }); return false; }
+    return true;
+  };
+  const who = user => user?.name || user?.username || null;
+  router.get("/operations/api/mia-answers", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    res.json({ items: teamAnswers.list(), fixed: fixedRules(), open_learning: learningInbox?.list({ status: "open" }).length || 0 });
+  });
+  router.post("/operations/api/mia-answers", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try {
+      const item = teamAnswers.create({ topic: req.body?.topic, answer: req.body?.answer, phrases: req.body?.phrases, active: req.body?.active }, who(req.opsUser));
+      audit.record("mia.answer.create", actorOf(req.opsUser), { id: item.id, topic: item.topic });
+      res.json({ ok: true, item });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-answers/:id", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try {
+      const item = teamAnswers.update(req.params.id, { topic: req.body?.topic, answer: req.body?.answer, phrases: req.body?.phrases, active: req.body?.active }, who(req.opsUser));
+      audit.record("mia.answer.update", actorOf(req.opsUser), { id: item.id, topic: item.topic, active: item.active });
+      res.json({ ok: true, item });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-answers/:id/delete", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try {
+      const item = teamAnswers.get(req.params.id);
+      teamAnswers.remove(req.params.id);
+      audit.record("mia.answer.delete", actorOf(req.opsUser), { id: req.params.id, topic: item?.topic || null });
+      res.json({ ok: true });
+    } catch (error) { fail(res, error); }
+  });
+  router.get("/operations/api/mia-learning", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    res.json({ items: learningInbox?.list({ status: String(req.query.status || "open") }).slice(0, 200) || [], scanning: Boolean(learningInbox?.running) });
+  });
+  router.post("/operations/api/mia-learning/scan", async (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try { res.json({ ok: true, ...(await learningInbox?.scan()) }); } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-learning/:id/convert", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try {
+      const item = learningInbox.list({ status: "all" }).find(i => i.id === req.params.id);
+      if (!item) throw new Error("No existe esa pregunta");
+      const answer = teamAnswers.create({ topic: req.body?.topic, answer: req.body?.answer, phrases: req.body?.phrases, source: "learned", learned_from: { conversation_id: item.conversation_id, message_id: item.message_id, by: item.by } }, who(req.opsUser));
+      learningInbox.resolve(item.id, "converted", who(req.opsUser), answer.id);
+      audit.record("mia.answer.learned", actorOf(req.opsUser), { id: answer.id, topic: answer.topic, conversation_id: item.conversation_id });
+      res.json({ ok: true, item: answer });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-learning/:id/dismiss", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try { learningInbox.resolve(req.params.id, "dismissed", who(req.opsUser)); res.json({ ok: true }); } catch (error) { fail(res, error); }
   });
 
   // ── Atención a Clientes ─────────────────────────────────────────────────

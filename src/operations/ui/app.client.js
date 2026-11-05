@@ -14,6 +14,7 @@ const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "
 const STAGES = [["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completado"]];
 
 const AREA_INTRO = {
+  respuestas: "Enséñale a Mia sin esperar un despliegue: lo que guardes aquí lo usa desde el siguiente mensaje. Si pones frases del cliente, cuando un mensaje las contenga Mia contesta con tu texto exacto.",
   chats: "Todas las conversaciones que atiende Mia. Si ves un chat que se está perdiendo, intervén: el chat pasa a ti en Chatwoot y Mia deja de contestar hasta que lo regreses.",
   atencion: "Clientes con su trámite completado, casos que Mia canaliza y clientes activos que vuelven a escribir. Se asignan por turnos.",
   observador: "Sigue en qué etapa va cada venta, de Captura a Cobranza. Solo lectura: puedes ver los expedientes, pero no modificarlos.",
@@ -476,6 +477,7 @@ async function renderView() {
   if (state.view === "observador") return renderObserver(view);
   if (state.view === "atencion") return renderCustomerService(view);
   if (state.view === "chats") return renderMiaChats(view);
+  if (state.view === "respuestas") return renderMiaAnswers(view);
   if (state.view === "admin") return renderAdmin(view);
 }
 
@@ -1491,6 +1493,84 @@ async function miaChatAction(action) {
   if (done) { await renderView(); await openMiaChat(id); }
 }
 
+// ── Respuestas de Mia (4-nov): el equipo enseña a Mia; preguntas que Mia no supo ──
+function answerFields(item = {}) {
+  return [
+    { name: "topic", label: "Tema o pregunta del cliente", required: true, value: item.topic || "", placeholder: "Ej. ¿Puedo pagar con tarjeta?" },
+    { name: "answer", label: "Respuesta que debe dar Mia", type: "textarea", required: true, value: item.answer || "", placeholder: "Escribe la respuesta tal como la diría Mia" },
+    { name: "phrases", label: "Frases del cliente (opcional)", value: (item.phrases || []).join(", "), placeholder: "pagar con tarjeta, tarjeta de credito", help: "Separadas por coma. Si el mensaje del cliente contiene una de estas frases, Mia contesta con tu texto exacto. Sin frases, la IA usa la respuesta como guía." },
+    { name: "active", label: "Estado", type: "select", value: item.active === false ? "0" : "1", options: [["1", "Activa"], ["0", "Pausada"]] },
+  ];
+}
+const answerBody = data => ({ topic: data.topic, answer: data.answer, phrases: data.phrases, active: data.active !== "0" });
+
+async function renderMiaAnswers(view) {
+  view.style.setProperty("--area", areaVar("respuestas"));
+  state.answersTab = state.answersTab || "team";
+  let answers, learning;
+  try {
+    [answers, learning] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null)]);
+  } catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudo cargar</strong>${esc(error.message)}</div>`; return; }
+  state.miaAnswers = answers.items || [];
+  state.miaLearning = learning?.items || [];
+  const tabs = `<div class="segmented" role="group">
+      <button data-answers-tab="team" aria-pressed="${state.answersTab === "team"}">Respuestas del equipo (${state.miaAnswers.length})</button>
+      <button data-answers-tab="learn" aria-pressed="${state.answersTab === "learn"}">Preguntas que Mia no supo (${answers.open_learning || 0})</button>
+      <button data-answers-tab="fixed" aria-pressed="${state.answersTab === "fixed"}">Reglas fijas</button>
+    </div>`;
+  let body = "";
+  if (state.answersTab === "team") {
+    body = `<div class="toolbar"><button class="btn primary" data-answer-act="new">+ Nueva respuesta</button></div>` + (state.miaAnswers.length ? `<div class="answer-list">${state.miaAnswers.map(a => `
+      <article class="answer-card ${a.active === false ? "paused" : ""}">
+        <header><strong>${esc(a.topic)}</strong><span class="mia-flags">${a.active === false ? '<span class="tag">Pausada</span>' : '<span class="tag ok">Activa</span>'}${a.source === "learned" ? '<span class="tag area">Aprendida de un chat</span>' : ""}${(a.phrases || []).length ? '<span class="tag">Texto exacto</span>' : '<span class="tag">Guía para la IA</span>'}</span></header>
+        <p>${esc(a.answer)}</p>
+        ${(a.phrases || []).length ? `<p class="muted small">Frases: ${a.phrases.map(esc).join(" · ")}</p>` : ""}
+        <footer><small class="muted">${esc(a.updated_by || a.created_by || "")} · ${esc(dateTime(a.updated_at || a.created_at))}</small><span class="actions"><button class="btn small" data-answer-act="edit" data-answer-id="${a.id}">Editar</button><button class="btn small quiet" data-answer-act="delete" data-answer-id="${a.id}">Borrar</button></span></footer>
+      </article>`).join("")}</div>` : `<div class="empty"><strong>Aún no hay respuestas del equipo</strong>Agrega la primera con "+ Nueva respuesta" o conviértela desde "Preguntas que Mia no supo".</div>`);
+  } else if (state.answersTab === "learn") {
+    body = `<div class="toolbar"><button class="btn" data-answer-act="scan">Buscar ahora en los chats</button><span class="muted">Se revisa solo cada 30 minutos: chats de los últimos 14 días que pasaron a una persona.</span></div>` + (state.miaLearning.length ? `<div class="answer-list">${state.miaLearning.map(i => `
+      <article class="answer-card">
+        <header><strong>${esc(i.customer_name || "Cliente")}</strong><small class="mono muted">#${i.conversation_id} · ${esc(dateTime(i.at))}</small></header>
+        <p class="learn-q"><span class="muted small">Preguntó</span><br>${esc(i.question)}</p>
+        <p class="learn-a"><span class="muted small">Contestó ${esc(i.by || "el equipo")}</span><br>${esc(i.answer)}</p>
+        <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="convert" data-learn-id="${esc(i.id)}">Convertir en respuesta de Mia</button><button class="btn small quiet" data-answer-act="dismiss" data-learn-id="${esc(i.id)}">Descartar</button></span></footer>
+      </article>`).join("")}</div>` : `<div class="empty"><strong>Sin preguntas pendientes</strong>Cuando una persona del equipo conteste en un chat que pasó con ella, aparecerá aquí.</div>`);
+  } else {
+    body = `<p class="muted">Estas reglas ya vienen en Mia (confirmadas con ustedes). Para cambiar una, agrega una respuesta del equipo sobre el mismo tema: la del equipo manda.</p><ul class="fixed-rules">${(answers.fixed || []).map(r => `<li>${esc(r)}</li>`).join("")}</ul>`;
+  }
+  view.innerHTML = `${pageHead("respuestas", "Respuestas de Mia", AREA_INTRO.respuestas, "")}<div class="toolbar">${tabs}</div>${body}`;
+}
+
+async function miaAnswerAction(target) {
+  const act = target.dataset.answerAct;
+  if (act === "new") {
+    const data = await ask({ title: "Nueva respuesta de Mia", fields: answerFields(), confirm: "Guardar", area: "respuestas" });
+    if (data && await run(() => api("/operations/api/mia-answers", { method: "POST", body: answerBody(data) }), "Respuesta guardada: Mia la usa desde ahora")) renderView();
+  }
+  if (act === "edit") {
+    const item = state.miaAnswers.find(a => a.id === target.dataset.answerId);
+    const data = item && await ask({ title: "Editar respuesta", fields: answerFields(item), confirm: "Guardar", area: "respuestas" });
+    if (data && await run(() => api(`/operations/api/mia-answers/${item.id}`, { method: "POST", body: answerBody(data) }), "Respuesta actualizada")) renderView();
+  }
+  if (act === "delete") {
+    const item = state.miaAnswers.find(a => a.id === target.dataset.answerId);
+    const ok = item && await ask({ title: "Borrar respuesta", text: `Mia dejará de usar: <strong>${esc(item.topic)}</strong>`, confirm: "Borrar", danger: true });
+    if (ok && await run(() => api(`/operations/api/mia-answers/${item.id}/delete`, { method: "POST", body: {} }), "Respuesta borrada")) renderView();
+  }
+  if (act === "scan") {
+    const done = await run(() => api("/operations/api/mia-learning/scan", { method: "POST", body: {} }), null);
+    if (done) { toast(done.added ? `${plural(done.added, "pregunta nueva", "preguntas nuevas")}` : "No hay preguntas nuevas"); renderView(); }
+  }
+  if (act === "convert") {
+    const item = state.miaLearning.find(i => i.id === target.dataset.learnId);
+    const data = item && await ask({ title: "Convertir en respuesta de Mia", text: "Revisa y ajusta el texto: quita nombres, montos o datos que solo aplicaban a ese cliente.", fields: answerFields({ topic: item.question.split("\n")[0].slice(0, 200), answer: item.answer }), confirm: "Guardar respuesta", area: "respuestas" });
+    if (data && await run(() => api(`/operations/api/mia-learning/${encodeURIComponent(item.id)}/convert`, { method: "POST", body: answerBody(data) }), "Listo: Mia ya sabe contestar esto")) renderView();
+  }
+  if (act === "dismiss") {
+    if (await run(() => api(`/operations/api/mia-learning/${encodeURIComponent(target.dataset.learnId)}/dismiss`, { method: "POST", body: {} }), "Descartada")) renderView();
+  }
+}
+
 const refreshCasesSoon = debounce(async caseId => {
   if (state.view === "atencion" && !document.querySelector("dialog[open]")) await renderView();
   if (state.caseId && state.caseId === caseId && !document.querySelector("dialog[open]")) await openCase(caseId, { keepScroll: true });
@@ -1733,7 +1813,7 @@ function handleNotify(n) {
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
-  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-page]");
+  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-page], [data-answer-act], [data-answers-tab]");
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.act === "logout") return logout();
@@ -1745,6 +1825,8 @@ document.addEventListener("click", async event => {
   if (target.dataset.act === "close-case") return closeCasePanel();
   if (target.dataset.act === "reload-chat" && state.miaChatId) return loadChat(`/operations/api/mia-chats/${state.miaChatId}/conversation`, state.miaChatId);
   if (target.dataset.act === "reload-chat") return state.caseId ? loadChat(`/operations/api/cases/${encodeURIComponent(state.caseId)}/conversation`, state.caseId) : state.saleId && loadSaleChat(state.saleId);
+  if (target.dataset.answersTab) { state.answersTab = target.dataset.answersTab; return renderView(); }
+  if (target.dataset.answerAct) { target.disabled = true; try { await miaAnswerAction(target); } finally { target.disabled = false; } return; }
   if (target.dataset.miaChat) return openMiaChat(target.dataset.miaChat);
   if (target.dataset.miaAct) { target.disabled = true; try { await miaChatAction(target.dataset.miaAct); } finally { target.disabled = false; } return; }
   if (target.dataset.miaFilter) { state.miaFilter = target.dataset.miaFilter; state.miaPage = 1; return renderView(); }

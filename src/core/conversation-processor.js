@@ -156,8 +156,9 @@ export function explainedPlanInReply(reply = "") {
 export const CAPTURE_REVIEW_TEXT = "Con gusto. Para revisar cuántas semanas tienes cotizadas te comunico con nuestro equipo de Captura: ellos sacan tu constancia de semanas con tu CURP o tu NSS. Si los tienes a la mano, compártelos por aquí y en un momento te atienden.";
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter = null, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter = null, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null, teamAnswers = null }) {
     this.templates = templates;
+    this.teamAnswers = teamAnswers;
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -853,8 +854,12 @@ export class ConversationProcessor {
     // Si además menciona un tema que tiene su propia respuesta (ISSSTE, revisar semanas, Modalidad 40…), manda esa.
     const caseCompatible = !directRequest || ["price", "pension_general", "pension_orientation", "pension_min_term", "rights_recovery", "min_weeks", "missing_weeks", "few_weeks_left", "lost_rights"].includes(directRequest.answerKey);
     const caseDiagnosis = mediaDecision || adOpening || !caseCompatible ? null : caseDiagnosisDecision(base, combinedText);
+    // Respuestas del equipo con frases del cliente (Operations → Respuestas de Mia, 4-nov): texto exacto.
+    const teamMatch = mediaDecision || adOpening || containsCurp(combinedText) || containsNss(combinedText) ? null : this.teamAnswers?.match?.(combinedText);
+    const teamDecision = teamMatch ? { reply: teamMatch.answer, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", team_answer: teamMatch.id } : null;
     if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
     else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
+    else if (teamDecision) decision = protectDeterministicDecision(teamDecision, `team_answer:${teamMatch.id}`);
     else if (creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
     else if (featureRejection) decision = protectDeterministicDecision(featureRejection, "feature_rejection");
     else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);

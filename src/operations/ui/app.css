@@ -24,6 +24,7 @@
   --area-atencion: #7a4f9c;
   --area-admin: #59636f;
   --area-chats: #7a4fc4;
+  --area-respuestas: #1f8a6d;
 
   --font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Atkinson Hyperlegible Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -59,6 +60,7 @@
     --area-atencion: #c3a3dc;
     --area-admin: #a9b3be;
     --area-chats: #b394ec;
+    --area-respuestas: #5fcca9;
     --shadow-panel: -12px 0 32px rgba(0, 0, 0, 0.45);
     color-scheme: dark;
   }
@@ -434,3 +436,14 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
   .queue-row.mia-row > :nth-child(4) { display: flex; grid-column: 1 / -1; grid-row: 2; }
   .queue-row.mia-row.queue-head { display: none; }
 }
+
+/* Respuestas de Mia (4-nov) */
+.answer-list { display: grid; gap: 10px; }
+.answer-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--surface); }
+.answer-card.paused { opacity: .65; }
+.answer-card header, .answer-card footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.answer-card p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.answer-card .learn-a { border-left: 3px solid var(--area, var(--line)); padding-left: 10px; }
+.answer-card .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.fixed-rules { display: grid; gap: 8px; padding-left: 18px; }
+.small { font-size: .85em; }
