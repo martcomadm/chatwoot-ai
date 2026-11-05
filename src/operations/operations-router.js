@@ -295,7 +295,14 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       const items = await conversationItems(id, null);
       const index = items.findIndex(m => m.id === String(req.body?.message_id || ""));
       if (index < 0 || items[index].who !== "mia") throw new Error("Solo se califican mensajes de Mia");
-      const customerText = items.slice(0, index).reverse().filter(m => m.who === "cliente").slice(0, 3).reverse().map(m => m.text).filter(Boolean).join("\n");
+      // Lo que el cliente escribió justo antes de esa respuesta (desde el último mensaje del equipo o de Mia).
+      const batch = [];
+      for (let k = index - 1; k >= 0 && batch.length < 5; k--) {
+        if (items[k].who === "nota") continue;
+        if (items[k].who !== "cliente") break;
+        if (items[k].text) batch.unshift(items[k].text);
+      }
+      const customerText = batch.join("\n");
       const item = replyFeedback.rate({ conversationId: id, messageId: items[index].id, rating: req.body?.rating, correction: req.body?.correction, note: req.body?.note, miaText: items[index].text, customerText, user: req.opsUser });
       try { await inspectorEvents?.record?.(id, "reply_rated", { rating: item.rating, by: item.by, message_id: item.message_id }); } catch {}
       audit.record("mia.reply.rate", actorOf(req.opsUser), { conversation_id: id, message_id: item.message_id, rating: item.rating });
