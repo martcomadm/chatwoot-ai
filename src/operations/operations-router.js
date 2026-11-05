@@ -42,7 +42,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
 const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null }) {
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null, replyFeedback = null, experiments = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -281,7 +281,26 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.get("/operations/api/mia-chats/:id/conversation", async (req, res) => {
     if (!canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Sin acceso", code: "forbidden" });
     const memory = memories.get(req.params.id);
-    return sendConversation(res, Number(req.params.id), memory?.nombre || null);
+    const id = Number(req.params.id);
+    if (!id || !chatwoot) return res.json({ items: [], available: false });
+    try {
+      res.json({ items: await conversationItems(id, memory?.nombre || null), available: true, ratings: replyFeedback?.forConversation(id) || {}, can_rate: canInterveneMia(req.opsUser) && Boolean(replyFeedback) });
+    } catch (error) { res.status(502).json({ error: "No se pudo leer la conversación de Chatwoot", detail: String(error?.message || error).slice(0, 200) }); }
+  });
+  // Calificar una respuesta de Mia (4-nov): 👍 o 👎 con "así debió contestar".
+  router.post("/operations/api/mia-chats/:id/rate", async (req, res) => {
+    if (!canInterveneMia(req.opsUser) || !replyFeedback) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin califican respuestas", code: "forbidden" });
+    try {
+      const id = Number(req.params.id);
+      const items = await conversationItems(id, null);
+      const index = items.findIndex(m => m.id === String(req.body?.message_id || ""));
+      if (index < 0 || items[index].who !== "mia") throw new Error("Solo se califican mensajes de Mia");
+      const customerText = items.slice(0, index).reverse().filter(m => m.who === "cliente").slice(0, 3).reverse().map(m => m.text).filter(Boolean).join("\n");
+      const item = replyFeedback.rate({ conversationId: id, messageId: items[index].id, rating: req.body?.rating, correction: req.body?.correction, note: req.body?.note, miaText: items[index].text, customerText, user: req.opsUser });
+      try { await inspectorEvents?.record?.(id, "reply_rated", { rating: item.rating, by: item.by, message_id: item.message_id }); } catch {}
+      audit.record("mia.reply.rate", actorOf(req.opsUser), { conversation_id: id, message_id: item.message_id, rating: item.rating });
+      res.json({ ok: true, item });
+    } catch (error) { fail(res, error); }
   });
   router.post("/operations/api/mia-chats/:id/intervene", async (req, res) => {
     if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden intervenir", code: "forbidden" });
@@ -307,7 +326,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   const who = user => user?.name || user?.username || null;
   router.get("/operations/api/mia-answers", (req, res) => {
     if (!teachGuard(req, res)) return;
-    res.json({ items: teamAnswers.list(), fixed: fixedRules(), open_learning: learningInbox?.list({ status: "open" }).length || 0 });
+    res.json({ items: teamAnswers.list(), fixed: fixedRules(), open_learning: learningInbox?.list({ status: "open" }).length || 0, open_feedback: replyFeedback?.list({ status: "open" }).length || 0 });
   });
   router.post("/operations/api/mia-answers", (req, res) => {
     if (!teachGuard(req, res)) return;
@@ -333,6 +352,56 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       audit.record("mia.answer.delete", actorOf(req.opsUser), { id: req.params.id, topic: item?.topic || null });
       res.json({ ok: true });
     } catch (error) { fail(res, error); }
+  });
+  // Pruebas A/B de mensajes (4-nov).
+  router.get("/operations/api/mia-experiments", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    if (!experiments) return res.json({ slots: [], items: [] });
+    const all = memories.list?.() || [];
+    res.json({ slots: experiments.slots(), items: experiments.list().reverse().map(item => ({ ...item, results: experiments.results(item.id, all) })) });
+  });
+  router.post("/operations/api/mia-experiments", (req, res) => {
+    if (!teachGuard(req, res) || !experiments) return;
+    try {
+      const item = experiments.create({ slot: req.body?.slot, name: req.body?.name, bText: req.body?.b_text }, who(req.opsUser));
+      audit.record("mia.experiment.start", actorOf(req.opsUser), { id: item.id, slot: item.slot });
+      res.json({ ok: true, item });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-experiments/:id/finish", (req, res) => {
+    if (!teachGuard(req, res) || !experiments) return;
+    try {
+      const item = experiments.finish(req.params.id, req.body?.winner, who(req.opsUser));
+      audit.record("mia.experiment.finish", actorOf(req.opsUser), { id: item.id, slot: item.slot, winner: item.winner });
+      res.json({ ok: true, item });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-experiments/override/:slot/clear", (req, res) => {
+    if (!teachGuard(req, res) || !experiments) return;
+    try {
+      experiments.clearOverride(req.params.slot);
+      audit.record("mia.experiment.revert", actorOf(req.opsUser), { slot: req.params.slot });
+      res.json({ ok: true });
+    } catch (error) { fail(res, error); }
+  });
+  router.get("/operations/api/mia-feedback", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    res.json({ items: replyFeedback?.list({ status: String(req.query.status || "open") }).slice(0, 200) || [], stats: replyFeedback?.stats() || null });
+  });
+  router.post("/operations/api/mia-feedback/:id/convert", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try {
+      const item = replyFeedback.list({ status: "all" }).find(i => i.id === req.params.id);
+      if (!item) throw new Error("No existe esa calificación");
+      const answer = teamAnswers.create({ topic: req.body?.topic, answer: req.body?.answer, phrases: req.body?.phrases, source: "learned", learned_from: { conversation_id: item.conversation_id, message_id: item.message_id, by: item.by, kind: "correction" } }, who(req.opsUser));
+      replyFeedback.resolve(item.id, "converted", who(req.opsUser), answer.id);
+      audit.record("mia.answer.learned", actorOf(req.opsUser), { id: answer.id, topic: answer.topic, conversation_id: item.conversation_id, from: "correction" });
+      res.json({ ok: true, item: answer });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-feedback/:id/archive", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try { replyFeedback.resolve(req.params.id, "archived", who(req.opsUser)); res.json({ ok: true }); } catch (error) { fail(res, error); }
   });
   router.get("/operations/api/mia-learning", (req, res) => {
     if (!teachGuard(req, res)) return;

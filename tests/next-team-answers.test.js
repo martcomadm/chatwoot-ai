@@ -71,3 +71,26 @@ test("bandeja: revisa chats que pasaron a una persona, no repite, y se resuelve"
   assert.equal(inbox.list().length, 0);
   assert.equal(inbox.list({ status: "all" })[0].team_answer_id, "abc");
 });
+
+// Punto 3 (4-nov): 👍 / 👎 con corrección; las correcciones son ejemplos para la IA.
+import { ReplyFeedbackStore } from "../src/knowledge/reply-feedback.js";
+test("calificaciones: 👎 exige corrección, se puede cambiar, entra como ejemplo y se archiva", () => {
+  const fb = new ReplyFeedbackStore(tmp("f.json"));
+  assert.throws(() => fb.rate({ conversationId: 5, messageId: "9", rating: "down", correction: "no" }), /debió contestar/);
+  fb.rate({ conversationId: 5, messageId: "8", rating: "up", miaText: "El Plan 1 cuesta $1,100", user: { name: "Carla", username: "carla" } });
+  const down = fb.rate({ conversationId: 5, messageId: "9", rating: "down", correction: "Sí, también puedes registrar a tu mamá como beneficiaria si depende de ti.", miaText: "¿Me compartes tu nombre?", customerText: "¿Puedo meter a mi mamá?", user: { name: "Carla", username: "carla" } });
+  assert.equal(down.status, "open");
+  assert.deepEqual(Object.keys(fb.forConversation(5)).sort(), ["8", "9"]);
+  assert.deepEqual(fb.stats(), { up: 1, down: 1, total: 2, approval: 50, open: 1 });
+  const block = fb.promptBlock();
+  assert.match(block, /Cliente: ¿Puedo meter a mi mamá\?\n  Mia dijo: ¿Me compartes tu nombre\?\n  Debió decir: Sí, también puedes registrar a tu mamá/);
+  const ai = new AiServices(null, {});
+  ai.replyFeedback = fb;
+  assert.match(ai.knowledge(), /CORRECCIONES DEL EQUIPO/);
+  fb.rate({ conversationId: 5, messageId: "9", rating: "up", user: { name: "Sofi" } });
+  assert.equal(fb.list().length, 0, "cambiar a 👍 quita la corrección");
+  assert.equal(fb.promptBlock(), "");
+  fb.rate({ conversationId: 6, messageId: "1", rating: "down", correction: "Respuesta correcta para el cliente de ejemplo." });
+  fb.resolve("6:1", "archived", "Sofi");
+  assert.equal(fb.promptBlock(), "", "archivada ya no es ejemplo");
+});

@@ -21,6 +21,8 @@ import { OpsNotifier } from "./operations/notifications/ops-notifier.js";
 import { ColdLeadAlerts } from "./operations/cold-lead-alerts.js";
 import { TeamAnswerStore } from "./knowledge/team-answers.js";
 import { LearningInbox } from "./knowledge/learning-inbox.js";
+import { ReplyFeedbackStore } from "./knowledge/reply-feedback.js";
+import { ExperimentStore } from "./knowledge/experiments.js";
 import { CaseStore } from "./operations/customer-service/case-store.js";
 import { CustomerService } from "./operations/customer-service/customer-service.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
@@ -98,6 +100,9 @@ try {
   // Respuestas de Mia editables por el equipo (Operations → Respuestas de Mia).
   const teamAnswers = new TeamAnswerStore(path.join(config.storage.dataDir, "mia-team-answers.json"));
   ai.teamAnswers = teamAnswers;
+  const replyFeedback = new ReplyFeedbackStore(path.join(config.storage.dataDir, "mia-reply-feedback.json"));
+  ai.replyFeedback = replyFeedback;
+  const experiments = new ExperimentStore(path.join(config.storage.dataDir, "mia-experiments.json"));
   const turnLock = new TurnLock(path.join(config.storage.dataDir, "turn-locks"));
   turnLock.prune();
   setInterval(() => turnLock.prune(), 6 * 60 * 60 * 1000).unref();
@@ -111,7 +116,8 @@ try {
     sentTexts: new Set([outOfScheduleMessage(parseSchedule(config.ai.schedule))]),
     selfSenders, templates,
   }) : null;
-  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps, selfSenders, templates, teamAnswers });
+  if (followUps) followUps.experiments = experiments;
+  const processor = new ConversationProcessor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter, workflow, turnLock, isMiaPaused: () => opsSettings.miaPaused(), afterHours, followUps, selfSenders, templates, teamAnswers, experiments });
   const buffer = new MessageBuffer(config.ai.bufferMs, (id, snapshot) => processor.process(id, snapshot), {
     onError: (id, error, snapshot) => inspectorEvents.record(id, "processing_error", { error: String(error?.message || error).slice(0, 500), message_ids: (snapshot?.ids || []).map(String) }),
   });
@@ -208,7 +214,7 @@ try {
   // Preguntas que Mia no supo: lo que contestó una persona en chats que pasaron al equipo.
   const learningInbox = new LearningInbox({ file: path.join(config.storage.dataDir, "mia-learning.json"), memories, chatwoot, selfSenders });
   learningInbox.start();
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox, replyFeedback, experiments }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot, miaConsole }));
 
   app.listen(config.port, "0.0.0.0", () => {

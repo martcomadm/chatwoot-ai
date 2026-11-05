@@ -15,6 +15,7 @@ import { MiaConsole } from "../src/inspector/mia-console.js";
 
 import { TeamAnswerStore } from "../src/knowledge/team-answers.js";
 import { LearningInbox } from "../src/knowledge/learning-inbox.js";
+import { ReplyFeedbackStore } from "../src/knowledge/reply-feedback.js";
 
 // Respuestas de Mia (4-nov): solo Supervisión y Admin; convertir una pregunta que Mia no supo.
 test("Respuestas de Mia: permisos, alta/edición/borrado y convertir lo que contestó una persona", async t => {
@@ -28,13 +29,16 @@ test("Respuestas de Mia: permisos, alta/edición/borrado y convertir lo que cont
   const chatwoot = { async getAllMessages() { return { payload: [
     { id: 1, message_type: 0, content: "¿Tienen oficina en Guadalajara para ir?", created_at: 1 },
     { id: 2, message_type: 1, content: "Todo el trámite es en línea por WhatsApp, no necesitas ir a ninguna oficina.", sender: { id: 62, type: "user", name: "Erika" }, created_at: 2 },
+    { id: 3, message_type: 0, content: "¿Puedo meter a mi mamá?", created_at: 3 },
+    { id: 4, message_type: 1, content: "¿Me compartes tu nombre completo?", sender: { id: 53, type: "user" }, created_at: 4 },
   ] }; } };
+  const replyFeedback = new ReplyFeedbackStore(path.join(dir, "fb.json"));
   const teamAnswers = new TeamAnswerStore(path.join(dir, "ta.json"));
   const learningInbox = new LearningInbox({ file: path.join(dir, "li.json"), memories, chatwoot });
   const audit = new OpsAuditStore(path.join(dir, "a.json"));
   const saleStore = new SaleStore(path.join(dir, "s.json"));
   const app = express(); app.use(express.json());
-  app.use(createOperationsRouter({ config: { appEnv: "next", operations: { token: "t" }, chatwoot: { baseUrl: "https://chat.test", accountId: 1, agentId: 53 } }, saleStore, workflow: new SaleWorkflowEngine(saleStore), memories, inspectorEvents: new InspectorEventStore(path.join(dir, "e.json")), buffer: null, users, sessions: new SessionStore(path.join(dir, "se.json")), settings: new OpsSettingsStore(path.join(dir, "st.json"), path.join(dir, "img.bin")), audit, chatwoot, teamAnswers, learningInbox }));
+  app.use(createOperationsRouter({ config: { appEnv: "next", operations: { token: "t" }, chatwoot: { baseUrl: "https://chat.test", accountId: 1, agentId: 53 } }, saleStore, workflow: new SaleWorkflowEngine(saleStore), memories, inspectorEvents: new InspectorEventStore(path.join(dir, "e.json")), buffer: null, users, sessions: new SessionStore(path.join(dir, "se.json")), settings: new OpsSettingsStore(path.join(dir, "st.json"), path.join(dir, "img.bin")), audit, chatwoot, teamAnswers, learningInbox, replyFeedback, miaConsole: null }));
   const server = await new Promise(r => { const s = app.listen(0, "127.0.0.1", () => r(s)); });
   t.after(() => server.close());
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -77,4 +81,22 @@ test("Respuestas de Mia: permisos, alta/edición/borrado y convertir lo que cont
   assert.equal((await sofi("/operations/api/mia-learning")).body.items.length, 0);
   assert.equal((await sofi(`/operations/api/mia-answers/${created.body.item.id}/delete`, {})).status, 200);
   assert.ok(audit.list().some(e => e.type === "mia.answer.learned"));
+
+  // Calificar (4-nov): Captura califica mensajes de Mia; Supervisión convierte la corrección.
+  assert.equal((await carla("/operations/api/mia-chats/7/rate", { message_id: "2", rating: "up" })).status, 400, "un mensaje de una persona no se califica");
+  assert.equal((await carla("/operations/api/mia-chats/7/rate", { message_id: "4", rating: "down", correction: "no" })).status, 400);
+  const rated = await carla("/operations/api/mia-chats/7/rate", { message_id: "4", rating: "down", correction: "Sí, tu mamá puede quedar como beneficiaria conforme a las reglas del IMSS." });
+  assert.equal(rated.status, 200);
+  assert.equal(rated.body.item.customer_text, "¿Puedo meter a mi mamá?");
+  assert.equal(rated.body.item.by, "Carla");
+  const conv7 = await carla("/operations/api/mia-chats/7/conversation");
+  assert.equal(conv7.body.can_rate, true);
+  assert.equal(conv7.body.ratings["4"].rating, "down");
+  const fbList = await sofi("/operations/api/mia-feedback");
+  assert.equal(fbList.body.items.length, 1);
+  assert.equal(fbList.body.stats.down, 1);
+  assert.equal((await carla("/operations/api/mia-feedback")).status, 403);
+  const fbConv = await sofi(`/operations/api/mia-feedback/${encodeURIComponent(fbList.body.items[0].id)}/convert`, { topic: "Beneficiarios: mamá", answer: "Sí, tu mamá puede quedar como beneficiaria conforme a las reglas del IMSS." });
+  assert.equal(fbConv.body.item.learned_from.kind, "correction");
+  assert.equal((await sofi("/operations/api/mia-feedback")).body.items.length, 0);
 });

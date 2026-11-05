@@ -97,6 +97,7 @@ export const EVENT_LABELS = {
   capture_review_handoff: "Pasó a Captura (revisión de semanas)",
   capture_intervention: "Captura intervino el chat",
   need_menu_choice: "Eligió opción del menú",
+  reply_rated: "El equipo calificó una respuesta",
   cold_lead_alert: "Aviso a Captura: interesado sin responder",
   capture_intervention_released: "Captura regresó el chat a Mia",
 };

@@ -447,3 +447,16 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 .answer-card .actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .fixed-rules { display: grid; gap: 8px; padding-left: 18px; }
 .small { font-size: .85em; }
+
+/* Calificar respuestas de Mia (4-nov) */
+.chat-meta .rate { display: inline-flex; gap: 2px; margin-left: 8px; vertical-align: middle; }
+.rate-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 0 6px; font-size: 13px; line-height: 20px; cursor: pointer; opacity: .55; }
+.rate-btn:hover, .rate-btn.on { opacity: 1; }
+.rate-btn.on { border-color: var(--area, var(--line)); box-shadow: 0 0 0 1px var(--area, var(--line)) inset; }
+.chat-fix { margin-top: 6px; padding: 6px 8px; border-left: 3px solid var(--area, var(--line)); background: color-mix(in srgb, var(--area, #888) 8%, transparent); border-radius: 4px; font-size: .92em; overflow-wrap: anywhere; }
+
+/* Pruebas A/B (4-nov) */
+.ab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ab-col { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.ab-col.win { border-color: var(--area, var(--line)); box-shadow: 0 0 0 1px var(--area, var(--line)) inset; }
+@media (max-width: 760px) { .ab-grid { grid-template-columns: 1fr; } }

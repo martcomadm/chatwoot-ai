@@ -267,8 +267,13 @@ export class FollowUpService {
           if (!used.has(candidate)) text = candidate;
         }
         if (!text) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "not_applicable" }); continue; }
+        // Pruebas A/B del menú del segundo seguimiento (4-nov).
+        const original = text;
+        const hit = this.experiments?.apply?.("followup:menu", id, text);
+        if (hit) text = hit.text;
+        const experiments = hit?.experiment ? { ...(memory.experiments || {}), [hit.experiment]: memory.experiments?.[hit.experiment] || { variant: hit.variant, at: now.toISOString(), slot: "followup:menu" } } : memory.experiments;
         await this.chatwoot.sendMessage(id, text);
-        await this.memories.set(id, { ...memory, ultima_respuesta_agente: text, ultima_pregunta: null, followups_sent: [...used, text] });
+        await this.memories.set(id, { ...memory, ...(experiments ? { experiments } : {}), ultima_respuesta_agente: text, ultima_pregunta: null, followups_sent: [...new Set([...used, original, text])] });
         const { conversationId: _omit, ...stored } = entry;
         this.store.set(id, { ...stored, sent: Number(entry.sent || 0) + 1, last_sent_at: now.toISOString(), texts: [...(entry.texts || []), text.replace(/\s+/g, " ").trim()] });
         await this.record(id, "followup_sent", { step: Number(entry.sent || 0) + 1, text });

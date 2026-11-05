@@ -31,8 +31,9 @@ export class AiServices {
       this._knowledge = knowledgeWithSchedule(text);
     }
     // Respuestas aprobadas por el equipo desde Operations (se leen en cada turno: sin redespliegue).
-    const team = this.teamAnswers?.promptBlock?.() || "";
-    return team ? `${this._knowledge}\n\n${team}` : this._knowledge;
+    // Correcciones del equipo (👎 en Chats de Mia) como ejemplos.
+    const extra = [this.teamAnswers?.promptBlock?.(), this.replyFeedback?.promptBlock?.()].filter(Boolean).join("\n\n");
+    return extra ? `${this._knowledge}\n\n${extra}` : this._knowledge;
   }
 
   // Nota de voz → texto (OpenAI). Ver src/ai/audio.js.

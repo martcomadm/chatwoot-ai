@@ -839,9 +839,16 @@ async function loadChat(url, ownerId) {
         ? `<a href="${esc(a.url)}" target="_blank" rel="noopener" class="chat-img"><img src="${esc(a.thumb || a.url)}" alt="Imagen enviada" loading="lazy"></a>`
         : /audio/.test(a.type) ? `<audio controls preload="none" src="${esc(a.url)}"></audio>`
         : `<a href="${esc(a.url)}" target="_blank" rel="noopener">📎 ${esc(a.name || "Archivo")}</a>`).join("");
-      return `<div class="chat-msg ${m.who}"><div class="chat-meta">${esc(m.who === "nota" ? "Nota interna" : m.name)} · ${esc(dateTime(m.at))}</div>${m.text ? `<div class="chat-text">${esc(m.text)}</div>` : ""}${files ? `<div class="chat-files">${files}</div>` : ""}</div>`;
+      // Calificar respuestas de Mia (4-nov): solo en Chats de Mia y para quien puede intervenir.
+      const r = result.ratings?.[m.id];
+      const rate = result.can_rate && m.who === "mia" ? `<span class="rate" role="group" aria-label="Calificar respuesta">
+          <button class="rate-btn ${r?.rating === "up" ? "on" : ""}" data-rate="up" data-msg-id="${esc(m.id)}" title="Buena respuesta" aria-pressed="${r?.rating === "up"}">👍</button>
+          <button class="rate-btn ${r?.rating === "down" ? "on" : ""}" data-rate="down" data-msg-id="${esc(m.id)}" title="Así no: corregir" aria-pressed="${r?.rating === "down"}">👎</button>
+        </span>` : "";
+      const fix = r?.rating === "down" && r.correction ? `<div class="chat-fix"><span class="muted small">Debió decir (${esc(r.by || "equipo")}):</span> ${esc(r.correction)}</div>` : "";
+      return `<div class="chat-msg ${m.who}"><div class="chat-meta">${esc(m.who === "nota" ? "Nota interna" : m.name)} · ${esc(dateTime(m.at))}${rate}</div>${m.text ? `<div class="chat-text">${esc(m.text)}</div>` : ""}${files ? `<div class="chat-files">${files}</div>` : ""}${fix}</div>`;
     }).join("");
-    box.scrollTop = box.scrollHeight;
+    if (state.keepChatScroll != null) { box.scrollTop = state.keepChatScroll; state.keepChatScroll = null; } else box.scrollTop = box.scrollHeight;
   } catch (error) {
     if (error.message !== "Sesión terminada") box.innerHTML = `<p class="muted">No se pudo cargar la conversación: ${esc(error.message)}</p>`;
   }
@@ -1509,13 +1516,16 @@ async function renderMiaAnswers(view) {
   state.answersTab = state.answersTab || "team";
   let answers, learning;
   try {
-    [answers, learning] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null)]);
+    [answers, learning, state.miaFeedback] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null), state.answersTab === "rated" ? api("/operations/api/mia-feedback") : Promise.resolve(null)]);
+    state.miaExperiments = state.answersTab === "ab" ? await api("/operations/api/mia-experiments") : null;
   } catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudo cargar</strong>${esc(error.message)}</div>`; return; }
   state.miaAnswers = answers.items || [];
   state.miaLearning = learning?.items || [];
   const tabs = `<div class="segmented" role="group">
       <button data-answers-tab="team" aria-pressed="${state.answersTab === "team"}">Respuestas del equipo (${state.miaAnswers.length})</button>
       <button data-answers-tab="learn" aria-pressed="${state.answersTab === "learn"}">Preguntas que Mia no supo (${answers.open_learning || 0})</button>
+      <button data-answers-tab="rated" aria-pressed="${state.answersTab === "rated"}">Correcciones 👎 (${answers.open_feedback || 0})</button>
+      <button data-answers-tab="ab" aria-pressed="${state.answersTab === "ab"}">Pruebas A/B</button>
       <button data-answers-tab="fixed" aria-pressed="${state.answersTab === "fixed"}">Reglas fijas</button>
     </div>`;
   let body = "";
@@ -1535,6 +1545,38 @@ async function renderMiaAnswers(view) {
         <p class="learn-a"><span class="muted small">Contestó ${esc(i.by || "el equipo")}</span><br>${esc(i.answer)}</p>
         <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="convert" data-learn-id="${esc(i.id)}">Convertir en respuesta de Mia</button><button class="btn small quiet" data-answer-act="dismiss" data-learn-id="${esc(i.id)}">Descartar</button></span></footer>
       </article>`).join("")}</div>` : `<div class="empty"><strong>Sin preguntas pendientes</strong>Cuando una persona del equipo conteste en un chat que pasó con ella, aparecerá aquí.</div>`);
+  } else if (state.answersTab === "ab") {
+    const ex = state.miaExperiments || { slots: [], items: [] };
+    const cell = r => `${r.sent} enviados · <strong>${r.replied_pct ?? "—"}%</strong> contestaron · <strong>${r.accepted_pct ?? "—"}%</strong> aceptaron · ${r.docs} con documentos`;
+    body = `<p class="muted">Los chats se reparten mitad y mitad entre el texto actual (A) y tu versión (B). Espera al menos 30 chats por versión antes de elegir ganadora; si gana B, queda como texto permanente.</p>
+      <div class="toolbar"><button class="btn primary" data-answer-act="ab-new">+ Nueva prueba</button></div>
+      ${ex.slots.filter(sl => sl.override).map(sl => `<div class="notice">“${esc(sl.label)}” usa un texto ganador de una prueba. <button class="btn small quiet" data-answer-act="ab-revert" data-slot="${esc(sl.key)}">Volver al original</button></div>`).join("")}
+      ${ex.items.length ? `<div class="answer-list">${ex.items.map(i => {
+        const r = i.results || {};
+        const label = (ex.slots.find(sl => sl.key === i.slot) || {}).label || i.slot;
+        return `<article class="answer-card">
+          <header><strong>${esc(i.name || label)}</strong><span class="mia-flags">${i.status === "active" ? '<span class="tag ok">En curso</span>' : `<span class="tag">Terminada · ganó ${esc(i.winner)}</span>`}</span></header>
+          <p class="muted small">${esc(label)} · desde ${esc(dateTime(i.started_at))}${i.started_by ? ` · ${esc(i.started_by)}` : ""}</p>
+          <div class="ab-grid">
+            <div class="ab-col ${i.winner === "A" ? "win" : ""}"><span class="muted small">A · texto actual</span><p>${esc(i.a_text)}</p><p class="small">${r.A ? cell(r.A) : ""}</p></div>
+            <div class="ab-col ${i.winner === "B" ? "win" : ""}"><span class="muted small">B · nueva versión</span><p>${esc(i.b_text)}</p><p class="small">${r.B ? cell(r.B) : ""}</p></div>
+          </div>
+          ${i.status === "active" ? `<footer><small class="muted">${r.enough ? "Ya hay datos suficientes para decidir." : "Aún hay pocos datos: espera a 30 chats por versión."}</small><span class="actions"><button class="btn small" data-answer-act="ab-finish" data-exp-id="${i.id}" data-winner="A">Terminar: gana A</button><button class="btn small primary" data-answer-act="ab-finish" data-exp-id="${i.id}" data-winner="B">Terminar: gana B</button></span></footer>` : ""}
+        </article>`;
+      }).join("")}</div>` : `<div class="empty"><strong>Sin pruebas todavía</strong>Crea una para comparar dos versiones de un mensaje.</div>`}`;
+  } else if (state.answersTab === "rated") {
+    const fb = state.miaFeedback || {};
+    const st = fb.stats || {};
+    const items = fb.items || [];
+    body = `<p class="muted">Últimos 30 días: 👍 ${st.up || 0} · 👎 ${st.down || 0}${st.approval != null ? ` · <strong>${st.approval}% de aprobación</strong>` : ""}. Las correcciones ya funcionan como ejemplos para Mia; conviértelas en respuesta del equipo si deben contestarse siempre igual.</p>` + (items.length ? `<div class="answer-list">${items.map(i => `
+      <article class="answer-card">
+        <header><strong>Conversación #${i.conversation_id}</strong><small class="muted">${esc(i.by || "")} · ${esc(dateTime(i.at))}</small></header>
+        ${i.customer_text ? `<p class="learn-q"><span class="muted small">Cliente</span><br>${esc(i.customer_text)}</p>` : ""}
+        <p><span class="muted small">Mia dijo</span><br>${esc(i.mia_text)}</p>
+        <p class="learn-a"><span class="muted small">Debió decir</span><br>${esc(i.correction)}</p>
+        ${i.note ? `<p class="muted small">Nota: ${esc(i.note)}</p>` : ""}
+        <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="fb-convert" data-fb-id="${esc(i.id)}">Convertir en respuesta del equipo</button><button class="btn small quiet" data-answer-act="fb-archive" data-fb-id="${esc(i.id)}">Archivar</button></span></footer>
+      </article>`).join("")}</div>` : `<div class="empty"><strong>Sin correcciones pendientes</strong>En "Chats de Mia", abre un chat y usa 👍 / 👎 en los mensajes de Mia.</div>`);
   } else {
     body = `<p class="muted">Estas reglas ya vienen en Mia (confirmadas con ustedes). Para cambiar una, agrega una respuesta del equipo sobre el mismo tema: la del equipo manda.</p><ul class="fixed-rules">${(answers.fixed || []).map(r => `<li>${esc(r)}</li>`).join("")}</ul>`;
   }
@@ -1566,9 +1608,55 @@ async function miaAnswerAction(target) {
     const data = item && await ask({ title: "Convertir en respuesta de Mia", text: "Revisa y ajusta el texto: quita nombres, montos o datos que solo aplicaban a ese cliente.", fields: answerFields({ topic: item.question.split("\n")[0].slice(0, 200), answer: item.answer }), confirm: "Guardar respuesta", area: "respuestas" });
     if (data && await run(() => api(`/operations/api/mia-learning/${encodeURIComponent(item.id)}/convert`, { method: "POST", body: answerBody(data) }), "Listo: Mia ya sabe contestar esto")) renderView();
   }
+  if (act === "fb-convert") {
+    const item = (state.miaFeedback?.items || []).find(i => i.id === target.dataset.fbId);
+    const data = item && await ask({ title: "Convertir corrección en respuesta del equipo", text: "Ajusta el texto para que sirva a cualquier cliente.", fields: answerFields({ topic: (item.customer_text || "").split("\n").pop().slice(0, 200), answer: item.correction }), confirm: "Guardar respuesta", area: "respuestas" });
+    if (data && await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(item.id)}/convert`, { method: "POST", body: answerBody(data) }), "Listo: Mia ya sabe contestar esto")) renderView();
+  }
+  if (act === "fb-archive") {
+    if (await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(target.dataset.fbId)}/archive`, { method: "POST", body: {} }), "Archivada: ya no se usa como ejemplo")) renderView();
+  }
+  if (act === "ab-new") {
+    const slots = (state.miaExperiments?.slots || []).filter(sl => !sl.active);
+    if (!slots.length) return toast("Todos los mensajes ya tienen una prueba en curso");
+    const pick = await ask({ title: "Nueva prueba A/B", text: "Elige el mensaje que quieres probar.", fields: [{ name: "slot", label: "Mensaje", type: "select", value: slots[0].key, options: slots.map(sl => [sl.key, sl.label]) }], confirm: "Siguiente", area: "respuestas" });
+    if (!pick) return;
+    const slot = slots.find(sl => sl.key === pick.slot);
+    const data = await ask({ title: slot.label, text: `<span class="muted small">A · texto actual</span><br>${esc(slot.current_text)}${slot.required.length ? `<br><br><span class="muted small">La versión B debe incluir: ${slot.required.map(r => `“${esc(r)}”`).join(", ")}${pick.slot === "followup:menu" ? ". Las opciones 1, 2 y 3 deben significar lo mismo: servicio médico, semanas para pensión, y además AFORE e INFONAVIT" : ""}.</span>` : ""}`, fields: [
+      { name: "name", label: "Nombre de la prueba (opcional)", placeholder: "Ej. Apertura más corta" },
+      { name: "b_text", label: "Versión B", type: "textarea", required: true, value: slot.current_text },
+    ], confirm: "Iniciar prueba", area: "respuestas" });
+    if (data && await run(() => api("/operations/api/mia-experiments", { method: "POST", body: { slot: pick.slot, name: data.name, b_text: data.b_text } }), "Prueba iniciada: los chats nuevos se reparten A/B")) renderView();
+  }
+  if (act === "ab-finish") {
+    const winner = target.dataset.winner;
+    const ok = await ask({ title: `Terminar prueba: gana ${winner}`, text: winner === "B" ? "La versión B quedará como texto permanente de ese mensaje." : "Se queda el texto actual.", confirm: "Terminar" });
+    if (ok && await run(() => api(`/operations/api/mia-experiments/${target.dataset.expId}/finish`, { method: "POST", body: { winner } }), "Prueba terminada")) renderView();
+  }
+  if (act === "ab-revert") {
+    if (await run(() => api(`/operations/api/mia-experiments/override/${encodeURIComponent(target.dataset.slot)}/clear`, { method: "POST", body: {} }), "Se volvió al texto original")) renderView();
+  }
   if (act === "dismiss") {
     if (await run(() => api(`/operations/api/mia-learning/${encodeURIComponent(target.dataset.learnId)}/dismiss`, { method: "POST", body: {} }), "Descartada")) renderView();
   }
+}
+
+async function rateMiaReply(target) {
+  const id = state.miaChatId;
+  if (!id) return;
+  const rating = target.dataset.rate;
+  const msgText = target.closest(".chat-msg")?.querySelector(".chat-text")?.textContent || "";
+  let body = { message_id: target.dataset.msgId, rating };
+  if (rating === "down") {
+    const data = await ask({ title: "¿Cómo debió contestar Mia?", text: `<span class="muted small">Mia dijo:</span><br>${esc(msgText.slice(0, 400))}`, fields: [
+      { name: "correction", label: "Así debió contestar", type: "textarea", required: true, placeholder: "Escribe la respuesta correcta, como la diría Mia" },
+      { name: "note", label: "Nota para Supervisión (opcional)", placeholder: "Ej. el cliente ya había dicho que tiene IMSS" },
+    ], confirm: "Guardar corrección", area: "chats" });
+    if (!data) return;
+    body = { ...body, correction: data.correction, note: data.note };
+  }
+  const done = await run(() => api(`/operations/api/mia-chats/${id}/rate`, { method: "POST", body }), rating === "up" ? "👍 Gracias" : "Corrección guardada: Mia la toma como ejemplo");
+  if (done) { state.keepChatScroll = document.getElementById("sale-chat")?.scrollTop ?? null; loadChat(`/operations/api/mia-chats/${id}/conversation`, id); }
 }
 
 const refreshCasesSoon = debounce(async caseId => {
@@ -1813,7 +1901,7 @@ function handleNotify(n) {
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
-  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-page], [data-answer-act], [data-answers-tab]");
+  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-page], [data-answer-act], [data-answers-tab], [data-rate]");
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.act === "logout") return logout();
@@ -1825,6 +1913,7 @@ document.addEventListener("click", async event => {
   if (target.dataset.act === "close-case") return closeCasePanel();
   if (target.dataset.act === "reload-chat" && state.miaChatId) return loadChat(`/operations/api/mia-chats/${state.miaChatId}/conversation`, state.miaChatId);
   if (target.dataset.act === "reload-chat") return state.caseId ? loadChat(`/operations/api/cases/${encodeURIComponent(state.caseId)}/conversation`, state.caseId) : state.saleId && loadSaleChat(state.saleId);
+  if (target.dataset.rate) { target.disabled = true; try { await rateMiaReply(target); } finally { target.disabled = false; } return; }
   if (target.dataset.answersTab) { state.answersTab = target.dataset.answersTab; return renderView(); }
   if (target.dataset.answerAct) { target.disabled = true; try { await miaAnswerAction(target); } finally { target.disabled = false; } return; }
   if (target.dataset.miaChat) return openMiaChat(target.dataset.miaChat);

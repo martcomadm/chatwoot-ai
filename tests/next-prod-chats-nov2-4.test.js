@@ -29,6 +29,7 @@ function conversation() {
     const before = state.sent.length;
     const p = new ConversationProcessor({
       teamAnswers: state.teamAnswers || null,
+      experiments: state.experiments || null,
       config: { chatwoot: { inboxId: 7, agentId: 53 }, ai: { validationLabel: "validacion", publicName: "Mia de MARTCOM", maxReplyChars: 850 }, operations: {} },
       chatwoot: { async getConversation() { return { id: 5, inbox_id: 7, meta: { assignee: { id: 53 }, sender: { id: 1 } }, labels: [], messages: [m] }; }, async sendMessage(_i, t, priv) { if (!priv) state.sent.push(t); }, async getMessages() { return { payload: [] }; } },
       labels: { async mergeSafe() { return []; } },
@@ -245,4 +246,20 @@ test("respuesta del equipo con frase: Mia contesta el texto exacto, sin IA; sin 
   c.state.ai.length = 0;
   assert.equal(await c.say("¿Se puede pagar con tarjeta?"), "Por ahora el pago es por transferencia, depósito u OXXO; no aceptamos tarjeta. ¿Quieres que iniciemos tu trámite?");
   assert.equal(c.state.ai.length, 0, "no pasó por la IA");
+});
+
+// Pruebas A/B (4-nov): la apertura del anuncio se reparte A/B y se registra si el cliente contestó.
+import { ExperimentStore, variantFor } from "../src/knowledge/experiments.js";
+test("prueba A/B en la apertura de 'revisar mi caso': manda su versión, registra la respuesta y el diagnóstico sigue funcionando", async () => {
+  const c = conversation();
+  c.state.experiments = new ExperimentStore(null);
+  const B = "¡Claro! Revisemos tu caso: ¿en qué año empezaste a cotizar y hace cuánto lo dejaste?";
+  const exp = c.state.experiments.create({ slot: "ad_opening:case_review", bText: B });
+  const variant = variantFor(exp.id, 5);
+  const first = await c.say("Información y revisar mi caso con mi NSS");
+  assert.ok(first.endsWith(variant === "B" ? B : "en qué año empezaste a cotizar?"), first);
+  assert.equal(c.state.memory.experiments[exp.id].variant, variant);
+  assert.equal(c.state.memory.experiments[exp.id].replied_at, undefined);
+  assert.match(await c.say("Empecé en 1988 y dejé de cotizar en 2010"), /Ley 73/);
+  assert.ok(c.state.memory.experiments[exp.id].replied_at, "contestó");
 });

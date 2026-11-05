@@ -156,9 +156,10 @@ export function explainedPlanInReply(reply = "") {
 export const CAPTURE_REVIEW_TEXT = "Con gusto. Para revisar cuántas semanas tienes cotizadas te comunico con nuestro equipo de Captura: ellos sacan tu constancia de semanas con tu CURP o tu NSS. Si los tienes a la mano, compártelos por aquí y en un momento te atienden.";
 
 export class ConversationProcessor {
-  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter = null, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null, teamAnswers = null }) {
+  constructor({ config, chatwoot, labels, memories, agentRotation, ai, inspectorEvents, handoffRouter, humanHandoffRouter = null, workflow, turnLock = null, isMiaPaused = () => false, afterHours = null, followUps = null, selfSenders = null, requeue = null, templates = null, teamAnswers = null, experiments = null }) {
     this.templates = templates;
     this.teamAnswers = teamAnswers;
+    this.experiments = experiments;
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -552,6 +553,9 @@ export class ConversationProcessor {
 
     // ── 4. Análisis determinista del turno ──
     let base = recoverCommercialContext(conversation, this.memories.get(conversationId));
+    // Pruebas A/B: el cliente contestó después de recibir una versión.
+    const pendingExperiments = Object.entries(base.experiments || {}).filter(([, e]) => e && !e.replied_at);
+    if (pendingExperiments.length) base = { ...base, experiments: { ...base.experiments, ...Object.fromEntries(pendingExperiments.map(([id, e]) => [id, { ...e, replied_at: new Date().toISOString() }])) } };
     // Si la memoria aún dice "en trámite" con un expediente cancelado, se atiende como prospecto.
     if (cancelledSale && (base.sales_cycle?.authorized || base.operations?.sale_id)) {
       base = memoryAfterCancellation(base);
@@ -941,6 +945,12 @@ export class ConversationProcessor {
       decision = protectDeterministicDecision({ reply: INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "infonavit_credit");
     }
     const decisionSource = decision?.__source || "unknown";
+    // Pruebas A/B (4-nov): versión A/B del mensaje o texto ganador.
+    const experimentHit = this.experiments?.apply?.(decisionSource, conversationId, decision?.reply);
+    if (experimentHit) {
+      decision = { ...decision, reply: experimentHit.text };
+      if (experimentHit.experiment) memory = { ...memory, experiments: { ...(memory.experiments || {}), [experimentHit.experiment]: memory.experiments?.[experimentHit.experiment] || { variant: experimentHit.variant, at: new Date().toISOString(), slot: decisionSource } } };
+    }
     const decisionState = { payment_extension_request: Boolean(decision?.payment_extension_request), onboarding_declined: Boolean(decision?.onboarding_declined), plan_change_request: decision?.plan_change_request || null, nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
     decision = stripDecisionMetadata(decision || {});
     decision.reply = String(decision.reply || "").trim().slice(0, this.config.ai.maxReplyChars || 850);
