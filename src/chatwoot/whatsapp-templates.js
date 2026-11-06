@@ -9,8 +9,8 @@
 export const TEMPLATE_TEXTS = Object.freeze({
   validity: "¡Buen día!\nAgradecemos su paciencia y confianza.\nLe informo que usted ya cuenta con vigencia de manera exitosa en sistema.\n\nAyúdeme confirmando, para que le pueda hacer llegar su archivo de Vigencia de Derechos.\nPor favor, muchas gracias.",
   referral: "Si algún familiar o conocido necesita afiliación al IMSS, puedes compartirle mi contacto.\nCon gusto lo apoyamos.",
-  // 5-nov: saludodia3 no existe en Twilio; se usa seguimiento3.
-  followUp24h: "Buen día. Te escribo para saber si aún te interesa continuar con tu afiliación al IMSS.\nCon gusto puedo apoyarte a iniciar el proceso hoy mismo.",
+  // 6-nov: seguimiento4 (antes seguimiento3; saludodia3 no existe en Twilio).
+  followUp24h: "¡Buen día!\n\nCon gusto le saludo el día de hoy.\nMe comunico con usted para ponernos al corriente.\n\n¿Ha tenido alguna duda o comentario sobre su servicio?\nLe recuerdo que seguimos a sus órdenes.",
 });
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;

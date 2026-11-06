@@ -18,7 +18,7 @@ import { effectivePlan, discussedPlan } from "../sales/progressive-disclosure.js
 // a los 20 min, 3 h y 20 h). Si el cliente escribe, la serie se cancela y se vuelve a
 // programar con la siguiente respuesta de Mia. Todo ocurre dentro de la ventana de 24 h
 // de WhatsApp (contada desde el último mensaje del cliente). Al cerrarse la ventana sin
-// respuesta, Mia manda una vez la plantilla aprobada de seguimiento (seguimiento3), en
+// respuesta, Mia manda una vez la plantilla aprobada de seguimiento (seguimiento4), en
 // horario de atención, pone la etiqueta "no_contesta" y deja de escribir.
 
 export const DEFAULT_FOLLOW_UP_MINUTES = [20, 180, 1200];

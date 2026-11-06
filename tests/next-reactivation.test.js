@@ -11,15 +11,15 @@ const now = new Date("2026-11-20T18:00:00Z"); // 12:00 en México
 const ago = d => new Date(now.getTime() - d * DAY).toISOString();
 const lead = (extra = {}) => ({ sales_cycle: { pitched_plans: ["plan_1"], recommended_plan: "plan_1", ...(extra.sales_cycle || {}) }, ...extra, ...(extra.sales_cycle ? { sales_cycle: { pitched_plans: ["plan_1"], recommended_plan: "plan_1", ...extra.sales_cycle } } : {}) });
 
-test("pasos: día 2 seguimiento3, día 7 procesoafiliacion1, día 30 saludodia2; nunca más de 3", () => {
+test("pasos: día 2 seguimiento4, día 7 procesoafiliacion1, día 30 saludodia2; nunca más de 3", () => {
   assert.equal(nextReactivation(lead(), { lastCustomerAt: ago(1), now }), null, "antes de 2 días nada");
-  assert.equal(nextReactivation(lead(), { lastCustomerAt: ago(2.1), now }).template, "seguimiento3");
-  const one = { ...lead(), reactivation: { sent: [{ step: 1, template: "seguimiento3", at: ago(5) }] } };
+  assert.equal(nextReactivation(lead(), { lastCustomerAt: ago(2.1), now }).template, "seguimiento4");
+  const one = { ...lead(), reactivation: { sent: [{ step: 1, template: "seguimiento4", at: ago(5) }] } };
   assert.equal(nextReactivation(one, { lastCustomerAt: ago(6), now }), null, "el paso 2 espera al día 7");
   assert.equal(nextReactivation(one, { lastCustomerAt: ago(8), now }).template, "procesoafiliacion1");
-  const oneRecent = { ...lead(), reactivation: { sent: [{ step: 1, template: "seguimiento3", at: ago(1) }] } };
+  const oneRecent = { ...lead(), reactivation: { sent: [{ step: 1, template: "seguimiento4", at: ago(1) }] } };
   assert.equal(nextReactivation(oneRecent, { lastCustomerAt: ago(9), now }), null, "al menos 3 días entre envíos");
-  const two = { ...lead(), reactivation: { sent: [{ template: "seguimiento3", at: ago(28) }, { template: "procesoafiliacion1", at: ago(23) }] } };
+  const two = { ...lead(), reactivation: { sent: [{ template: "seguimiento4", at: ago(28) }, { template: "procesoafiliacion1", at: ago(23) }] } };
   assert.equal(nextReactivation(two, { lastCustomerAt: ago(31), now }).template, "saludodia2");
   const three = { ...lead(), reactivation: { sent: [{}, {}, {}].map((x, i) => ({ template: "t", at: ago(40 - i) })) } };
   assert.equal(nextReactivation(three, { lastCustomerAt: ago(44), now }), null);
@@ -92,9 +92,9 @@ test("servicio: apagado no manda; encendido respeta horario, tope diario y asign
   settings.setReactivation({ enabled: true, daily_cap: 1 }, { username: "sofi" });
   assert.equal((await service.tick(new Date("2026-11-20T03:00:00Z"))).reason, "hours", "de noche no");
   assert.deepEqual(await service.tick(now), { sent: 1 }, "tope 1 al día");
-  assert.deepEqual(sent, [[1, "seguimiento3"]]);
+  assert.deepEqual(sent, [[1, "seguimiento4"]]);
   assert.equal(mem[1].reactivation.awaiting_reply, true);
-  assert.match(mem[1].ultima_respuesta_agente, /aún te interesa continuar/);
+  assert.match(mem[1].ultima_respuesta_agente, /Ha tenido alguna duda o comentario/);
   assert.equal(events.recorded[0].type, "reactivation_sent");
   assert.deepEqual(await service.tick(now), { sent: 0 }, "ya se llegó al tope de hoy");
   settings.setReactivation({ daily_cap: 50 });
@@ -107,10 +107,29 @@ import { WhatsAppTemplates } from "../src/chatwoot/whatsapp-templates.js";
 test("plantilla por nombre: solo aprobadas y sincronizadas en el inbox", async () => {
   const sent = [];
   const t = new WhatsAppTemplates({ inboxId: 7, chatwoot: {
-    async getInbox() { return { content_templates: { templates: [{ friendly_name: "seguimiento3", language: "es_MX", status: "approved", category: "marketing", body: "Buen día…" }, { friendly_name: "planes", status: "pending" }] } }; },
+    async getInbox() { return { content_templates: { templates: [{ friendly_name: "seguimiento4", language: "es_MX", status: "approved", category: "marketing", body: "Buen día…" }, { friendly_name: "planes", status: "pending" }] } }; },
     async sendTemplate(id, p) { sent.push({ id, ...p }); },
   } });
-  assert.deepEqual(await t.sendNamed(5, "seguimiento3"), { sent: true, name: "seguimiento3" });
-  assert.deepEqual(sent[0], { id: 5, content: "Buen día…", name: "seguimiento3", language: "es_MX", category: "marketing" });
+  assert.deepEqual(await t.sendNamed(5, "seguimiento4"), { sent: true, name: "seguimiento4" });
+  assert.deepEqual(sent[0], { id: 5, content: "Buen día…", name: "seguimiento4", language: "es_MX", category: "marketing" });
   assert.equal((await t.sendNamed(5, "planes")).reason, "template_not_synced");
+});
+
+// 6-nov: seguimiento4 reemplaza a seguimiento3 (día 2 y plantilla de 24 h).
+test("seguimiento4: si ya salió como plantilla de 24 h no se repite; 'Sí' es que tiene una duda", () => {
+  const after24h = { ...lead(), reengage_template_at: ago(2) };
+  const next = nextReactivation(after24h, { lastCustomerAt: ago(3), now });
+  assert.equal(next, null, "ya salió seguimiento4: el siguiente es procesoafiliacion1 al día 7");
+  assert.equal(nextReactivation(after24h, { lastCustomerAt: ago(7.2), now })?.template, undefined, "3 días de espera desde la plantilla");
+  const later = { ...lead(), reengage_template_at: ago(5) };
+  assert.equal(nextReactivation(later, { lastCustomerAt: ago(7.2), now })?.template, "procesoafiliacion1");
+  const afterStep2 = { ...later, reactivation: { sent: [{ step: 2, template: "procesoafiliacion1", at: ago(8) }] } };
+  assert.equal(nextReactivation(afterStep2, { lastCustomerAt: ago(31), now })?.template, "saludodia2");
+  // Plantilla de 24 h de antes de que volviera a escribir: no cuenta.
+  assert.equal(nextReactivation({ ...lead(), reengage_template_at: ago(10) }, { lastCustomerAt: ago(2.1), now })?.template, "seguimiento4");
+
+  const m = { sales_cycle: { recommended_plan: "plan_1" }, reactivation: { sent: [{ step: 1, template: "seguimiento4" }], awaiting_reply: true } };
+  const yes = reactivationReplyDecision(m, "Sí");
+  assert.match(yes.reply, /^Con gusto te ayudo, cuéntame cuál es tu duda\. Te recuerdo que el Plan 1 cuesta \$1,100/);
+  assert.doesNotMatch(yes.reply, /¡Qué gusto!/);
 });

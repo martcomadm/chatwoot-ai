@@ -1559,11 +1559,11 @@ async function renderMiaAnswers(view) {
     const r = state.miaReactivation || {};
     const cfg = r.config || {};
     const res = r.results || {};
-    const NAMES = { seguimiento3: "Día 2 · seguimiento3", procesoafiliacion1: "Día 7 · procesoafiliacion1", saludodia2: "Día 30 · saludodia2", recordatorio1: "Documentos · recordatorio1" };
+    const NAMES = { seguimiento4: "Día 2 · seguimiento4", seguimiento3: "Día 2 · seguimiento3", procesoafiliacion1: "Día 7 · procesoafiliacion1", saludodia2: "Día 30 · saludodia2", recordatorio1: "Documentos · recordatorio1" };
     body = r.available === false ? `<div class="empty">Reactivación no disponible.</div>` : `
       <div class="notice ${cfg.enabled ? "" : "warn"}"><strong>${cfg.enabled ? "Encendida" : "Apagada"}</strong> · tope ${cfg.daily_cap} mensajes al día · enviados hoy: ${r.sent_today || 0}${cfg.changed_by ? ` · cambió ${esc(cfg.changed_by.name || cfg.changed_by.username || "")} ${esc(dateTime(cfg.changed_at))}` : ""}
         <div class="actions" style="margin-top:8px"><button class="btn small ${cfg.enabled ? "" : "primary"}" data-answer-act="react-toggle">${cfg.enabled ? "Apagar" : "Encender"}</button><button class="btn small quiet" data-answer-act="react-cap">Cambiar tope diario</button></div></div>
-      <p class="muted">A quien no compró y dejó de escribir: día 2 <strong>seguimiento3</strong>, día 7 <strong>procesoafiliacion1</strong>, día 30 <strong>saludodia2</strong> (o el día que dijo que retomaba, p. ej. "en la quincena"). A quien aceptó y no mandó documentos: <strong>recordatorio1</strong> una vez. Solo de 10:00 a 19:00, nunca a quien no le interesa, se equivocó, pidió no recibir mensajes o está con una persona.</p>
+      <p class="muted">A quien no compró y dejó de escribir: día 2 <strong>seguimiento4</strong>, día 7 <strong>procesoafiliacion1</strong>, día 30 <strong>saludodia2</strong> (o el día que dijo que retomaba, p. ej. "en la quincena"). A quien aceptó y no mandó documentos: <strong>recordatorio1</strong> una vez. Solo de 10:00 a 19:00, nunca a quien no le interesa, se equivocó, pidió no recibir mensajes o está con una persona.</p>
       <div class="react-kpis">
         <div class="react-kpi"><span>Listos para enviar ahora</span><b>${r.pending_now || 0}</b><small>${Object.entries(r.pending_by_template || {}).map(([k, v]) => `${esc(NAMES[k] || k)}: ${v}`).join(" · ") || "—"}</small></div>
         <div class="react-kpi"><span>Clientes contactados</span><b>${res.contacted || 0}</b></div>

@@ -12,11 +12,11 @@ import { ConversationProcessor } from "../src/core/conversation-processor.js";
 import { loadConfig, DEFAULT_HANDOFF_AGENTS } from "../src/config.js";
 import { OperationsConfigStore } from "../src/handoff/operations-config-store.js";
 
-const NAMES = { validity: "vigencia1", referral: "recomendacion2", followUp24h: "seguimiento3" };
+const NAMES = { validity: "vigencia1", referral: "recomendacion2", followUp24h: "seguimiento4" };
 const CATALOG = [
   { friendly_name: "vigencia1", language: "es_MX", status: "approved", category: "utility", body: TEMPLATE_TEXTS.validity, content_sid: "HX66fc" },
   { friendly_name: "recomendacion2", language: "es_MX", status: "approved", category: "marketing", body: TEMPLATE_TEXTS.referral, content_sid: "HXfa7e" },
-  { friendly_name: "seguimiento3", language: "es_MX", status: "approved", category: "marketing", body: TEMPLATE_TEXTS.followUp24h, content_sid: "HXeb436fed1c53dc4469afdbf566fc5c7c" },
+  { friendly_name: "seguimiento4", language: "es_MX", status: "approved", category: "marketing", body: TEMPLATE_TEXTS.followUp24h, content_sid: "HXbb7b78a42d083028366c2f38e75f7dac" },
 ];
 
 function templatesWith(sentTemplates, catalog = CATALOG) {
@@ -36,8 +36,8 @@ test("ventana de 24 h: usa can_reply de Chatwoot y, si no viene, el último mens
 
 test("plantillas: se envían con el nombre e idioma sincronizados en el inbox", async () => {
   const sent = [];
-  assert.deepEqual(await templatesWith(sent).send(10, "followUp24h"), { sent: true, name: "seguimiento3" });
-  assert.deepEqual(sent[0], { id: 10, content: TEMPLATE_TEXTS.followUp24h, name: "seguimiento3", language: "es_MX", category: "marketing" });
+  assert.deepEqual(await templatesWith(sent).send(10, "followUp24h"), { sent: true, name: "seguimiento4" });
+  assert.deepEqual(sent[0], { id: 10, content: TEMPLATE_TEXTS.followUp24h, name: "seguimiento4", language: "es_MX", category: "marketing" });
   const missing = await templatesWith([], CATALOG.slice(1)).send(10, "validity");
   assert.equal(missing.reason, "template_not_synced");
   const off = new WhatsAppTemplates({ chatwoot: {}, inboxId: 7, names: { ...NAMES, referral: "" } });
@@ -93,7 +93,7 @@ function followUpSetup({ isOpen = () => true, memory = {} } = {}) {
   return { service, state };
 }
 
-test("al cerrarse la ventana de 24 h sin respuesta, Mia manda la plantilla 'seguimiento3' una vez y pone 'no_contesta'", async () => {
+test("al cerrarse la ventana de 24 h sin respuesta, Mia manda la plantilla 'seguimiento4' una vez y pone 'no_contesta'", async () => {
   const { service, state } = followUpSetup();
   for (const m of [20, 180, 1200]) await service.tick(at(m));
   assert.equal(state.sent.length, 3);
@@ -102,7 +102,7 @@ test("al cerrarse la ventana de 24 h sin respuesta, Mia manda la plantilla 'segu
   assert.equal(state.templates.length, 0, "no sale pegada al último seguimiento");
   await service.tick(at(32 * 60 + 1));
   assert.equal(state.templates.length, 1);
-  assert.equal(state.templates[0].name, "seguimiento3");
+  assert.equal(state.templates[0].name, "seguimiento4");
   assert.deepEqual(state.labels, ["no_contesta"]);
   await service.tick(at(34 * 60));
   assert.equal(state.templates.length, 1, "no se repite");

@@ -8,7 +8,10 @@
 
 export const TEMPLATE_CATALOG = Object.freeze([
   // ── Reactivar prospectos (Marketing) ──
-  // También es el seguimiento fuera de la ventana de 24 h (5-nov: reemplaza a saludodia3, que no existe).
+  // Seguimiento fuera de la ventana de 24 h y día 2 de reactivación (6-nov: reemplaza a seguimiento3).
+  { name: "seguimiento4", sid: "HXbb7b78a42d083028366c2f38e75f7dac", category: "marketing", use: "reactivation",
+    text: "¡Buen día!\n\nCon gusto le saludo el día de hoy.\nMe comunico con usted para ponernos al corriente.\n\n¿Ha tenido alguna duda o comentario sobre su servicio?\nLe recuerdo que seguimos a sus órdenes." },
+  // Ya no se usa en automático desde el 6-nov (se cambió por seguimiento4).
   { name: "seguimiento3", sid: "HXeb436fed1c53dc4469afdbf566fc5c7c", category: "marketing", use: "reactivation",
     text: "Buen día. Te escribo para saber si aún te interesa continuar con tu afiliación al IMSS.\nCon gusto puedo apoyarte a iniciar el proceso hoy mismo." },
   { name: "saludodia2", sid: "HX2b94ae005ff7368105daeb88c6cd5711", category: "marketing", use: "reactivation",
