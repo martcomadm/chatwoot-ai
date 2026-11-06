@@ -96,7 +96,7 @@ export function effectivePlan(memory = {}) {
 function affirmativeFollowUp(text = "") {
   // "Si.", "Porfavor.", "Porfavor explíqueme…!!" también son un sí (casos reales del 15-oct).
   // "Aver expliqueme", "a ver, explíqueme", "Espliqueme" (casos reales 19 y 20-oct).
-  const value = norm(text).replace(/^(?:a ver|aver|haber|aber)\b[ ,.]*/, "").replace(/\besplique/g, "explique").replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
+  const value = norm(text).replace(/^(?:a ver|aver|haber|aber)\b[ ,.]*/, "").replace(/\besplique/g, "explique").replace(/\bpor\s*f[sa]v[oa]r\b|\bporf[sa]vor\b|\bporfa\s*vor\b|\bporfabor\b|\bx\s*fa(?:vor)?\b|\bxfavor\b/g, "por favor").replace(/\bporfa(?:vor)?\b/g, "por favor").replace(/\bexpl[ií]que(?:me|nos)|expl[ií]quen(?:me|nos)\b/g, "explicame").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
   return /^(?:(?:si+|sip|claro|por favor|va|vale|adelante|ok|okay|okey|perfecto|de acuerdo|esta bien|bueno|me parece bien|me parece|muy bien|y gracias|gracias)\s*)+(?:(?:explicame|cuentame|dime|por favor|y gracias|gracias)\s*)*$/.test(value) && !/^(?:y gracias|gracias)/.test(value)
     || /^(?:explicame|cuentame)(?: por favor)?$/.test(value)
     || /\b(?:si|por favor)\s+(?:explicame|cuentame|dime)\b/.test(value);

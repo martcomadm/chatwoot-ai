@@ -11,7 +11,7 @@ function norm(value) {
 }
 
 const MONTHS = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre";
-const DAYS = "lunes|martes|miercoles|jueves|viernes|sabado|domingo";
+const DAYS = "lunes|martes|miercoles|jueves|viernes|sabado|domingo|sbdo|sab";
 
 const INTENT_RE = new RegExp([
   "\\bm(?:e|ie|i me) gustaria (?:que )?(?:se )?(?:realiz|inici|hici|hag|empez|comenz|dier|tramit|diera|quede|quedara|arranc)\\w*",
@@ -21,6 +21,8 @@ const INTENT_RE = new RegExp([
   "\\b(?:lo|la) (?:iniciamos|empezamos|comenzamos|hacemos|tramitamos|arrancamos)\\b",
   "\\b(?:podemos|podriamos|puedo|podria) (?:iniciar|empezar|comenzar|arrancar|darme de alta|hacer el tramite)\\b",
   "\\bsi me interesa\\b|\\bme interesa (?:mucho|bastante)\\b",
+  // "Si me gustaría pero a mí me pagan hasta el sbdo" (caso real 5-nov).
+  "^(?:si|claro|pues si)\\s+me gustaria\\b",
 ].join("|"));
 
 // Cuándo. Devuelve el texto tal como lo dijo, para repetírselo.
@@ -41,7 +43,7 @@ const WHEN_RE = new RegExp([
 // "en la quincena"), eso basta.
 export const SCHEDULE_OFFER_MARK = "¿Para qué fecha te acomoda?";
 
-const ACCENTS = [[/\bdias\b/g, "días"], [/\bdia\b/g, "día"], [/\bproxima\b/g, "próxima"], [/\bproximo\b/g, "próximo"], [/\bmiercoles\b/g, "miércoles"], [/\bsabado\b/g, "sábado"]];
+const ACCENTS = [[/\bdias\b/g, "días"], [/\bdia\b/g, "día"], [/\bproxima\b/g, "próxima"], [/\bproximo\b/g, "próximo"], [/\bmiercoles\b/g, "miércoles"], [/\bsabado\b|\bsbdo\b|\bsab\b/g, "sábado"]];
 
 export function detectScheduledStart(text = "", { offered = false } = {}) {
   const value = norm(text).replace(/[,;:!¡¿?]+/g, " ").replace(/\.{1,}/g, " ").replace(/\s+/g, " ").trim();

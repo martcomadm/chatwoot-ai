@@ -15,6 +15,8 @@ const NO_MONEY_RE = [
   /\b(?:ahorita|por el momento|por ahora|de momento|en este momento)\b.{0,40}\bno (?:puedo pagar|tengo (?:dinero|para)|cuento con|cuanto con|me alcanza)\b/,
   /\bestoy (?:corta|corto|sin dinero|sin lana)\b/,
   // "Dame oportunidad de organizar mis gastos", "no tengo ingresos" (casos reales 3 y 5-nov).
+  // "Déjeme que lo hable con mi hijo porque él me va a apoyar con lo económico", "checo lo económico" (6-nov).
+  /\blo economico\b|\b(?:me|nos) (?:va|van) a apoyar con (?:el pago|los pagos|el dinero)\b/,
   /\b(?:organizar|acomodar|ajustar|ordenar|nivelar)(?:me)?\s+(?:con\s+)?(?:mis|los|mi)\s+(?:gastos?|finanzas|cuentas|pagos|quincena)\b|\bno (?:tengo|cuento con) (?:ingresos|trabajo ni dinero|entradas)\b/,
   // "No conseguí el dinero para depositarlo" (caso real 19-oct, con faltas).
   /\bno\s*(?:consegui|consigi|consigui|junte|pude juntar|pude conseguir|alcance)\b.{0,25}\b(?:dinero|lana|pago|deposit\w*|pagar)\b/,
@@ -49,6 +51,8 @@ const LATER_RE = [
   // "Mañana ok necesito checar mi número de IMSS", "Voy a buscar los papeles" (casos reales 20 y 21-oct).
   /^(?:ok\s+|bueno\s+|si\s+)?manana\b|\b(?:necesito|tengo que|voy a|deja|dejame|dejeme)\s+(?:checar|buscar|revisar|ver|conseguir|sacar|localizar)\s+(?:mi|mis|el|la|los|las)\s+(?:numero|nss|curp|ine|papeles|documentos|datos|credencial)\b/,
   /\b(?:podemos|puedo|quiero)\s+(?:iniciar|empezar|comenzar)\b.{0,25}\b(?:el lunes|el martes|el miercoles|el jueves|el viernes|el sabado|el domingo|manana|la otra semana|la proxima semana|despues|luego|mas tarde)\b|\b(?:llegando|cuando llegue|al llegar)\b.{0,25}\b(?:los|las|lo|la)\s+(?:busco|mando|envio|paso|checo)\b|\b(?:te|se|le)\s+(?:lo|la|los|las)\s+(?:mando|envio|paso)\s+(?:en un rato|al rato|mas tarde|manana|en (?:una|dos|tres|unas) horas?)\b|\ben (?:una|dos|tres|unas|un par de) horas?\b.{0,20}\b(?:te|se|le)\s+(?:lo|la|los|las)\s+(?:mando|envio|paso)\b/,
+  // "Estoy checando los documentos y le reporto", "deje y checo papeles" (caso real 6-nov: recibió el plan otra vez).
+  /\b(?:estoy|ando|estamos)\s+(?:checando|buscando|juntando|revisando|reuniendo|sacando)\s+(?:los\s+|mis\s+|las\s+)?(?:documentos|papeles|datos|requisitos)\b|\b(?:checo|busco|junto|reviso|saco)\s+(?:los\s+|mis\s+)?(?:papeles|documentos)\b/,
   // "En otro momento, gracias" (caso real 27-oct: quedó sin respuesta).
   /\ben otro momento\b/,
   /\bestoy en espera de\b|\btodavia no (?:lo )?(?:decido|se|tengo)\b|\bno gracias,? (?:despues|luego|mas adelante)\b/,
@@ -78,7 +82,9 @@ function asksSomething(text) {
 // "no_money" | "later" | null
 export function detectDeferral(text) {
   const value = norm(text).replace(/[,;:!]+/g, " ").replace(/\.{2,}/g, " ").replace(/\s+/g, " ").trim();
-  if (!value || /[?¿]/.test(String(text))) return null;
+  if (!value || /[?¿❓]/.test(String(text))) return null;
+  // "Cómo los contacto / Para afiliarme con ustedes" (caso real 6-nov) pregunta, no pospone.
+  if (/^(?:pero\s+|y\s+|oiga\s+)?(?:como|donde|a donde|en donde|cual|en que tiempo|por que|que pasa)\b/.test(value) || /^(?:pero\s+|y\s+)?cuando\b(?!\s+(?:yo\s+)?(?:pueda|tenga|junte|me paguen|cobre|lo tenga|regrese|llegue|salga|termine))/.test(value)) return null;
   // "Que costos tienen para platicarlo con mi pareja" (caso real 21-oct): primero el precio.
   // "Creo que está bien el precio, lo comento con mis clientes y me vuelvo a comunicar" (caso real 28-oct) sí pospone.
   const priceOk = /\b(?:esta bien|me parece bien|es buen|es bueno|esta accesible)\s+(?:el\s+)?precio\b|\bel precio (?:esta|me parece) bien\b/.test(value);

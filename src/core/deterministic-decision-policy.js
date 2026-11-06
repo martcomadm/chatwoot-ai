@@ -72,6 +72,16 @@ export const FACT_LOCKED_TYPES = new Set([
   "disability",
   "not_free",
   "how_to_start",
+  // 5 y 6-nov (exports del 3 al 6-nov).
+  "plan1_afore_question",
+  "pay_to_imss",
+  "plan1_confirm",
+  "weeks_status",
+  "process_time_urgent",
+  "contact_channels",
+  "drop_guarantee",
+  "tax_certificate",
+  "still_covered",
 ]);
 
 export function directAnswerDecision({ judgment, orchestration }) {

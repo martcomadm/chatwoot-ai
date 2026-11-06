@@ -878,7 +878,12 @@ export class ConversationProcessor {
     else if (reactivationReply) decision = protectDeterministicDecision(reactivationReply, "reactivation_reply");
     else if (teamDecision) decision = protectDeterministicDecision(teamDecision, `team_answer:${teamMatch.id}`);
     else if (creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
-    else if (featureRejection) decision = protectDeterministicDecision(featureRejection, "feature_rejection");
+    else if (featureRejection) {
+      decision = protectDeterministicDecision(featureRejection, "feature_rejection");
+      // El plan que quedó tras descartar INFONAVIT/AFORE manda en los siguientes mensajes (5-nov: el respaldo
+      // volvió a ofrecer el Plan 2 a quien acababa de decir "no me interesa infonavit").
+      if (featureRejection.plan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), last_plan: featureRejection.plan, recommended_plan: featureRejection.plan }, commercial_need: { ...(memory.commercial_need || {}), afore_infonavit: featureRejection.plan === "plan_2" } };
+    }
     else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
     else if (caseDiagnosis) decision = protectDeterministicDecision(caseDiagnosis, `case_diagnosis:${caseDiagnosis.case_diagnosis}`);
     else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
