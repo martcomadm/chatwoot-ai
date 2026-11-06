@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { describeSchedule, parseSchedule } from "../core/business-hours.js";
 import path from "node:path";
 
 function fileDiagnostic(name, filePath) {
@@ -30,7 +31,7 @@ export function buildDiagnostics({ config, memories, inspectorEvents }) {
     { name: "Conversational Judgment Engine", status: "ok", detail: "Prioridad de humano, preguntas explícitas, objeciones y gobierno de slots activa." },
     { name: "Intent Engine", status: "ok", detail: "V3.1 activo y observable." },
     { name: "Message Buffer", status: "ok", detail: `${config.ai.bufferMs} ms.` },
-    { name: "Horario", status: "ok", detail: `${config.ai.startHour}:00-${config.ai.endHour}:00 · ${config.ai.timezone}` },
+    { name: "Horario", status: "ok", detail: `${describeSchedule(parseSchedule(config.ai.schedule))} · ${config.ai.timezone}` },
     { name: "Memorias cargadas", status: "ok", detail: `${typeof memories.list === "function" ? memories.list().length : Object.keys(memories.data || {}).length} conversación(es).` },
   ];
 

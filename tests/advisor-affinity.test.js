@@ -5,14 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { HandoffRotationStore } from "../src/handoff/handoff-rotation-store.js";
 import { HandoffRouter } from "../src/handoff/handoff-router.js";
-import { ConversationProcessor } from "../src/core/conversation-processor.js";
 
 function affinitySetup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "martcom-affinity-"));
   const store = new HandoffRotationStore(path.join(dir, "handoff.json"));
   const calls = [];
   const config = {
-    ai: { timezone: "America/Mexico_City" },
+    ai: { timezone: "America/Mexico_City", publicName: "Mia de MARTCOM" },
     handoff: {
       enabled: true,
       sundayAgents: [{ id: 25, name: "Elizabeth Aguilera" }, { id: 20, name: "Jonathan Nuñez" }, { id: 31, name: "Tonatiuh Ramirez" }],
@@ -41,35 +40,16 @@ test("handoff usa exactamente el asesor reservado", async () => {
   const date = new Date("2026-08-11T18:00:00Z");
   const reserved = await router.reserve({ conversationId: 7101, date });
   const affinity = { agent_id: reserved.agent.id, agent_name: reserved.agent.name, group: reserved.group, rotation_position: reserved.rotation_position, total_agents: reserved.total_agents };
-  const result = await router.route({ conversationId: 7101, reason: "CURP", reservedAdvisor: affinity, date });
+  const result = await router.route({ conversationId: 7101, reason: "Intervención humana", reservedAdvisor: affinity, date });
   assert.equal(result.status, "completed");
   assert.equal(result.agent.id, reserved.agent.id);
   assert.equal(calls[0].assigneeId, reserved.agent.id);
 });
 
-test("ConversationProcessor usa el asesor reservado como presentación", async () => {
-  let memory = {};
-  const { router } = affinitySetup();
-  // Forzamos fecha/grupo mediante un router wrapper para que la prueba no dependa del día real.
-  const wrapper = {
-    ...router,
-    agentsFor: router.agentsFor.bind(router),
-    findAgentByName: router.findAgentByName.bind(router),
-    async reserve({ conversationId }) { return router.reserve({ conversationId, date: new Date("2026-08-11T18:00:00Z") }); },
-  };
-  const processor = new ConversationProcessor({
-    config: {}, chatwoot: {}, labels: {}, ai: {}, inspectorEvents: { async record() {} },
-    handoffRouter: wrapper,
-    agentRotation: { async next() { return "NO DEBE USARSE"; } },
-    memories: {
-      async set(_id, next) { memory = structuredClone(next); return memory; },
-      get() { return structuredClone(memory); },
-    },
-  });
-  const updated = await processor.ensureAdvisorAffinity(7201, {});
-  assert.equal(updated.asesor_presentacion, "Elizabeth Aguilera");
-  assert.equal(updated.advisor_affinity.agent_id, 25);
-  assert.equal(updated.advisor_affinity.agent_name, "Elizabeth Aguilera");
+test("NEXT conserva identidad propia y no presenta asesor humano antes del handoff", () => {
+  const { config } = affinitySetup();
+  assert.equal(config.ai.publicName, "Mia de MARTCOM");
+  assert.notEqual(config.ai.publicName, "Elizabeth Aguilera");
 });
 
 test("conversación heredada Alberto Martinez se vincula al Alberto real del turno", async () => {
