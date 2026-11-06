@@ -212,6 +212,11 @@ export class ConversationProcessor {
     if (typeof router?.handoff === "function") routed = await router.handoff(conversationId, { reason, memory });
     else if (typeof router?.route === "function") routed = await router.route({ conversationId, reason, reservedAdvisor: human ? null : memory?.advisor_affinity || null });
     await this.record(conversationId, "handoff", { reason, routed, rotation: human ? "atencion_humana" : "asesores" });
+    // Atención humana también es un caso de Atención a Clientes en Operations (6-nov), con quien ya la tiene.
+    if (human) {
+      try { await this.onCustomerServiceCase?.({ conversation_id: conversationId, kind: "human_request", reason, customer: { nombre: memory?.nombre || null, plan: memory?.sales_cycle?.selected_plan || memory?.sales_cycle?.recommended_plan || null }, assignTo: routed?.status === "completed" && routed?.agent?.id ? { id: routed.agent.id, name: routed.agent.name } : null }); }
+      catch (error) { console.error("NEXT caso de Atención (atención humana):", error?.message || error); }
+    }
     return routed;
   }
 

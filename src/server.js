@@ -129,6 +129,8 @@ try {
   const caseStore = new CaseStore(path.join(config.storage.dataDir, "customer-service-cases.json"));
   const customerService = new CustomerService({ store: caseStore, users: opsUsers, chatwoot, notifier: opsNotifier, isOpen: () => processor.inSchedule() });
   customerService.start();
+  // Lo que ya está con Atención en Chatwoot (equipo, personas del área o rotación de atención humana) también se ve en Operations.
+  customerService.startChatwootSync({ teamId: config.operations.customerServiceTeamId, inboxId: config.chatwoot.inboxId, miaAgentId: config.chatwoot.agentId, extraAgentIds: (config.handoff.humanAgents || []).map(a => a.id) });
   workflowBridge.onCompletedSale = sale => customerService.openCase({ conversation_id: sale.conversation_id, kind: "completed_sale", reason: "Pago validado: trámite completado", sale });
   processor.onCustomerServiceCase = input => customerService.openCase(input);
   // Revisión de semanas: con los capturistas (2-nov).

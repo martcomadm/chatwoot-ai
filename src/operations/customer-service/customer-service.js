@@ -35,7 +35,10 @@ export class CustomerService {
     return next;
   }
 
-  async openCase({ conversation_id, kind, reason = null, sale = null, customer = {}, prefer = null }) {
+  // assignTo: agente de Chatwoot que ya tiene la conversación (rotación de atención humana o asignación hecha a
+  // mano en Chatwoot, 6-nov). Si es una persona del área se le asigna a ella; si no, el caso muestra su nombre
+  // y cualquiera de Atención lo puede tomar. No se le quita la conversación.
+  async openCase({ conversation_id, kind, reason = null, sale = null, customer = {}, prefer = null, assignTo = null, silent = false }) {
     const existing = conversation_id ? this.store.openForConversation(conversation_id) : null;
     if (existing) {
       // Ya hay un caso abierto: no se duplica; se anota el nuevo motivo.
@@ -46,10 +49,16 @@ export class CustomerService {
       sale_id: sale?.sale_id || null,
       customer: { nombre: sale?.customer?.nombre || customer.nombre || null, telefono: sale?.customer?.telefono || customer.telefono || null, plan: sale?.sale?.plan || customer.plan || null },
     });
-    return this.assign(created, { prefer });
+    if (assignTo?.id) {
+      const user = this.agents().find(a => Number(a.chatwoot_agent_id) === Number(assignTo.id));
+      if (user) return this.assign({ ...created, chatwoot_assignee_id: Number(assignTo.id) }, { username: user.username, silent });
+      const assignee = { username: null, name: assignTo.name || `Agente ${assignTo.id}`, chatwoot_agent_id: Number(assignTo.id), assigned_at: new Date().toISOString(), external: true };
+      return this.store.update(created.case_id, { assignee, pending_assignment: false }, "case.assigned", { to: null, to_name: assignee.name, chatwoot: true, by_rotation: false, external: true });
+    }
+    return this.assign(created, { prefer, silent });
   }
 
-  async assign(c, { prefer = null, username = null, by = null } = {}) {
+  async assign(c, { prefer = null, username = null, by = null, silent = false } = {}) {
     if (!username && !this.isOpen()) return c; // espera a la apertura (tick)
     const agent = username ? this.agents().find(a => a.username === username) : this.nextAgent(prefer);
     if (!agent) {
@@ -59,12 +68,13 @@ export class CustomerService {
     }
     const assignee = { username: agent.username, name: agent.name, chatwoot_agent_id: agent.chatwoot_agent_id || null, assigned_at: new Date().toISOString() };
     let chatwootAssigned = false;
-    if (c.conversation_id && agent.chatwoot_agent_id && this.chatwoot?.assignConversation) {
+    const already = Number(c.assignee?.chatwoot_agent_id || 0) === Number(agent.chatwoot_agent_id || -1) || Number(c.chatwoot_assignee_id || 0) === Number(agent.chatwoot_agent_id || -1);
+    if (c.conversation_id && agent.chatwoot_agent_id && this.chatwoot?.assignConversation && !already) {
       try { await this.chatwoot.assignConversation(c.conversation_id, agent.chatwoot_agent_id); chatwootAssigned = true; }
       catch (error) { this.logger.warn?.(`Atención a Clientes: no se pudo asignar en Chatwoot ${c.conversation_id}:`, error?.message || error); }
     }
     const updated = this.store.runAs(by, () => this.store.update(c.case_id, { assignee, pending_assignment: false }, "case.assigned", { to: agent.username, to_name: agent.name, chatwoot: chatwootAssigned, by_rotation: !username }));
-    if (agent.username !== by?.username) await this.notify(updated, "Nuevo caso de Atención a Clientes", `${updated.customer?.nombre || "Cliente"} · ${CASE_KIND_LABELS[updated.kind] || updated.kind}${updated.reason ? ` · ${clip(updated.reason, 80)}` : ""}`, [agent.username]);
+    if (!silent && agent.username !== by?.username) await this.notify(updated, "Nuevo caso de Atención a Clientes", `${updated.customer?.nombre || "Cliente"} · ${CASE_KIND_LABELS[updated.kind] || updated.kind}${updated.reason ? ` · ${clip(updated.reason, 80)}` : ""}`, [agent.username]);
     return updated;
   }
 
@@ -93,6 +103,62 @@ export class CustomerService {
       return this.openCase({ conversation_id: conversationId, kind: "returning", reason: clip(text, 200) || null, sale, customer: previous?.customer || {}, prefer: previous?.assignee?.username || null });
     }
     return null;
+  }
+
+  // Conversaciones que ya están con Atención en Chatwoot (equipo de Atención o una persona del área / de la
+  // rotación de atención humana) y no tienen caso: se abre uno (6-nov, "que todos los casos que se van a
+  // Atención se vean"). Solo las que tuvieron movimiento en los últimos días; si el caso anterior ya se
+  // atendió, solo se abre otro cuando el cliente vuelve a escribir.
+  async syncFromChatwoot({ teamId = 0, inboxId = null, miaAgentId = null, extraAgentIds = [], maxPages = 8, sinceDays = 7, cap = 30, now = Date.now() } = {}) {
+    if (!this.chatwoot?.listConversations || this.syncing) return { created: 0 };
+    this.syncing = true;
+    let created = 0;
+    try {
+      const people = new Set([...this.agents().map(a => Number(a.chatwoot_agent_id)), ...extraAgentIds.map(Number)].filter(id => id > 0 && id !== Number(miaAgentId)));
+      for (let page = 1; page <= maxPages && created < cap; page++) {
+        const response = await this.chatwoot.listConversations({ inboxId, page });
+        const items = Array.isArray(response?.data?.payload) ? response.data.payload : Array.isArray(response?.payload) ? response.payload : Array.isArray(response) ? response : [];
+        for (const c of items) {
+          if (created >= cap) break;
+          const id = Number(c?.id || 0);
+          if (!id || (inboxId && c.inbox_id != null && Number(c.inbox_id) !== Number(inboxId))) continue;
+          const team = Number(c?.meta?.team?.id || c?.team_id || 0);
+          const assigneeId = Number(c?.meta?.assignee?.id || c?.assignee_id || 0);
+          const byTeam = Number(teamId) > 0 && team === Number(teamId);
+          const byPerson = people.has(assigneeId);
+          if (!byTeam && !byPerson) continue;
+          const lastMs = Number(c?.last_activity_at || c?.timestamp || 0) * 1000;
+          if (lastMs && now - lastMs > sinceDays * 864e5) continue;
+          if (this.store.openForConversation(id)) continue;
+          const previous = this.store.forConversation(id).at(-1);
+          if (previous?.resolved_at) {
+            const last = c?.last_non_activity_message;
+            const customerAt = Number(last?.created_at || 0) * 1000;
+            if (!(Number(last?.message_type) === 0 && customerAt > Date.parse(previous.resolved_at))) continue;
+          }
+          const name = c?.meta?.assignee?.name || null;
+          const otherAgent = assigneeId && assigneeId !== Number(miaAgentId) ? { id: assigneeId, name } : null;
+          await this.openCase({
+            conversation_id: id, kind: "chatwoot",
+            reason: byTeam ? "Está en el equipo de Atención a Clientes en Chatwoot" : `Asignado en Chatwoot a ${name || `agente ${assigneeId}`}`,
+            customer: { nombre: c?.meta?.sender?.name || null },
+            assignTo: otherAgent, silent: Boolean(otherAgent),
+          });
+          created++;
+        }
+        if (items.length < 25) break;
+      }
+    } catch (error) { this.logger.warn?.("Atención a Clientes (sincronizar con Chatwoot):", error?.message || error); }
+    finally { this.syncing = false; }
+    return { created };
+  }
+
+  startChatwootSync(options = {}, intervalMs = 10 * 60 * 1000) {
+    const run = () => void this.syncFromChatwoot(options).catch(e => this.logger.error?.("Atención a Clientes:", e?.message || e));
+    setTimeout(run, 30_000).unref?.();
+    const timer = setInterval(run, intervalMs);
+    timer.unref?.();
+    return () => clearInterval(timer);
   }
 
   // Casos que llegaron fuera de horario o sin personas: se asignan al abrir.

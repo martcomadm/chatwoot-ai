@@ -109,6 +109,9 @@ export const EVENT_LABELS = {
 };
 
 // Eventos que explican por qué Mia no contestó; van en el .txt junto a los mensajes.
+// "Pasó a una persona" con la rotación de atención humana es Atención a Clientes (6-nov).
+const eventLabel = e => e.type === "handoff" && e.details?.rotation === "atencion_humana" ? "Pasó a Atención a Clientes (atención humana)" : EVENT_LABELS[e.type];
+
 const SILENCE_EVENTS = new Set(["already_answered_skip", "empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule", "agent_owned_skip", "onboarding_declined", "payment_extension_requested", "capture_review_handoff"]);
 
 const REASON_LABELS = {
@@ -344,7 +347,7 @@ export class MiaConsole {
       .filter(e => EVENT_LABELS[e.type])
       .sort((a, b) => ms(b.timestamp) - ms(a.timestamp))
       .slice(0, 40)
-      .map(e => ({ id: e.conversationId, name: nameOf(e.conversationId), at: e.timestamp, type: e.type, label: EVENT_LABELS[e.type], text: e.details?.reply || e.details?.text || REASON_LABELS[e.details?.reason] || e.details?.reason || null, source: e.type === "ai_reply_sent" ? sourceLabel(e.details?.decision_source) : null }));
+      .map(e => ({ id: e.conversationId, name: nameOf(e.conversationId), at: e.timestamp, type: e.type, label: eventLabel(e), text: e.details?.reply || e.details?.text || REASON_LABELS[e.details?.reason] || e.details?.reason || null, source: e.type === "ai_reply_sent" ? sourceLabel(e.details?.decision_source) : null }));
 
     return {
       now: now.toISOString(),
@@ -528,7 +531,7 @@ export class MiaConsole {
       waiting_schedule: queued ? { since: queued.first_at, messages: queued.ids?.length || 0 } : null,
       transcript,
       transcript_error: transcriptError,
-      events: events.slice().reverse().slice(0, 120).map(e => ({ at: e.timestamp, type: e.type, label: EVENT_LABELS[e.type] || e.type, source: e.type === "ai_reply_sent" ? sourceLabel(e.details?.decision_source) : null, details: e.details || {} })),
+      events: events.slice().reverse().slice(0, 120).map(e => ({ at: e.timestamp, type: e.type, label: eventLabel(e) || e.type, source: e.type === "ai_reply_sent" ? sourceLabel(e.details?.decision_source) : null, details: e.details || {} })),
     };
   }
 
@@ -574,7 +577,7 @@ export class MiaConsole {
       const notes = (c.all_events || []).filter(e => SILENCE_EVENTS.has(e.type)).map(e => {
         const d = e.details || {};
         const extra = [d.assignee_name ? `asignado a ${d.assignee_name}` : null, d.reason ? (REASON_LABELS[d.reason] || d.reason) : null, d.labels?.length ? `etiquetas: ${d.labels.join(", ")}` : null, d.error ? `error: ${String(d.error).slice(0, 160)}` : null, d.decision_source ? `origen: ${d.decision_source}` : null].filter(Boolean).join(" · ");
-        return { who: "nota", at: e.timestamp, text: `⚙ ${EVENT_LABELS[e.type] || e.type}${extra ? ` (${extra})` : ""}` };
+        return { who: "nota", at: e.timestamp, text: `⚙ ${eventLabel(e) || e.type}${extra ? ` (${extra})` : ""}` };
       });
       const lines = [...(c.transcript || []), ...notes].sort((a, b) => ms(a.at) - ms(b.at) || (a.who === "nota") - (b.who === "nota"));
       for (const m of lines) {

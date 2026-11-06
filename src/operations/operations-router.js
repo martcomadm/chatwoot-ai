@@ -480,7 +480,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!c) { res.status(404).json({ error: "Caso no encontrado" }); return null; }
     return c;
   }
-  const canWorkCase = (user, c) => hasArea(user, "supervision") || (hasArea(user, "atencion") && (!c.assignee || c.assignee.username === user.username));
+  // Caso con alguien que no está en el área (solo en Chatwoot): cualquiera de Atención lo puede tomar.
+  const canWorkCase = (user, c) => hasArea(user, "supervision") || (hasArea(user, "atencion") && (!c.assignee?.username || c.assignee.username === user.username));
   router.get("/operations/api/cases", (req, res) => {
     if (!caseStore) return res.json({ items: [] });
     if (!canSeeCases(req.opsUser)) return res.status(403).json({ error: "Tu usuario no tiene acceso a Atención a Clientes", code: "forbidden" });
@@ -507,7 +508,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const c = visibleCase(req, res);
     if (!c) return;
     if (!hasArea(req.opsUser, "atencion")) return res.status(403).json({ error: "Solo Atención a Clientes puede tomar casos", code: "forbidden" });
-    if (c.assignee && c.assignee.username !== req.opsUser.username && !hasArea(req.opsUser, "supervision")) return fail(res, new Error(`Este caso ya lo tiene ${c.assignee.name}`), 409);
+    if (c.assignee?.username && c.assignee.username !== req.opsUser.username && !hasArea(req.opsUser, "supervision")) return fail(res, new Error(`Este caso ya lo tiene ${c.assignee.name}`), 409);
     try { res.json({ ok: true, case: caseView(await customerService.assign(c, { username: req.opsUser.username, by: actorOf(req.opsUser) })) }); }
     catch (error) { fail(res, error); }
   });

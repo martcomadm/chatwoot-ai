@@ -1709,7 +1709,7 @@ async function openCase(id) {
   const c = result.case;
   const me = state.me.user.username;
   const buttons = [];
-  if (hasArea("atencion") && c.assignee?.username !== me && (!c.assignee || hasArea("supervision"))) buttons.push(`<button class="btn small" data-case-act="take">Tomar caso</button>`);
+  if (hasArea("atencion") && c.assignee?.username !== me && (!c.assignee?.username || hasArea("supervision"))) buttons.push(`<button class="btn small" data-case-act="take">Tomar caso</button>`);
   if (result.can.work && c.status !== "resolved") {
     if (c.status !== "in_progress") buttons.push(`<button class="btn small primary" data-case-act="in_progress">Atendiendo</button>`);
     if (c.status !== "following") buttons.push(`<button class="btn small" data-case-act="following">En seguimiento</button>`);
