@@ -1519,6 +1519,35 @@ function answerFields(item = {}) {
 }
 const answerBody = data => ({ topic: data.topic, answer: data.answer, phrases: data.phrases, active: data.active !== "0" });
 
+// Reactivación (6-nov): un renglón por cliente, con filtros (contestaron, sin respuesta, aceptaron…).
+const REACT_FILTERS = [
+  ["all", "Todos"], ["replied", "Contestaron"], ["waiting", "Sin respuesta"], ["accepted", "Aceptaron"],
+  ["docs_completed", "Completaron documentos"], ["no_contact", "No quieren mensajes"],
+];
+const REACT_STATUS = { replied: ["ok", "Contestó"], waiting: ["", "Sin respuesta"], accepted: ["ok", "Aceptó iniciar"], docs_completed: ["ok", "Completó documentos"], no_contact: ["warn", "No quiere mensajes"] };
+const REACT_PAGE = 40;
+function reactClientsBlock(r, NAMES) {
+  const clients = Array.isArray(r.clients) ? r.clients
+    : (r.recent || []).map(x => ({ id: x.id, name: x.name, status: x.replied ? "replied" : "waiting", replied: x.replied, last_template: x.template, last_at: x.at, sends: 1 }));
+  if (!clients.length) return `<div class="empty"><strong>Todavía no se ha reactivado a nadie</strong>Cuando Mia mande la primera plantilla, aquí verás a cada cliente y si contestó.</div>`;
+  const filter = REACT_FILTERS.some(([k]) => k === state.reactFilter) ? state.reactFilter : "all";
+  // "Contestaron" incluye a quien después aceptó, completó documentos o pidió no recibir mensajes (igual que el contador).
+  const match = (c, k) => k === "all" || (k === "replied" ? c.replied : c.status === k);
+  const counts = Object.fromEntries(REACT_FILTERS.map(([k]) => [k, clients.filter(c => match(c, k)).length]));
+  const list = clients.filter(c => match(c, filter));
+  const shown = list.slice(0, state.reactShown || REACT_PAGE);
+  const chips = `<div class="toolbar"><div class="segmented" role="group" aria-label="Filtrar clientes">${REACT_FILTERS.map(([k, label]) => `<button type="button" data-answer-act="react-filter" data-react-filter="${k}" aria-pressed="${k === filter}">${esc(label)} (${counts[k]})</button>`).join("")}</div></div>`;
+  const row = c => {
+    const [tone, label] = REACT_STATUS[c.status] || REACT_STATUS.waiting;
+    const when = c.replied_at ? `contestó ${esc(dateTime(c.replied_at))}` : c.last_at ? `enviado ${esc(dateTime(c.last_at))}` : "";
+    return `<button type="button" class="answer-card react-row" data-mia-chat="${c.id}" aria-label="Ver la conversación de ${esc(c.name || "Cliente")}"><span class="rr-head"><strong>${esc(c.name || "Cliente")}</strong><small class="mono muted">#${c.id}${when ? ` · ${when}` : ""}</small></span><span class="rr-body small"><span class="tag ${tone}">${esc(label)}</span>${esc(NAMES[c.last_template] || c.last_template || "")}${c.sends > 1 ? ` <span class="muted">· ${c.sends} plantillas</span>` : ""}<span class="react-open">Ver conversación →</span></span></button>`;
+  };
+  return `<h3>Clientes reactivados</h3>${chips}
+    ${list.length ? `<div class="answer-list">${shown.map(row).join("")}</div>
+      ${list.length > shown.length ? `<div class="toolbar"><button class="btn" data-answer-act="react-more">Ver más (${list.length - shown.length})</button></div>` : ""}`
+      : `<div class="empty">Nadie en “${esc((REACT_FILTERS.find(([k]) => k === filter) || [])[1] || "")}” por ahora.</div>`}`;
+}
+
 async function renderMiaAnswers(view) {
   view.style.setProperty("--area", areaVar("respuestas"));
   state.answersTab = state.answersTab || "team";
@@ -1572,7 +1601,7 @@ async function renderMiaAnswers(view) {
         <div class="react-kpi"><span>Completaron documentos</span><b>${res.docs_completed || 0}</b><small>tras recordatorio1</small></div>
         <div class="react-kpi"><span>Pidieron no recibir mensajes</span><b>${res.no_contact || 0}</b></div>
       </div>
-      ${(r.recent || []).length ? `<h3>Últimos envíos</h3><div class="answer-list">${r.recent.map(x => `<button type="button" class="answer-card react-row" data-mia-chat="${x.id}" aria-label="Ver la conversación de ${esc(x.name || "Cliente")}"><span class="rr-head"><strong>${esc(x.name || "Cliente")}</strong><small class="mono muted">#${x.id} · ${esc(dateTime(x.at))}</small></span><span class="rr-body small">${esc(NAMES[x.template] || x.template)} ${x.replied ? '<span class="tag ok">Contestó</span>' : ""}<span class="react-open">Ver conversación →</span></span></button>`).join("")}</div>` : ""}`;
+      ${reactClientsBlock(r, NAMES)}`;
   } else if (state.answersTab === "ab") {
     const ex = state.miaExperiments || { slots: [], items: [] };
     const cell = r => `${r.sent} enviados · <strong>${r.replied_pct ?? "—"}%</strong> contestaron · <strong>${r.accepted_pct ?? "—"}%</strong> aceptaron · ${r.docs} con documentos`;
@@ -1649,6 +1678,8 @@ async function miaAnswerAction(target) {
     const ok = await ask({ title: on ? "Encender reactivación" : "Apagar reactivación", text: on ? `Se empezarán a enviar plantillas aprobadas (Marketing) a prospectos que no compraron, hasta ${state.miaReactivation?.config?.daily_cap || 100} al día. Ahora mismo hay ${state.miaReactivation?.pending_now || 0} listos.` : "Se dejan de enviar plantillas de reactivación.", confirm: on ? "Encender" : "Apagar", danger: !on });
     if (ok && await run(() => api("/operations/api/reactivation", { method: "POST", body: { enabled: on } }), on ? "Reactivación encendida" : "Reactivación apagada")) renderView();
   }
+  if (act === "react-filter") { state.reactFilter = target.dataset.reactFilter; state.reactShown = REACT_PAGE; return renderView(); }
+  if (act === "react-more") { state.reactShown = (state.reactShown || REACT_PAGE) + REACT_PAGE; return renderView(); }
   if (act === "react-cap") {
     const data = await ask({ title: "Tope diario de reactivación", fields: [{ name: "cap", label: "Mensajes máximos por día", type: "number", required: true, value: String(state.miaReactivation?.config?.daily_cap || 100) }], confirm: "Guardar" });
     if (data && await run(() => api("/operations/api/reactivation", { method: "POST", body: { daily_cap: Number(data.cap) } }), "Tope actualizado")) renderView();

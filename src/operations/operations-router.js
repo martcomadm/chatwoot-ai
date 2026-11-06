@@ -367,6 +367,19 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const all = memories.list?.() || [];
     const contacted = all.filter(m => (m.reactivation?.sent || []).length || m.reactivation?.docs_reminder_at);
     const firstSent = m => Date.parse(m.reactivation?.sent?.[0]?.at || m.reactivation?.docs_reminder_at || "") || 0;
+    // Un renglón por cliente para filtrar en Operations (6-nov): contestaron, sin respuesta, aceptaron…
+    const clientOf = m => {
+      const sends = [...(m.reactivation?.sent || []).map(x => ({ template: x.template, at: x.at })), ...(m.reactivation?.docs_reminder_at ? [{ template: "recordatorio1", at: m.reactivation.docs_reminder_at }] : [])].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      const last = sends.at(-1) || {};
+      const repliedAt = Date.parse(m.reactivation?.replied_at || "") > firstSent(m) ? m.reactivation.replied_at : null;
+      const docs = Boolean(m.reactivation?.docs_reminder_at);
+      const accepted = Boolean(m.sales_cycle?.authorized) && !docs;
+      const docsCompleted = docs && Boolean(m.operations?.documents_complete);
+      const status = m.no_contact ? "no_contact" : docsCompleted ? "docs_completed" : accepted ? "accepted" : repliedAt ? "replied" : "waiting";
+      return { id: Number(m.id), name: m.nombre || null, status, replied: Boolean(repliedAt), replied_at: repliedAt, accepted, docs_completed: docsCompleted, no_contact: Boolean(m.no_contact), sends: sends.length, last_template: last.template || null, last_at: last.at || null, plan: m.sales_cycle?.selected_plan || m.sales_cycle?.recommended_plan || null };
+    };
+    const clients = [...new Map([...contacted, ...all.filter(m => m.no_contact && (m.reactivation?.sent || []).length)].map(m => [String(m.id), m])).values()].map(clientOf)
+      .sort((a, b) => String(b.replied_at || b.last_at || "").localeCompare(String(a.replied_at || a.last_at || "")));
     const preview = reactivation.plan();
     const byTemplate = {};
     for (const item of preview) byTemplate[item.template] = (byTemplate[item.template] || 0) + 1;
@@ -383,6 +396,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
         docs_completed: contacted.filter(m => m.reactivation?.docs_reminder_at && m.operations?.documents_complete).length,
         no_contact: all.filter(m => m.no_contact).length,
       },
+      clients,
       recent: contacted.flatMap(m => [...(m.reactivation?.sent || []).map(x => ({ id: Number(m.id), name: m.nombre || null, template: x.template, at: x.at })), ...(m.reactivation?.docs_reminder_at ? [{ id: Number(m.id), name: m.nombre || null, template: "recordatorio1", at: m.reactivation.docs_reminder_at }] : [])].map(x => ({ ...x, replied: Date.parse(m.reactivation?.replied_at || "") > Date.parse(x.at) }))).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 30),
     });
   });
