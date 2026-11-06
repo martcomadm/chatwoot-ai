@@ -1450,7 +1450,15 @@ async function openMiaChat(id) {
   let c = (state.miaChats || []).find(item => item.id === id);
   // Desde un aviso el chat puede no estar en el filtro actual: se busca en "Todos".
   if (!c && state.view === "chats" && (state.miaFilter !== "all" || state.miaPage > 1)) { state.miaFilter = "all"; state.miaPage = 1; await renderView(); c = (state.miaChats || []).find(item => item.id === id); }
-  if (!c) return toast("Ese chat ya no aparece en la lista");
+  // Desde Reactivación (6-nov) u otra vista: se busca ese chat aunque no esté en la lista cargada.
+  if (!c) {
+    try {
+      const found = await api(`/operations/api/mia-chats?q=${id}&filter=all&days=120`);
+      c = (found.items || []).find(item => Number(item.id) === id);
+      if (c) state.miaChats = [...(state.miaChats || []).filter(item => item.id !== id), c];
+    } catch {}
+  }
+  if (!c) return toast("No encontré esa conversación");
   state.miaChatId = id;
   const mine = c.intervention && c.intervention.username === state.me.user.username;
   const buttons = [];
@@ -1564,7 +1572,7 @@ async function renderMiaAnswers(view) {
         <div class="react-kpi"><span>Completaron documentos</span><b>${res.docs_completed || 0}</b><small>tras recordatorio1</small></div>
         <div class="react-kpi"><span>Pidieron no recibir mensajes</span><b>${res.no_contact || 0}</b></div>
       </div>
-      ${(r.recent || []).length ? `<h3>Últimos envíos</h3><div class="answer-list">${r.recent.map(x => `<article class="answer-card"><header><strong>${esc(x.name || "Cliente")}</strong><small class="mono muted">#${x.id} · ${esc(dateTime(x.at))}</small></header><p class="small">${esc(NAMES[x.template] || x.template)} ${x.replied ? '<span class="tag ok">Contestó</span>' : ""}</p></article>`).join("")}</div>` : ""}`;
+      ${(r.recent || []).length ? `<h3>Últimos envíos</h3><div class="answer-list">${r.recent.map(x => `<button type="button" class="answer-card react-row" data-mia-chat="${x.id}" aria-label="Ver la conversación de ${esc(x.name || "Cliente")}"><span class="rr-head"><strong>${esc(x.name || "Cliente")}</strong><small class="mono muted">#${x.id} · ${esc(dateTime(x.at))}</small></span><span class="rr-body small">${esc(NAMES[x.template] || x.template)} ${x.replied ? '<span class="tag ok">Contestó</span>' : ""}<span class="react-open">Ver conversación →</span></span></button>`).join("")}</div>` : ""}`;
   } else if (state.answersTab === "ab") {
     const ex = state.miaExperiments || { slots: [], items: [] };
     const cell = r => `${r.sent} enviados · <strong>${r.replied_pct ?? "—"}%</strong> contestaron · <strong>${r.accepted_pct ?? "—"}%</strong> aceptaron · ${r.docs} con documentos`;
