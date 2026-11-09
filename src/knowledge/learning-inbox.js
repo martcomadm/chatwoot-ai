@@ -90,6 +90,17 @@ export class LearningInbox {
     return { added };
   }
 
+  // Propuesta del aprendizaje semanal (9-nov): pregunta que Mia contestó mal, con la respuesta que propone.
+  // No se repite si ya hay una abierta parecida.
+  addProposal({ question, answer = "", count = 1, conversations = [], now = new Date() }) {
+    const key = String(question || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!key) return false;
+    if (this.state.items.some(i => i.status === "open" && i.source === "weekly" && i.key === key)) return false;
+    this.state.items.push({ id: `weekly:${now.getTime()}:${this.state.items.length}`, source: "weekly", key, conversation_id: conversations[0] || null, conversations, count, customer_name: null, question: String(question).slice(0, 600), answer: String(answer || "").slice(0, 900), by: "Propuesta de Mia", at: now.toISOString(), status: "open", found_at: now.toISOString() });
+    this.persist();
+    return true;
+  }
+
   list({ status = "open" } = {}) {
     return this.state.items.filter(i => status === "all" || i.status === status).sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
   }

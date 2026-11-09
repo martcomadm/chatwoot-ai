@@ -42,7 +42,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
 const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
 
-export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null, replyFeedback = null, experiments = null, reactivation = null }) {
+export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null, replyFeedback = null, experiments = null, reactivation = null, weeklyReview = null }) {
   const router = express.Router();
   const throttle = new LoginThrottle();
   const authenticate = createAuthenticator({ users, sessions, legacyToken: config.operations?.token || "" });
@@ -483,6 +483,22 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.post("/operations/api/mia-learning/:id/dismiss", (req, res) => {
     if (!teachGuard(req, res)) return;
     try { learningInbox.resolve(req.params.id, "dismissed", who(req.opsUser)); res.json({ ok: true }); } catch (error) { fail(res, error); }
+  });
+
+  // Aprendizaje semanal (9-nov): reporte de la semana y propuestas (van a "Preguntas que Mia no supo").
+  router.get("/operations/api/mia-weekly", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    const id = String(req.query.id || "");
+    res.json({ available: Boolean(weeklyReview), report: weeklyReview ? (id ? weeklyReview.get(id) : weeklyReview.latest()) : null, reports: weeklyReview?.list() || [], running: Boolean(weeklyReview?.running) });
+  });
+  router.post("/operations/api/mia-weekly/run", async (req, res) => {
+    if (!teachGuard(req, res)) return;
+    if (!weeklyReview) return res.status(503).json({ error: "Aprendizaje semanal no disponible" });
+    try {
+      const report = await weeklyReview.run({ by: who(req.opsUser) });
+      audit.record("mia.weekly.run", actorOf(req.opsUser), { id: report.id, chats: report.funnel.chats });
+      res.json({ ok: true, report });
+    } catch (error) { fail(res, error); }
   });
 
   // ── Atención a Clientes ─────────────────────────────────────────────────

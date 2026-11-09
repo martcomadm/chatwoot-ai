@@ -82,6 +82,18 @@ CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse
     return applyPublicIdentityGuard(repaired, memory, this.config.publicName || "Mia de MARTCOM");
   }
 
+  // Aprendizaje semanal (9-nov): respuesta propuesta para una pregunta que Mia contestó mal. La revisa
+  // Supervisión antes de usarse. "NO_SE" si la base de conocimiento no alcanza para contestarla.
+  async draftTeamAnswer({ question, examples = [] }) {
+    const response = await this.openai.responses.create({
+      model: this.config.model,
+      instructions: `${this.knowledge()}\n\nEres Mia, asistente de MARTCOM. Escribe UNA respuesta corta (máximo 500 caracteres), en español de México, cálida y clara, para la pregunta de clientes que se muestra. Usa SOLO datos de la base de conocimiento; no inventes precios, plazos ni reglas. Termina con una pregunta que lleve a iniciar el trámite cuando tenga sentido. Si la base de conocimiento no alcanza para contestar con seguridad, responde exactamente NO_SE.`,
+      input: `PREGUNTA:\n${question}\n\nOTRAS FORMAS EN QUE LA HICIERON:\n${examples.filter(e => e !== question).slice(0, 3).join("\n") || "(ninguna)"}`,
+    });
+    const text = String(response.output_text || "").trim();
+    return !text || /^NO_SE\b/.test(text) ? null : text.slice(0, 600);
+  }
+
   async handoffSummary(conversation, reason, memory) {
     const response=await this.openai.responses.create({model:this.config.model,instructions:`Genera una nota privada breve. No inventes. Formato:\nMARTCOM NEXT - RESUMEN\nNombre:\nEdad:\nActividad:\nNecesidad:\nPlan recomendado/seleccionado:\nEtapa comercial:\nAutorización para iniciar:\nIMSS actual:\nSituación laboral:\nAFORE actual:\nCURP recibida:\nNSS recibido:\nDocumentos:\nContradicciones:\nMotivo de transferencia:\nSi falta algo escribe “No informado”.`,input:`MOTIVO:\n${reason}\n\nMEMORIA:\n${JSON.stringify(memory,null,2)}\n\nHISTORIAL:\n${historyOf(conversation,this.config.maxHistory)}`});
     return response.output_text.trim().slice(0,1800);

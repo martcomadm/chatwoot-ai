@@ -479,3 +479,8 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 /* Puntaje de compra en Chats de Mia (9-nov). */
 .cell-customer .tag.score { justify-self: start; margin: 4px 0 0 6px; width: fit-content; }
 .tag.score.hot { background: color-mix(in srgb, var(--brand) 18%, transparent); color: var(--brand); font-weight: 700; }
+
+/* Aprendizaje semanal (9-nov). */
+.itable { display: grid; gap: 2px; margin-bottom: 8px; }
+.itable .irow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.link-chat { border: 0; background: none; padding: 0; font: inherit; color: var(--brand); font-weight: 600; cursor: pointer; text-decoration: underline; }

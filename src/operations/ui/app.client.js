@@ -129,6 +129,13 @@ function areaVar(area) { return `var(--area-${area || "admin"})`; }
 function money(value) {
   return value == null ? "—" : new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(value);
 }
+function dateOnly(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short" });
+}
+
 function dateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -361,6 +368,7 @@ async function start() {
   const requested = params.get("area");
   state.view = available.includes(requested) ? requested : (available.find(area => WORK_AREAS.includes(area)) || available[0]);
   state.saleId = pathSale ? decodeURIComponent(pathSale[1]) : params.get("sale");
+  if (params.get("tab")) state.answersTab = params.get("tab");
   await loadSales();
   await initNotifications();
   renderShell();
@@ -1530,6 +1538,41 @@ function answerFields(item = {}) {
 }
 const answerBody = data => ({ topic: data.topic, answer: data.answer, phrases: data.phrases, active: data.active !== "0" });
 
+// Aprendizaje semanal (9-nov): embudo, dónde se van, motivos, preguntas sin buena respuesta y qué funcionó.
+function weeklyBlock(w) {
+  if (w.available === false) return `<div class="empty">Aprendizaje semanal no disponible.</div>`;
+  const r = w.report;
+  const reports = w.reports || [];
+  const head = `<div class="toolbar"><button class="btn primary" data-answer-act="weekly-run" ${w.running ? "disabled" : ""}>${w.running ? "Generando…" : "Generar ahora"}</button>
+    ${reports.length > 1 ? `<select class="input" data-weekly-pick data-answer-act="weekly-pick" aria-label="Semana" style="max-width:260px">${reports.map(x => `<option value="${esc(x.id)}" ${r && x.id === r.id ? "selected" : ""}>${esc(dateOnly(x.since))} – ${esc(dateOnly(x.until))}</option>`).join("")}</select>` : ""}
+    <span class="muted">Se genera solo cada lunes a las 8:00 con los 7 días anteriores.</span></div>`;
+  if (!r) return head + `<div class="empty"><strong>Todavía no hay aprendizaje semanal</strong>Toca "Generar ahora" para revisar los últimos 7 días.</div>`;
+  const f = r.funnel || {};
+  const kpi = (label, n, small) => `<div class="react-kpi"><span>${esc(label)}</span><b>${n}</b>${small ? `<small>${esc(small)}</small>` : ""}</div>`;
+  const list = (items, empty, render) => items?.length ? `<div class="answer-list">${items.map(render).join("")}</div>` : `<p class="muted">${esc(empty)}</p>`;
+  return head + `
+    <p class="muted">Chats nuevos del ${esc(dateOnly(r.since))} al ${esc(dateOnly(r.until))} · generado ${esc(dateTime(r.created_at))}${r.created_by ? ` por ${esc(r.created_by.name || r.created_by.username || "")}` : ""}</p>
+    <div class="react-kpis">
+      ${kpi("Chats nuevos", f.chats || 0)}
+      ${kpi("Vieron el plan", f.saw_plan || 0, `${f.saw_plan_pct || 0}%`)}
+      ${kpi("Recibieron el cierre", f.close || 0, `${f.close_pct || 0}%`)}
+      ${kpi("Aceptaron", f.accepted || 0, `${f.accepted_pct || 0}% de los chats · ${f.accepted_of_close_pct || 0}% de los que recibieron el cierre`)}
+      ${kpi("Completaron documentos", f.docs || 0)}
+    </div>
+    <h3>Hasta dónde llegaron</h3>
+    <div class="itable">${(r.stages || []).map(s => `<div class="irow"><span>${esc(s.label)}</span><b>${s.count}</b></div>`).join("")}</div>
+    <h3>Dónde se van (lo último que les dijo Mia)</h3>
+    ${list(r.drop_after, "Sin datos.", d => `<article class="answer-card"><header><strong>${esc(d.key)}</strong><span class="tag">${d.count}</span></header>${(d.examples || []).slice(0, 2).map(x => `<p class="small"><button type="button" class="link-chat" data-mia-chat="${x.id}">#${x.id}</button> ${esc(x.mia)}</p>`).join("")}</article>`)}
+    <h3>Motivos de los que no compraron</h3>
+    ${list(r.reasons, "Nadie dio un motivo esta semana.", d => `<article class="answer-card"><header><strong>${esc(d.key)}</strong><span class="tag">${d.count}</span></header></article>`)}
+    <h3>Preguntas sin buena respuesta</h3>
+    <p class="muted">Mia contestó algo genérico ${r.weak_replies || 0} veces. Para las más repetidas propuso una respuesta${r.proposals ? ` (${r.proposals} nuevas)` : ""}: revísalas en "Preguntas que Mia no supo". <button class="btn small" data-answer-act="weekly-learn">Ir a revisarlas</button></p>
+    ${list(r.unanswered, "Ninguna esta semana.", q => `<article class="answer-card"><header><strong>${esc(q.question)}</strong><span class="tag warn">${q.count} ${q.count === 1 ? "vez" : "veces"}</span></header>${(q.examples || []).slice(1, 3).map(x => `<p class="small muted">También: "${esc(x.text)}" <button type="button" class="link-chat" data-mia-chat="${x.id}">#${x.id}</button></p>`).join("")}${q.proposal ? `<p class="learn-a small"><span class="muted">Mia propone</span><br>${esc(q.proposal)}</p>` : ""}</article>`)}
+    <h3>Qué funcionó (lo que dijo Mia antes de que aceptaran)</h3>
+    ${list(r.winners, "Nadie aceptó esta semana.", d => `<article class="answer-card"><header><strong>${esc(d.key)}</strong><span class="tag ok">${d.count}</span></header>${(d.examples || []).slice(0, 2).map(x => `<p class="small"><button type="button" class="link-chat" data-mia-chat="${x.id}">#${x.id}</button> Mia: ${esc(x.mia)}${x.customer ? `<br><span class="muted">Cliente: "${esc(x.customer)}"</span>` : ""}</p>`).join("")}</article>`)}
+    ${(r.experiments || []).length ? `<h3>Pruebas A/B activas</h3>${r.experiments.map(x => `<p class="small"><strong>${esc(x.name)}</strong>: A aceptó ${x.results?.A?.accepted || 0}/${x.results?.A?.sent || 0} · B aceptó ${x.results?.B?.accepted || 0}/${x.results?.B?.sent || 0}</p>`).join("")}` : ""}`;
+}
+
 // Reactivación (6-nov): un renglón por cliente, con filtros (contestaron, sin respuesta, aceptaron…).
 const REACT_FILTERS = [
   ["all", "Todos"], ["replied", "Contestaron"], ["waiting", "Sin respuesta"], ["accepted", "Aceptaron"],
@@ -1567,10 +1610,12 @@ async function renderMiaAnswers(view) {
     [answers, learning, state.miaFeedback] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null), state.answersTab === "rated" ? api("/operations/api/mia-feedback") : Promise.resolve(null)]);
     state.miaExperiments = state.answersTab === "ab" ? await api("/operations/api/mia-experiments") : null;
     state.miaReactivation = state.answersTab === "react" ? await api("/operations/api/reactivation") : null;
+    state.miaWeekly = state.answersTab === "weekly" ? await api(`/operations/api/mia-weekly${state.weeklyId ? `?id=${encodeURIComponent(state.weeklyId)}` : ""}`) : null;
   } catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudo cargar</strong>${esc(error.message)}</div>`; return; }
   state.miaAnswers = answers.items || [];
   state.miaLearning = learning?.items || [];
   const tabs = `<div class="segmented" role="group">
+      <button data-answers-tab="weekly" aria-pressed="${state.answersTab === "weekly"}">Aprendizaje semanal</button>
       <button data-answers-tab="team" aria-pressed="${state.answersTab === "team"}">Respuestas del equipo (${state.miaAnswers.length})</button>
       <button data-answers-tab="learn" aria-pressed="${state.answersTab === "learn"}">Preguntas que Mia no supo (${answers.open_learning || 0})</button>
       <button data-answers-tab="rated" aria-pressed="${state.answersTab === "rated"}">Correcciones 👎 (${answers.open_feedback || 0})</button>
@@ -1587,12 +1632,15 @@ async function renderMiaAnswers(view) {
         ${(a.phrases || []).length ? `<p class="muted small">Frases: ${a.phrases.map(esc).join(" · ")}</p>` : ""}
         <footer><small class="muted">${esc(a.updated_by || a.created_by || "")} · ${esc(dateTime(a.updated_at || a.created_at))}</small><span class="actions"><button class="btn small" data-answer-act="edit" data-answer-id="${a.id}">Editar</button><button class="btn small quiet" data-answer-act="delete" data-answer-id="${a.id}">Borrar</button></span></footer>
       </article>`).join("")}</div>` : `<div class="empty"><strong>Aún no hay respuestas del equipo</strong>Agrega la primera con "+ Nueva respuesta" o conviértela desde "Preguntas que Mia no supo".</div>`);
+  } else if (state.answersTab === "weekly") {
+    body = weeklyBlock(state.miaWeekly || {});
   } else if (state.answersTab === "learn") {
     body = `<div class="toolbar"><button class="btn" data-answer-act="scan">Buscar ahora en los chats</button><span class="muted">Se revisa solo cada 30 minutos: chats de los últimos 14 días que pasaron a una persona.</span></div>` + (state.miaLearning.length ? `<div class="answer-list">${state.miaLearning.map(i => `
       <article class="answer-card">
         <header><strong>${esc(i.customer_name || "Cliente")}</strong><small class="mono muted">#${i.conversation_id} · ${esc(dateTime(i.at))}</small></header>
         <p class="learn-q"><span class="muted small">Preguntó</span><br>${esc(i.question)}</p>
-        <p class="learn-a"><span class="muted small">Contestó ${esc(i.by || "el equipo")}</span><br>${esc(i.answer)}</p>
+        ${i.source === "weekly" ? `<p class="muted small">Del aprendizaje semanal: ${i.count || 1} ${Number(i.count) === 1 ? "vez" : "veces"} recibió una respuesta genérica${(i.conversations || []).length ? ` · chats ${i.conversations.slice(0, 5).map(id => `#${id}`).join(", ")}` : ""}</p>` : ""}
+        <p class="learn-a"><span class="muted small">${i.source === "weekly" ? (i.answer ? "Mia propone" : "Mia no supo proponer: escribe tú la respuesta") : `Contestó ${esc(i.by || "el equipo")}`}</span><br>${esc(i.answer)}</p>
         <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="convert" data-learn-id="${esc(i.id)}">Convertir en respuesta de Mia</button><button class="btn small quiet" data-answer-act="dismiss" data-learn-id="${esc(i.id)}">Descartar</button></span></footer>
       </article>`).join("")}</div>` : `<div class="empty"><strong>Sin preguntas pendientes</strong>Cuando una persona del equipo conteste en un chat que pasó con ella, aparecerá aquí.</div>`);
   } else if (state.answersTab === "react") {
@@ -1672,6 +1720,11 @@ async function miaAnswerAction(target) {
     const done = await run(() => api("/operations/api/mia-learning/scan", { method: "POST", body: {} }), null);
     if (done) { toast(done.added ? `${plural(done.added, "pregunta nueva", "preguntas nuevas")}` : "No hay preguntas nuevas"); renderView(); }
   }
+  if (act === "weekly-run") {
+    if (await run(() => api("/operations/api/mia-weekly/run", { method: "POST", body: {} }), "Listo: aprendizaje de la semana generado")) { state.weeklyId = null; renderView(); }
+    return;
+  }
+  if (act === "weekly-learn") { state.answersTab = "learn"; return renderView(); }
   if (act === "convert") {
     const item = state.miaLearning.find(i => i.id === target.dataset.learnId);
     const data = item && await ask({ title: "Convertir en respuesta de Mia", text: "Revisa y ajusta el texto: quita nombres, montos o datos que solo aplicaban a ese cliente.", fields: answerFields({ topic: item.question.split("\n")[0].slice(0, 200), answer: item.answer }), confirm: "Guardar respuesta", area: "respuestas" });
@@ -2020,6 +2073,9 @@ document.addEventListener("click", async event => {
 document.addEventListener("change", event => {
   const check = event.target.closest("[data-check]");
   if (check) toggleCheck(check.dataset.check, check.checked);
+  // Aprendizaje semanal: elegir otra semana.
+  const pick = event.target.closest("select[data-weekly-pick]");
+  if (pick) { state.weeklyId = pick.value || null; renderView(); }
 });
 
 const onSearch = debounce(value => {

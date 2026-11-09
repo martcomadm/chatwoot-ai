@@ -1,4 +1,5 @@
 import { HotLeadAlerts } from "./operations/hot-lead-alerts.js";
+import { WeeklyReviewService } from "./knowledge/weekly-review.js";
 import { parseOffDays } from "./core/team-days.js";
 import { CaptureReviewRouter } from "./operations/capture-review.js";
 import "dotenv/config";
@@ -228,7 +229,10 @@ try {
   // Preguntas que Mia no supo: lo que contestó una persona en chats que pasaron al equipo.
   const learningInbox = new LearningInbox({ file: path.join(config.storage.dataDir, "mia-learning.json"), memories, chatwoot, selfSenders });
   learningInbox.start();
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox, replyFeedback, experiments, reactivation }));
+  // Aprendizaje semanal (9-nov): cada lunes 8:00 revisa la semana y propone respuestas a Supervisión.
+  const weeklyReview = new WeeklyReviewService({ file: path.join(config.storage.dataDir, "mia-weekly-reviews.json"), memories, inspectorEvents, learningInbox, ai, experiments, notifier: opsNotifier });
+  weeklyReview.start();
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox, replyFeedback, experiments, reactivation, weeklyReview }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot, miaConsole }));
 
   app.listen(config.port, "0.0.0.0", () => {
