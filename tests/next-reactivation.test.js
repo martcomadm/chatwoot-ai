@@ -84,7 +84,7 @@ test("servicio: apagado no manda; encendido respeta horario, tope diario y asign
     memories: { list: () => Object.values(mem), get: id => mem[id], async merge(id, patch) { mem[id] = { ...mem[id], ...patch }; } },
     inspectorEvents: events,
     templates: { async sendNamed(id, name) { sent.push([id, name]); return { sent: true, name }; } },
-    chatwoot: { async getConversation(id) { return { meta: { assignee: { id: id === 3 ? 62 : 53 } } }; } },
+    chatwoot: { async getConversation(id) { return { meta: { assignee: id === 2 ? null : { id: id === 3 ? 62 : 53 } } }; } },
     settings, miaAgentId: 53,
   });
   assert.equal((await service.tick(now)).reason, "disabled", "empieza apagada");
@@ -99,7 +99,10 @@ test("servicio: apagado no manda; encendido respeta horario, tope diario y asign
   assert.deepEqual(await service.tick(now), { sent: 0 }, "ya se llegó al tope de hoy");
   settings.setReactivation({ daily_cap: 50 });
   await service.tick(now);
-  assert.deepEqual(sent.map(x => x[0]), [1, 2], "Memo está con una persona (62) y a 4 no le interesa");
+  // 9-nov: solo chats asignados a Mia (Luis está sin asignar, Memo con una persona y a 4 no le interesa).
+  assert.deepEqual(sent.map(x => x[0]), [1], "solo asignados a Mia");
+  assert.equal(mem[2].reactivation.blocked_label, "not_mia");
+  assert.equal(mem[3].reactivation.blocked_label, "not_mia");
   assert.throws(() => settings.setReactivation({ daily_cap: 0 }), /tope/);
 });
 

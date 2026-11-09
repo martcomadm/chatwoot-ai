@@ -397,6 +397,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
         no_contact: all.filter(m => m.no_contact).length,
       },
       clients,
+      // Chats que la reactivación se saltó (9-nov): no están asignados a Mia, o tienen etiqueta de cierre / pausa.
+      skipped: all.reduce((acc, m) => { const b = m.reactivation?.blocked_label; if (b) { const k = b === "not_mia" ? "not_mia" : b === "pausar_mia" ? "paused" : "closed"; acc[k] = (acc[k] || 0) + 1; } return acc; }, {}),
       recent: contacted.flatMap(m => [...(m.reactivation?.sent || []).map(x => ({ id: Number(m.id), name: m.nombre || null, template: x.template, at: x.at })), ...(m.reactivation?.docs_reminder_at ? [{ id: Number(m.id), name: m.nombre || null, template: "recordatorio1", at: m.reactivation.docs_reminder_at }] : [])].map(x => ({ ...x, replied: Date.parse(m.reactivation?.replied_at || "") > Date.parse(x.at) }))).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 30),
     });
   });

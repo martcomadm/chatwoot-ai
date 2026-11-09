@@ -1592,7 +1592,7 @@ async function renderMiaAnswers(view) {
     body = r.available === false ? `<div class="empty">Reactivación no disponible.</div>` : `
       <div class="notice ${cfg.enabled ? "" : "warn"}"><strong>${cfg.enabled ? "Encendida" : "Apagada"}</strong> · tope ${cfg.daily_cap} mensajes al día · enviados hoy: ${r.sent_today || 0}${cfg.changed_by ? ` · cambió ${esc(cfg.changed_by.name || cfg.changed_by.username || "")} ${esc(dateTime(cfg.changed_at))}` : ""}
         <div class="actions" style="margin-top:8px"><button class="btn small ${cfg.enabled ? "" : "primary"}" data-answer-act="react-toggle">${cfg.enabled ? "Apagar" : "Encender"}</button><button class="btn small quiet" data-answer-act="react-cap">Cambiar tope diario</button></div></div>
-      <p class="muted">A quien no compró y dejó de escribir: día 2 <strong>seguimiento4</strong>, día 7 <strong>procesoafiliacion1</strong>, día 30 <strong>saludodia2</strong> (o el día que dijo que retomaba, p. ej. "en la quincena"). A quien aceptó y no mandó documentos: <strong>recordatorio1</strong> una vez. Solo de 10:00 a 19:00, nunca a quien no le interesa, se equivocó, pidió no recibir mensajes o está con una persona.</p>
+      <p class="muted">Solo chats asignados a Mia y sin etiqueta de cierre. A quien no compró y dejó de escribir: día 2 <strong>seguimiento4</strong>, día 7 <strong>procesoafiliacion1</strong>, día 30 <strong>saludodia2</strong> (o el día que dijo que retomaba, p. ej. "en la quincena"). A quien aceptó y no mandó documentos: <strong>recordatorio1</strong> una vez. Solo de 10:00 a 19:00, nunca a quien no le interesa, se equivocó, pidió no recibir mensajes o está con una persona.</p>
       <div class="react-kpis">
         <div class="react-kpi"><span>Listos para enviar ahora</span><b>${r.pending_now || 0}</b><small>${Object.entries(r.pending_by_template || {}).map(([k, v]) => `${esc(NAMES[k] || k)}: ${v}`).join(" · ") || "—"}</small></div>
         <div class="react-kpi"><span>Clientes contactados</span><b>${res.contacted || 0}</b></div>
@@ -1600,6 +1600,7 @@ async function renderMiaAnswers(view) {
         <div class="react-kpi"><span>Aceptaron iniciar</span><b>${res.accepted || 0}</b></div>
         <div class="react-kpi"><span>Completaron documentos</span><b>${res.docs_completed || 0}</b><small>tras recordatorio1</small></div>
         <div class="react-kpi"><span>Pidieron no recibir mensajes</span><b>${res.no_contact || 0}</b></div>
+        <div class="react-kpi"><span>Omitidos</span><b>${Object.values(r.skipped || {}).reduce((a, b) => a + b, 0)}</b><small>${[["not_mia", "no asignados a Mia"], ["closed", "con etiqueta de cierre"], ["paused", "en pausa"]].filter(([k]) => r.skipped?.[k]).map(([k, l]) => `${r.skipped[k]} ${l}`).join(" · ") || "Solo se reactivan chats asignados a Mia"}</small></div>
       </div>
       ${reactClientsBlock(r, NAMES)}`;
   } else if (state.answersTab === "ab") {

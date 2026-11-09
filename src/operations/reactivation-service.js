@@ -1,7 +1,7 @@
 // Corre la reactivación de prospectos (ver sales/reactivation.js) cada 30 minutos.
 // Se enciende y apaga desde Operations (Respuestas de Mia → Reactivación); por seguridad
 // empieza APAGADA. Tope diario de envíos, solo de 10:00 a 19:00 (hora de México) y en horario
-// de Mia; no escribe si la conversación está asignada a una persona del equipo.
+// de Mia; solo escribe a chats asignados a Mia y sin etiqueta de cierre ni pausa (9-nov).
 import { nextReactivation } from "../sales/reactivation.js";
 import { templateByName } from "../chatwoot/template-catalog.js";
 import { stopLabels } from "../chatwoot/labels.js";
@@ -63,12 +63,12 @@ export class ReactivationService {
         try {
           // No escribir encima de una persona del equipo.
           const conversation = await this.chatwoot.getConversation(id);
-          const assignee = conversation?.meta?.assignee?.id;
-          if (assignee && this.miaAgentId && Number(assignee) !== Number(this.miaAgentId)) continue;
+          const assignee = Number(conversation?.meta?.assignee?.id || 0);
+          // 9-nov: solo los chats asignados a Mia (sin asignar o de otra persona no se reactivan).
           // Si Mia no le va a contestar (etiqueta de cierre como validacion/venta/cerrado, o pausar_mia), no se le
           // escribe (9-nov: clientes contestaron "¿me explica los planes?" y nadie les respondió).
           const labels = (conversation?.labels || []).map(l => typeof l === "string" ? l : l?.title).filter(Boolean);
-          const blocked = labels.find(l => stopLabels.has(l) || l === PAUSE_LABEL);
+          const blocked = (this.miaAgentId && assignee !== Number(this.miaAgentId) ? "not_mia" : null) || labels.find(l => stopLabels.has(l) || l === PAUSE_LABEL);
           if (blocked) {
             const memory = this.memories.get(id) || {};
             await this.memories.merge(id, { reactivation: { ...(memory.reactivation || {}), blocked_at: now.toISOString(), blocked_label: blocked } });
