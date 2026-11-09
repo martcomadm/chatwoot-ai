@@ -1,3 +1,4 @@
+import { templateByName } from "../chatwoot/template-catalog.js";
 // Reactivación de prospectos con plantillas aprobadas (pedido 5-nov).
 // A quien no compró y dejó de escribir se le manda, fuera de la ventana de 24 h:
 //   paso 1 · día 2  → seguimiento4        ("¿ha tenido alguna duda…?"; 6-nov, antes seguimiento3)
@@ -75,6 +76,9 @@ export function nextReactivation(memory = {}, { lastCustomerAt, now = new Date()
   if (skipReason(memory)) return null;
   const last = Date.parse(lastCustomerAt || "");
   if (!Number.isFinite(last)) return null;
+  // Chat con etiqueta de cierre o en pausa (9-nov: al cliente que contestó la plantilla Mia ya no le respondió).
+  // Se revisa al enviar (reactivation-service); hasta que el cliente vuelva a escribir no se intenta otra vez.
+  if (Date.parse(memory.reactivation?.blocked_at || "") > last) return null;
   const silentDays = (now.getTime() - last) / DAY;
   if (silentDays > MAX_SILENCE_DAYS) return null;
   const state = memory.reactivation || {};
@@ -115,8 +119,19 @@ export function nextReactivation(memory = {}, { lastCustomerAt, now = new Date()
 const YES_RE = /^(?:si+|sip|claro|ok|okay|va|vale|sale|me interesa|si me interesa|aun me interesa|todavia me interesa|si todavia|si aun|por favor|de acuerdo|bueno|adelante|hola|buen dia|buenos dias|buenas tardes|gracias)\b/;
 export function reactivationReplyDecision(memory = {}, text = "") {
   const state = memory.reactivation || {};
-  const lastName = state.sent?.at(-1)?.template;
-  if (!lastName || !state.awaiting_reply) return null;
+  // La plantilla de 24 h del seguimiento también es seguimiento4 y no queda en memory.reactivation (9-nov).
+  const followUpTemplate = String(memory.ultima_respuesta_agente || "") === (templateByName("seguimiento4")?.text || "-");
+  const lastName = state.awaiting_reply ? state.sent?.at(-1)?.template : followUpTemplate ? "seguimiento4" : null;
+  if (!lastName) return null;
+  const c0 = memory.sales_cycle || {};
+  const plan0 = c0.selected_plan || c0.recommended_plan || (c0.explained_plans || []).at(-1) || (c0.pitched_plans || []).at(-1) || null;
+  // "❓❔", "¿quién es?", "¿de dónde o qué es martcom?" (9-nov): no recuerda la plática. Se le recuerda quién
+  // le escribe y por qué.
+  const raw = String(text || "").trim();
+  if (/^[\s?¿❓❔!]+$/.test(raw) || /^(?:hola\s+|buen(?:os)? dias?\s+|disculpe\s+)*(?:quien (?:es|eres|habla|me escribe)|de donde (?:me escribe|es|son)|quienes son|que es esto|de que es|no se quien es|perdon quien es)\b/.test(norm(raw))) {
+    const planName = plan0 === "plan_2" ? "el Plan 2" : plan0 === "plan_1" ? "el Plan 1" : null;
+    return { reply: `¡Hola! Soy Mia, la asistente virtual de MARTCOM. Somos una consultoría que te ayuda a darte de alta ante el IMSS para que tengas servicio médico y sigas sumando semanas. Hace unos días platicamos sobre tu afiliación${planName ? ` y ${planName}` : ""}, y te escribí para saber si te quedó alguna duda. ¿Quieres que te explique cómo funciona ${planName || "el Plan 1"}?`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", plan: plan0 };
+  }
   const v = norm(text).replace(/[!.,]+$/g, "");
   if (!v || v.length > 60 || /[?¿]/.test(text) || !YES_RE.test(v) || /\bno\b/.test(v)) return null;
   const c = memory.sales_cycle || {};

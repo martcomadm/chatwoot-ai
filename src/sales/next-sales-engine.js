@@ -160,7 +160,9 @@ export function analyzeNextSale(text, memory = {}) {
   const explicitSelection = noPlan2(detectExplicitPlanSelection(value));
   const plan = detectedPlan || previous.recommended_plan || previous.selected_plan || null;
   // "Sí" justo después de "¿Quieres que iniciemos tu trámite?" también es autorización.
-  const authorizationPhrase = detectAuthorization(value) || confirmsStart(text, memory) || saysStart(text);
+  // "Si me gusta la idea de afiliarme… me arriesgo porque necesito" (caso real 7-nov: recibió los planes otra vez).
+  const enrolls = !/[?¿]/.test(String(text)) && !/\b(?:cuanto|costo|precio|no me|todavia no|aun no)\b/.test(value) && !/\bno\s+(?:lo\s+|la\s+|los\s+|me\s+)?(?:quiero|deseo|me gusta|me gustaria|me animo|me decido)\b/.test(value) && /\b(?:me gusta la idea de|si quiero|quiero|deseo|me gustaria|me decido a|me animo a)\s+(?:afiliarme|inscribirme|darme de alta|contratar(?:lo|los)?)\b|\bme arriesgo\b/.test(value);
+  const authorizationPhrase = detectAuthorization(value) || confirmsStart(text, memory) || saysStart(text) || enrolls;
   const altaInterest = detectAltaInterest(value);
   // "Quiero darme de alta" durante exploración expresa intención de compra, no autorización
   // operativa. NEXT solo abre expediente después de que ya existe contexto de plan/propuesta.

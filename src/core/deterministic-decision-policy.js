@@ -82,6 +82,10 @@ export const FACT_LOCKED_TYPES = new Set([
   "drop_guarantee",
   "tax_certificate",
   "still_covered",
+  // 9-nov.
+  "what_is_martcom",
+  "send_weeks",
+  "data_correction",
 ]);
 
 export function directAnswerDecision({ judgment, orchestration }) {

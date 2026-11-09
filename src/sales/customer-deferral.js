@@ -23,6 +23,8 @@ const NO_MONEY_RE = [
 ];
 
 const LATER_RE = [
+  // "Estoy de viaje… cuando regrese por favor", "le resuelvo luego" (casos reales 7 y 9-nov).
+  /\b(?:estoy|ando|voy)\s+de\s+viaje\b|\bcuando\s+(?:regrese|vuelva|llegue a casa|este de regreso)\b|\b(?:le|te|les)\s+resuelvo\s+(?:luego|despues|mas tarde|en un rato)\b/,
   /\b(?:yo )?(?:le|les|los|las|te) (?:aviso|abiso|escribo|contacto|marco|busco|confirmo)\b/,
   /\bcuando (?:yo )?(?:pueda|tenga|junte|me paguen|cobre|lo tenga|tenga el dinero)\b/,
   /\b(?:mas adelante|despues (?:le|les|te) (?:escribo|aviso)|luego (?:le|les|te) (?:escribo|aviso)|otro dia)\b/,
@@ -72,8 +74,8 @@ const LATER_RE = [
 // "Ahorita no estoy trabajando", "Por el momento no cuento con IMSS": responden una pregunta, no posponen.
 const ANSWERS_STATE_RE = /^(?:por el momento|de momento|por ahora|ahorita|en este momento|por lo pronto)\s+no\s+(?:estoy|tengo|cuento|trabajo|cotizo|soy|me dan)\b/;
 
-const THANKS_RE = /\b(?:gracias|grasias|graciaz|todo bien|igualmente|saludos|bendiciones|que amable|agradezco|agradecid[oa]|muy amable)\b/;
-const CLOSING_ONLY_RE = /^(?:(?:a|ah|ahh|oh|ok|okay|okey|si|no|ninguna|ninguno|nada|vale|va|bueno|muy bien|todo bien|esta bien|perfecto|listo|de acuerdo|entendido|gracias|grasias|graciaz|muchas gracias|mil gracias|muchisimas gracias|que amable|igualmente|saludos|bendiciones|excelente|por la informacion|por todo|y|bien|buenas noches|buenas tardes|buen dia|buenos dias|bonito dia|feliz dia|que descanse|te agradezco|le agradezco|agradezco|se lo agradezco|te lo agradezco|lo agradezco|les agradezco|pendientes|pendiente|buena tarde|buen dia a usted|muchisimo|mucho|muy amable|muy valiosa (?:tu|su) informacion|muy valiosa)[ ,.!]*)+$/;
+const THANKS_RE = /\b(?:gracias|grasias|graciaz|todo bien|igualmente|saludos|bendiciones|lindo dia|bonito dia|feliz dia|para ti tambien|para usted tambien|que amable|agradezco|agradecid[oa]|muy amable)\b/;
+const CLOSING_ONLY_RE = /^(?:(?:a|ah|ahh|oh|ok|okay|okey|si|no|ninguna|ninguno|nada|vale|va|bueno|muy bien|todo bien|esta bien|perfecto|listo|de acuerdo|entendido|gracias|grasias|graciaz|muchas gracias|mil gracias|muchisimas gracias|que amable|igualmente|saludos|bendiciones|excelente|por la informacion|por todo|y|bien|buenas noches|buenas tardes|buen dia|buenos dias|bonito dia|feliz dia|que descanse|te agradezco|le agradezco|agradezco|se lo agradezco|te lo agradezco|lo agradezco|les agradezco|pendientes|pendiente|buena tarde|buen dia a usted|muchisimo|mucho|muy amable|muy valiosa (?:tu|su) informacion|muy valiosa|lindo dia|para ti|para usted|tambien|igual)[ ,.!]*)+$/;
 
 function asksSomething(text) {
   return /[?¿]/.test(String(text || "")) || /\b(?:cuanto|cuando abren|que documentos|cuales|como le hago|donde)\b/.test(norm(text)) && !/\bcuando (?:yo )?(?:pueda|tenga)\b/.test(norm(text));
@@ -91,6 +93,8 @@ export function detectDeferral(text) {
   if (/\b(?:cuanto|costos?|precios?|cuesta|cobran|mensualidad)\b/.test(value) && !priceOk && !NO_MONEY_RE.some(re => re.test(value))) return null;
   if (NO_MONEY_RE.some(re => re.test(value))) return "no_money";
   if (ANSWERS_STATE_RE.test(value)) return null;
+  // "Ahorita no me puedo pensionar, es una pregunta" (caso real 8-nov) no pospone.
+  if (/\b(?:es una pregunta|es una prejunta|es pregunta|solo pregunto|nada mas pregunto|solo es pregunta|era una pregunta)\b/.test(value)) return null;
   // "Soy ley 73, en qué año no me acuerdo, necesito checar mis papeles" (caso real 27-oct) responde la pregunta.
   if (/\b(?:no me acuerdo|no recuerdo)\b/.test(value)) return null;
   if (LATER_RE.some(re => re.test(value))) return "later";
@@ -104,11 +108,14 @@ const OFFER_RE = /\b(quieres|quiere|te gustaria|le gustaria|deseas|desea|podemos
 
 // "Gracias x su valioso tiempo", "gracias por la atención" (caso real 20-oct) siguen siendo despedidas.
 function stripThanksTail(value) {
+  // "Muchas gracias por tu apoyo, Jehová Dios les bendiga y los proteja en todo momento" (8-nov: recibió
+  // "¿Tienes alguna duda sobre el Plan 1…?").
+  value = value.replace(/\b(?:que\s+)?(?:jehova\s+|mi\s+|el\s+)?(?:dios|diosito|el senor)\s+(?:te|le|les|los|lo|la|las|nos|me)\s+(?:bendiga|proteja|cuide|acompane|guarde|ayude|de)\b.*$/, " ").replace(/\s+/g, " ").trim();
   return value.replace(/\b(?:por|x)\s+(?:su|tu|la|el|toda la|todo el)?\s*(?:valioso\s+)?(?:tiempo|informacion|info|atencion|apoyo|ayuda|paciencia|amabilidad)\b/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export function detectClosing(text, { lastReply = "" } = {}) {
-  const value = stripThanksTail(norm(text));
+  const value = stripThanksTail(norm(text).replace(/[^\p{L}\p{N}\s,.!]/gu, " ").replace(/\s+/g, " ").trim());
   if (!value || asksSomething(text)) return false;
   if (/^(?:si|claro)\b/.test(value) && OFFER_RE.test(norm(lastReply))) return false;
   return THANKS_RE.test(value) && CLOSING_ONLY_RE.test(value);
@@ -204,6 +211,8 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   // hoy no paga nada y se le ofrece programar el alta para cuando tenga el pago.
   else if (kind === "no_money" && plan && !memory.sales_cycle?.schedule_offered && !lastReply.includes(SCHEDULE_OFFER_MARK)) reply = `Entiendo${name}, no te preocupes. Para iniciar hoy no pagas nada: el primer pago se hace hasta que tu alta ya aparece vigente. Si te ayuda, dejamos tu trámite listo y programamos tu alta para cuando tengas el pago (por ejemplo, tu próxima quincena). ${SCHEDULE_OFFER_MARK}`;
   else if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
+  // "Déjeme pensar bien qué plan me conviene y ya le aviso" (8-nov): se le ayuda a decidir.
+  else if (kind === "later" && !alreadyClosed && /\b(?:que|cual)\s+plan\b/.test(norm(combinedText))) reply = `Claro${name}, tómate tu tiempo. Por si te ayuda a decidir: si lo que más te importa es el servicio médico y seguir sumando semanas, el Plan 1 ($1,100 MXN mensuales) es suficiente; el Plan 2 ($1,500 MXN mensuales) conviene si además quieres aportaciones a tu AFORE. Cuando lo tengas, ${CLOSING_MARK} y lo iniciamos.`;
   else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando puedas, ${CLOSING_MARK} y con gusto continuamos con tu trámite. Aquí estaré para ayudarte.`;
   // Un "gracias" después de que Mia ya se despidió no necesita otra respuesta.
   else reply = alreadyClosed ? "" : `Con gusto${name}. Quedo al pendiente; cuando quieras continuar, ${CLOSING_MARK}.`;

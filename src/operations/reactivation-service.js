@@ -4,6 +4,9 @@
 // de Mia; no escribe si la conversación está asignada a una persona del equipo.
 import { nextReactivation } from "../sales/reactivation.js";
 import { templateByName } from "../chatwoot/template-catalog.js";
+import { stopLabels } from "../chatwoot/labels.js";
+
+const PAUSE_LABEL = "pausar_mia";
 
 const MX_OFFSET_MS = 6 * 3600 * 1000;
 const mxHour = now => new Date(now.getTime() - MX_OFFSET_MS).getUTCHours();
@@ -62,6 +65,15 @@ export class ReactivationService {
           const conversation = await this.chatwoot.getConversation(id);
           const assignee = conversation?.meta?.assignee?.id;
           if (assignee && this.miaAgentId && Number(assignee) !== Number(this.miaAgentId)) continue;
+          // Si Mia no le va a contestar (etiqueta de cierre como validacion/venta/cerrado, o pausar_mia), no se le
+          // escribe (9-nov: clientes contestaron "¿me explica los planes?" y nadie les respondió).
+          const labels = (conversation?.labels || []).map(l => typeof l === "string" ? l : l?.title).filter(Boolean);
+          const blocked = labels.find(l => stopLabels.has(l) || l === PAUSE_LABEL);
+          if (blocked) {
+            const memory = this.memories.get(id) || {};
+            await this.memories.merge(id, { reactivation: { ...(memory.reactivation || {}), blocked_at: now.toISOString(), blocked_label: blocked } });
+            continue;
+          }
           const result = await this.templates.sendNamed(id, item.template);
           if (!result.sent) { await this.inspectorEvents?.record?.(id, "reactivation_failed", { template: item.template, reason: result.reason }); continue; }
           const memory = this.memories.get(id) || {};

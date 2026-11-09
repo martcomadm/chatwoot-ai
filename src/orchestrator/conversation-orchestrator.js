@@ -1,3 +1,4 @@
+import { CALL_OFFER_MARK } from "../core/human-request.js";
 import { SCHEDULE_OFFER_MARK } from "../sales/scheduled-start.js";
 import { INFONAVIT_CREDIT_PRICE_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT } from '../sales/infonavit-credit.js';
 import { effectivePlan } from '../sales/progressive-disclosure.js';
@@ -21,8 +22,19 @@ function isRequirementsQuestion(v){
 
 export const OPERATIONAL_MODEL_ANSWER='Tu alta se realiza con una empresa y, además, contamos con una empresa de respaldo. Mientras realices tu pago mensual en tiempo y forma, no deberías tener ningún inconveniente con tu afiliación.';
 
+const CALL_OFFER_TEXT = `¿${CALL_OFFER_MARK.charAt(0).toUpperCase()}${CALL_OFFER_MARK.slice(1)} unos minutos? Dime sí y a qué hora te queda bien, y te marcamos a este número.`;
+
 export function detectDirectRequest(text){
   const v=norm(text);
+  // 9-nov (export 5 al 9-nov):
+  // "Buenos días disculpe, de dónde o qué es martcom" (contestó la plantilla de seguimiento; recibió el Plan 1).
+  if(/\b(?:que|quien|quienes)\s+(?:es|son)\s+(?:martcom|ustedes|esto)\b|\bque empresa es martcom\b|\bde donde o que es\b/.test(v)) return {type:'what_is_martcom',priority:'high',answerKey:'what_is_martcom'};
+  // "Tengo enfermedad renal, ¿me podrían ayudar?" (recibió "¿Qué te interesa principalmente…?").
+  if(/\b(?:tengo|padezco|me diagnosticaron|sufro de|estoy enferm[oa] de|soy)\s+(?:una\s+|un\s+)?(?:enf\w{1,3}medad\w*|enfermo|insuficiencia|diabet\w*|cancer|hipertens\w*|renal|dialisis|hemodialisis|tumor|lupus|artritis|vih|epilep\w*|cardiopat\w*|leucemia)\b/.test(v) && (/[?¿]/.test(String(text||''))||/\b(?:ayudar|ayudan|ayuda|atender|atienden|atiende|cubre|cubren|puedo|aplica|sirve|me sirve)\b/.test(v))) return {type:'preexisting',priority:'high',answerKey:'preexisting'};
+  // "Si, pero necesito enviarle mis semanas" (recibió "¿Tienes alguna duda sobre el Plan 1…?").
+  if(/\b(?:enviar|enviarle|mandar|mandarle|compartir|compartirle)(?:le|te)?\s+(?:mis|el|la|mi)\s+(?:semanas|reporte de semanas|constancia de semanas|historial)\b/.test(v) && !/\bissste\b/.test(v)) return {type:'send_weeks',priority:'high',answerKey:'send_weeks'};
+  // "Debo actualizar datos primero / mi nombre y mi fecha de nacimiento, todo estuvo mal" (tres respuestas genéricas).
+  if(/\b(?:actualizar|corregir|correccion|cambiar|arreglar|modificar)\s+(?:mis\s+|los\s+|mi\s+)?(?:datos|nombre|fecha de nac\w*|curp)\b|\b(?:datos|nombre|fecha de nac\w*)\b.{0,30}\b(?:estan? mal|estuvo mal|estubo mal|esta incorrect\w*|equivocad\w*)\b/.test(v.replace(/[.,;:]+/g,' ').replace(/\s+/g,' '))) return {type:'data_correction',priority:'high',answerKey:'data_correction'};
   // 6-nov (export 5 y 6-nov):
   // "Cómo los contacto / Para afiliarme con ustedes" recibió "Cuando puedas, escríbeme…".
   if(/\bcomo\s+(?:los|les|le|te|lo)\s+contacto\b|\bcomo\s+(?:me\s+)?(?:afilio|inscribo|registro|doy de alta)\s+con\s+ustedes\b|\bpara\s+afiliarme\s+con\s+ustedes\b/.test(v) && !/\baparte de aqui\b|\b(?:telefono|numero|llamar|oficina)\b/.test(v)) return {type:'how_to_start',priority:'high',answerKey:'how_to_start'};
@@ -296,6 +308,9 @@ export function directAnswerText(request){
   if(request.answerKey==='beneficiary') return `Sí. Con tu alta con nosotros puedes registrar como beneficiarios a ${request.partner?'tu pareja (aunque vivan en unión libre)':'tu pareja'}, a tus hijos menores de 16 años y a tus padres, sujeto a validación del IMSS. Está incluido desde el Plan 1, de $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`;
   if(request.answerKey==='info_free') return 'No, la información no tiene ningún costo: con gusto te resuelvo tus dudas por aquí. Solo pagas la mensualidad del plan si decides afiliarte: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes. ¿Qué te gustaría saber?';
   if(request.answerKey==='plan1_no_afore'&&request.feature==='incapacidades') return 'Al contrario: el Plan 1 ($1,100 MXN mensuales) sí incluye incapacidad por enfermedad, conforme a las reglas del IMSS, además de servicio médico y semanas cotizadas. Lo que no manejamos en ningún plan es la incapacidad por accidente o riesgo de trabajo, porque no trabajas para nosotros. El Plan 2 ($1,500 MXN mensuales) suma además AFORE e INFONAVIT. ¿Cuál te interesa más?';
+  if(request.answerKey==='what_is_martcom') return 'MARTCOM es una consultoría privada que gestiona afiliaciones ante el IMSS: te damos de alta para que tengas servicio médico del IMSS y sigas sumando semanas cotizadas, con un salario diario registrado de $480 MXN. Yo soy Mia, la asistente virtual de MARTCOM. ¿Quieres que te explique cómo funciona el Plan 1?';
+  if(request.answerKey==='send_weeks') return 'Claro, envíame por aquí tu reporte de semanas cotizadas (foto o PDF) y lo revisamos para decirte cómo te conviene continuar.';
+  if(request.answerKey==='data_correction') return `Entiendo. Corregir datos como tu nombre o tu fecha de nacimiento ante el IMSS depende de cada caso, así que es mejor que lo revise un asesor contigo. ${CALL_OFFER_TEXT}`;
   if(request.answerKey==='process_time_urgent') return 'Con tus documentos completos, el alta suele quedar en aproximadamente 48 horas hábiles. Si me compartes hoy tu CURP, NSS e INE, la iniciamos de inmediato para que llegues a tiempo. El primer pago se hace hasta que tu alta ya aparece vigente. ¿Quieres que iniciemos tu trámite?';
   if(request.answerKey==='contact_channels') return 'Todo el trámite se hace por este WhatsApp: aquí te atendemos Mia y el equipo de MARTCOM, y por aquí mismo recibes tu documento de vigencia. Si te queda mejor que te expliquen por teléfono, ¿prefieres que un asesor te llame unos minutos? Dime sí y a qué hora te queda bien, y te marcamos a este número.';
   if(request.answerKey==='drop_guarantee') return 'Es una duda muy válida. Primero va tu alta: cuando ya aparece vigente ante el IMSS te enviamos tu documento de vigencia y tú mismo lo puedes comprobar en la app IMSS Digital o en tu clínica. Hasta entonces haces tu primer pago, así que primero compruebas y después pagas. Mientras sigas al corriente con tu mensualidad, tu alta se mantiene activa. ¿Quieres que iniciemos tu trámite?';

@@ -1,3 +1,4 @@
+import { CALL_OFFER_MARK } from "./human-request.js";
 import { effectivePlan, discussedPlan } from "../sales/progressive-disclosure.js";
 const REPHRASED = {
   nombre: "Para continuar, ¿me compartes tu nombre completo?",
@@ -85,5 +86,10 @@ export function contextualNextStep(memory = {}) {
   if (plan) options.push(`Si te parece bien, ¿iniciamos tu trámite con el ${label}?`);
   else options.push("Cuéntame un poco más de lo que buscas y te digo qué plan te conviene: ¿te interesa sobre todo el servicio médico o también aportar a tu AFORE?");
   const last = String(memory?.ultima_respuesta_agente || "").trim();
-  return options.find(option => !last.endsWith(option)) || options.at(-1);
+  // 9-nov (conv 11045): cuatro respuestas genéricas seguidas mientras el cliente explicaba otra cosa
+  // ("debo actualizar datos"). Se avanza una vez por las opciones y, al acabarse, se ofrece que lo llame un asesor.
+  const call = `No quiero dejarte con dudas. ¿${CALL_OFFER_MARK.charAt(0).toUpperCase()}${CALL_OFFER_MARK.slice(1)} unos minutos? Dime sí y a qué hora te queda bien, y te marcamos a este número.`;
+  const at = options.findIndex(option => last.endsWith(option));
+  if (at >= 0) return at < options.length - 1 ? options[at + 1] : call;
+  return options[0];
 }
