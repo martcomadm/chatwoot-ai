@@ -1,3 +1,3 @@
 // Versión visible en Operations (debajo de "Operations NEXT") para confirmar qué quedó desplegado.
 // Se actualiza con cada entrega.
-export const BUILD_LABEL = "09-nov · Pruebas A/B con más mensajes";
+export const BUILD_LABEL = "09-nov · Modelo avanzado en el Inspector";

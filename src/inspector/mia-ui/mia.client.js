@@ -361,6 +361,10 @@ function renderImpact() {
         ${tool("Aviso: interesado sin responder", "a Captura a las 2 h", A.alert_lead.sent, `${A.alert_lead.accepted} terminaron aceptando`, A.alert_lead.accepted_pct)}
         ${tool("Aviso: no manda documentos", "a Captura a las 4 h", A.alert_docs.sent, `${A.alert_docs.accepted} completaron documentos`, A.alert_docs.accepted_pct)}
         ${tool("Intervenciones de Captura", "ventas salvadas", A.intervened.sent, `${A.intervened.saved} aceptaron después de intervenir`, A.intervened.saved_pct, `${A.intervened.saved_docs} con documentos`)}
+        ${tool("Aviso: cliente listo para comprar", "a Captura al momento", A.hot_lead?.sent || 0, `${A.hot_lead?.accepted || 0} terminaron aceptando`, A.hot_lead?.accepted_pct)}
+        ${tool("Llamada tras dos objeciones", "en el momento, una vez", A.early_call?.sent || 0, `${A.early_call?.accepted || 0} terminaron aceptando`, A.early_call?.accepted_pct)}
+        ${tool("Modelo avanzado", "mensajes difíciles y correcciones", A.strong?.sent || 0, `${A.strong?.accepted || 0} terminaron aceptando`, A.strong?.accepted_pct, `${A.strong?.replies || 0} respuestas${(A.strong?.reasons || []).length ? ` · ${A.strong.reasons.map(([r, n]) => `${esc(r)}: ${n}`).join(" · ")}` : ""}`)}
+        <tr><th scope="row">Aceptaron con fecha<small class="muted">"en la quincena", "en 10 días"</small></th><td data-label="Clientes" colspan="4" class="left">${A.scheduled_start?.sent || 0}</td></tr>
         <tr><th scope="row">Respuestas del equipo<small class="muted">veces que Mia usó una</small></th><td data-label="Veces" colspan="4" class="left">${A.team_answers}</td></tr>
         <tr><th scope="row">Calificaciones<small class="muted">👍 / 👎 en Chats de Mia</small></th><td data-label="Total" colspan="4" class="left">👍 ${A.ratings.up} · 👎 ${A.ratings.down}</td></tr>
       </tbody></table>

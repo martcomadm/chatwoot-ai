@@ -77,3 +77,24 @@ test("en el processor: el mensaje difícil va al avanzado y queda registrado", a
     assert.ok(sent, "lo contestó una regla fija (no pasó por la IA)");
   }
 });
+
+import { buildImpact } from "../src/inspector/impact-service.js";
+import { MiaConsole } from "../src/inspector/mia-console.js";
+test("Inspector: Impacto cuenta el modelo avanzado (y los avisos nuevos); la conversación lo marca", async () => {
+  const ev = (type, at, details = {}) => ({ type, timestamp: at, details });
+  const eventsByConv = new Map([
+    [1, [ev("ai_reply_sent", "2026-11-10T16:00:00Z", { customer_text: "Me dicen que es fraude", decision_source: "llm", model_tier: "strong", hard_turn: "duda de confianza", reply: "x" }), ev("hot_lead_alert", "2026-11-10T16:05:00Z")]],
+    [2, [ev("ai_reply_sent", "2026-11-10T17:00:00Z", { customer_text: "hola", decision_source: "llm", model_tier: "normal", reply: "y" }), ev("early_call_offer", "2026-11-10T17:01:00Z")]],
+  ]);
+  const memories = [{ id: 1, sales_cycle: { authorized: true, authorized_at: "2026-11-10T18:00:00Z" } }, { id: 2 }];
+  const i = buildImpact({ memories, eventsByConv, since: "2026-11-10", to: "2026-11-10", now: new Date("2026-11-11T00:00:00Z") });
+  assert.deepEqual({ sent: i.after.strong.sent, accepted: i.after.strong.accepted, replies: i.after.strong.replies }, { sent: 1, accepted: 1, replies: 1 });
+  assert.deepEqual(i.after.strong.reasons, [["duda de confianza", 1]]);
+  assert.equal(i.after.hot_lead.sent, 1);
+  assert.equal(i.after.early_call.sent, 1);
+
+  const events = eventsByConv.get(1);
+  const c = new MiaConsole({ config: { ai: {} }, memories: { list: () => memories, get: id => memories.find(m => m.id === id) }, inspectorEvents: { listAll: () => [], get: () => events } });
+  const conv = await c.conversation(1);
+  assert.match(conv.transcript.find(m => m.who === "mia").label, /modelo avanzado \(duda de confianza\)/);
+});

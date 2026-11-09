@@ -53,6 +53,12 @@ function facts(id, events, memory = {}) {
     saved: Boolean(intervention) && Boolean(authorizedAt) && after(intervention)(authorizedAt),
     saved_docs: Boolean(intervention) && Boolean(docsAt) && after(intervention)(docsAt),
     team_answers: all(e => e.type === "ai_reply_sent" && String(e.details?.decision_source || "").startsWith("team_answer:")).length,
+    // 9-nov: modelo avanzado, aviso de cliente listo, llamada tras dos objeciones, aceptó con fecha.
+    strong: at(e => e.type === "ai_reply_sent" && e.details?.model_tier === "strong"),
+    strong_replies: all(e => e.type === "ai_reply_sent" && e.details?.model_tier === "strong").map(e => e.details?.hard_turn || "corrección o repetición"),
+    hotLead: at(e => e.type === "hot_lead_alert"),
+    earlyCall: at(e => e.type === "early_call_offer"),
+    scheduledStart: at(e => e.type === "scheduled_start"),
   };
 }
 
@@ -77,6 +83,10 @@ function summarize(list) {
     alert_docs: tool("alertDocs", f => f.docs),
     intervened: { sent: list.filter(f => f.intervention).length, saved: list.filter(f => f.saved).length, saved_docs: list.filter(f => f.saved_docs).length, saved_pct: pct(list.filter(f => f.saved).length, list.filter(f => f.intervention).length) },
     team_answers: list.reduce((sum, f) => sum + f.team_answers, 0),
+    strong: { ...tool("strong"), replies: list.reduce((sum, f) => sum + f.strong_replies.length, 0), reasons: Object.entries(list.flatMap(f => f.strong_replies).reduce((acc, r) => { acc[r] = (acc[r] || 0) + 1; return acc; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 4) },
+    hot_lead: tool("hotLead"),
+    early_call: tool("earlyCall"),
+    scheduled_start: { sent: list.filter(f => f.scheduledStart).length },
   };
 }
 
