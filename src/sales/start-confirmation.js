@@ -19,7 +19,8 @@ const SHORT_AFFIRMATIVE_RE = /^(?:(?:si+|sip|claro|ok|okay|okey|oki|va|vale|sale
 // Mia preguntó explícitamente si iniciamos/comenzamos el trámite o la contratación.
 // Incluye las formas que usa la IA: "¿Deseas que inicie tu trámite con el Plan 1?",
 // "¿Quieres que proceda con Plan 1…?", "¿Confirmas que deseas iniciar…?" (casos reales 19 y 20-oct).
-const AGENT_ASKED_TO_START_RE = /(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos|inicie|comience|empiece|proceda|demos de alta|te demos de alta|te de de alta|tramitemos|prepare|preparemos|registre|realice|realicemos)|(?:quieres|deseas|te gustaria) (?:iniciar|comenzar|empezar|proceder|contratar|continuar con el tramite)|confirmas que (?:deseas|quieres) (?:iniciar|comenzar|proceder)|confirmas que (?:iniciemos|comencemos|empecemos|procedamos|te demos de alta)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) (?:tramite|alta)|si estas de acuerdo, podemos iniciar|iniciamos (?:tu|el) tramite|(?:proceder|iniciar|continuar|seguir) con (?:el|tu) tramite\?|para iniciar necesito que me envies/;
+// 9-nov: cierre de la prueba A/B "para apartarte un lugar solo necesito tu CURP… ¿me la compartes?".
+const AGENT_ASKED_TO_START_RE = /para apartar(?:te)? (?:un|tu) lugar|solo necesito tu curp|(?:quieres|deseas|te gustaria|gustas) que (?:iniciemos|comencemos|empecemos|procedamos|continuemos|inicie|comience|empiece|proceda|demos de alta|te demos de alta|te de de alta|tramitemos|prepare|preparemos|registre|realice|realicemos)|(?:quieres|deseas|te gustaria) (?:iniciar|comenzar|empezar|proceder|contratar|continuar con el tramite)|confirmas que (?:deseas|quieres) (?:iniciar|comenzar|proceder)|confirmas que (?:iniciemos|comencemos|empecemos|procedamos|te demos de alta)|(?:podemos|puedo) (?:iniciar|comenzar|empezar) (?:el|tu) (?:tramite|alta)|si estas de acuerdo, podemos iniciar|iniciamos (?:tu|el) tramite|(?:proceder|iniciar|continuar|seguir) con (?:el|tu) tramite\?|para iniciar necesito que me envies/;
 
 export function genericInterest(text) {
   // "Pero si me inyeresa", "Pues sí me interesó" (caso real 5-nov: recibió una pregunta genérica).
@@ -46,7 +47,9 @@ export function agentAskedToStart(memory = {}) {
 export function confirmsStart(text, memory = {}) {
   // "Si me interesa" y una CURP enviada justo después de "¿Quieres que iniciemos tu trámite?" también
   // aceptan (casos reales 23 y 24-oct: recibieron "¿Actualmente tienes un alta activa ante el IMSS?").
-  const curpOnly = /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/i.test(String(text || "").replace(/\s+/g, "").trim());
+  const curpOnly = /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/i.test(String(text || "").replace(/\s+/g, "").trim())
+    // "Mi CURP es XXXX…" o la CURP con un saludo (9-nov, cierre que pide la CURP).
+    || (/\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/i.test(String(text || "")) && !/\bno\b/i.test(String(text || "").replace(/\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/gi, "")));
   return (shortAffirmative(text) || affirmsWithDocuments(text) || genericInterest(text) || curpOnly) && agentAskedToStart(memory);
 }
 

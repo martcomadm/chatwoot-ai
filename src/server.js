@@ -1,3 +1,4 @@
+import { HotLeadAlerts } from "./operations/hot-lead-alerts.js";
 import { CaptureReviewRouter } from "./operations/capture-review.js";
 import "dotenv/config";
 import express from "express";
@@ -23,7 +24,7 @@ import { ReactivationService } from "./operations/reactivation-service.js";
 import { TeamAnswerStore } from "./knowledge/team-answers.js";
 import { LearningInbox } from "./knowledge/learning-inbox.js";
 import { ReplyFeedbackStore } from "./knowledge/reply-feedback.js";
-import { ExperimentStore } from "./knowledge/experiments.js";
+import { ExperimentStore, CLOSE_CURP_B } from "./knowledge/experiments.js";
 import { CaseStore } from "./operations/customer-service/case-store.js";
 import { CustomerService } from "./operations/customer-service/customer-service.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
@@ -104,6 +105,9 @@ try {
   const replyFeedback = new ReplyFeedbackStore(path.join(config.storage.dataDir, "mia-reply-feedback.json"));
   ai.replyFeedback = replyFeedback;
   const experiments = new ExperimentStore(path.join(config.storage.dataDir, "mia-experiments.json"));
+  // 9-nov: prueba del cierre (A = "¿Quieres que iniciemos tu trámite?", B = pedir la CURP). Se ve y se termina
+  // en Operations → Respuestas de Mia → Pruebas A/B.
+  experiments.seed({ slot: "contextual_plan_explanation", name: "Cierre: pedir la CURP vs. ¿iniciamos?", bText: CLOSE_CURP_B });
   const turnLock = new TurnLock(path.join(config.storage.dataDir, "turn-locks"));
   turnLock.prune();
   setInterval(() => turnLock.prune(), 6 * 60 * 60 * 1000).unref();
@@ -146,6 +150,8 @@ try {
     // Cliente que vio el plan y lleva 2 h sin contestar: aviso a Captura (4-nov).
     const coldLeads = new ColdLeadAlerts({ followUpStore: followUps.store, memories, notifier: opsNotifier, inspectorEvents, isOpen: now => processor.inSchedule(now) });
     coldLeads.start();
+    const hotLeads = new HotLeadAlerts({ memories, notifier: opsNotifier, inspectorEvents });
+    processor.onHotLead = input => hotLeads.alert(input);
   }
   // Rescate: cada 15 min (y al arrancar) retoma chats que se quedaron solo con el aviso
   // de horario o con un mensaje del cliente que nunca se procesó.

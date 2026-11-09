@@ -105,6 +105,7 @@ export const EVENT_LABELS = {
   reply_rated: "El equipo calificó una respuesta",
   cold_lead_alert: "Aviso a Captura: interesado sin responder",
   scheduled_start: "Aceptó con fecha: alta programada (aviso a Captura)",
+  hot_lead_alert: "Aviso inmediato a Captura: cliente listo para comprar",
   capture_intervention_released: "Captura regresó el chat a Mia",
 };
 

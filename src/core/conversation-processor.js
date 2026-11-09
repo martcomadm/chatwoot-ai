@@ -18,6 +18,7 @@ import { asksNoContact, reactivationReplyDecision, resumeDate } from "../sales/r
 import { menuChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
+import { hotLeadReason } from "../operations/hot-lead-alerts.js";
 import { scheduledStartIntro, scheduledStartNote } from "../sales/scheduled-start.js";
 import { TEMPLATE_TEXTS } from "../chatwoot/whatsapp-templates.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
@@ -963,6 +964,12 @@ export class ConversationProcessor {
       decision = protectDeterministicDecision({ reply: INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "infonavit_credit");
     }
     const decisionSource = decision?.__source || "unknown";
+    // Cliente listo para comprar (9-nov): aviso inmediato a Captura, sin esperar las 2 h del aviso de "se enfría".
+    const hotReason = hotLeadReason({ memory, text: combinedText, answerKey: directRequest?.answerKey || null });
+    if (hotReason && this.onHotLead) {
+      try { await this.onHotLead({ conversation_id: conversationId, memory, text: combinedText, reason: hotReason }); memory = { ...memory, hot_lead_alert: { at: new Date().toISOString(), reason: hotReason } }; }
+      catch (error) { console.error("NEXT aviso de cliente listo:", error?.message || error); }
+    }
     // Pruebas A/B (4-nov): versión A/B del mensaje o texto ganador.
     const experimentHit = this.experiments?.apply?.(decisionSource, conversationId, decision?.reply);
     if (experimentHit) {

@@ -1927,7 +1927,7 @@ function playChime(kind) {
   try {
     unlockSound();
     if (!audioCtx) return;
-    const notes = kind === "issue" || kind === "overdue" || kind === "cold_lead" ? [784, 659, 523] : [659, 880, 1175];
+    const notes = kind === "issue" || kind === "overdue" || kind === "cold_lead" || kind === "hot_lead" ? [784, 659, 523] : [659, 880, 1175];
     const NOTE = 0.32, GAP = 0.05, PAUSE = 0.45;
     const round = notes.length * (NOTE + GAP) + PAUSE;
     // Compresor: sube el volumen percibido sin que se distorsione.
@@ -1956,7 +1956,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { no
 
 function handleNotify(n) {
   playChime(n.kind);
-  toast(`${n.title}${n.body ? `: ${n.body}` : ""}`, n.kind === "issue" || n.kind === "overdue" || n.kind === "cold_lead" ? "bad" : "");
+  toast(`${n.title}${n.body ? `: ${n.body}` : ""}`, n.kind === "issue" || n.kind === "overdue" || n.kind === "cold_lead" || n.kind === "hot_lead" ? "bad" : "");
   if (document.hidden) { notifyState.unread += 1; updateTitle(); }
   // Sin Web Push en este dispositivo: aviso del sistema mientras la página siga abierta.
   if (document.hidden && !notifyState.subscribed && "Notification" in window && Notification.permission === "granted") {

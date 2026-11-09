@@ -8,11 +8,17 @@ import crypto from "node:crypto";
 import { AD_OPENINGS } from "../sales/ad-openings.js";
 import { NEED_MENU_TEXT, NEED_MENU_MARK } from "../sales/need-menu.js";
 
+export const CLOSE_DEFAULT = "¿Quieres que iniciemos tu trámite?";
+// Versión B del cierre: pide un paso pequeño y concreto (la CURP) y quita el riesgo de pagar.
+export const CLOSE_CURP_B = "Para apartarte un lugar solo necesito tu CURP: con eso empiezo tu trámite hoy, y tú compruebas tu alta en el IMSS antes de pagar. ¿Me la compartes?";
+
 // Mensajes que se pueden probar. "required" son frases que Mia necesita para seguir el flujo.
 export const SLOTS = Object.freeze({
   "ad_opening:case_review": { label: "Apertura del anuncio \"revisar mi caso\"", defaultText: AD_OPENINGS.case_review, required: ["en qué año empezaste a cotizar"] },
   "ad_opening:pension": { label: "Apertura del anuncio \"seguir sumando para pensión\"", defaultText: AD_OPENINGS.pension, required: ["en qué año empezaste a cotizar"] },
   "ad_opening:no_imss": { label: "Apertura del anuncio \"no cuento con IMSS\"", defaultText: AD_OPENINGS.no_imss, required: [] },
+  // 9-nov (punto 1 para cerrar más): cómo termina la explicación completa del plan.
+  "contextual_plan_explanation": { label: "Cierre después de explicar el plan", defaultText: CLOSE_DEFAULT, required: [] },
   "followup:menu": { label: "Segundo seguimiento (menú numerado)", defaultText: NEED_MENU_TEXT, required: [NEED_MENU_MARK, "1", "2", "3"] },
 });
 
@@ -61,6 +67,13 @@ export class ExperimentStore {
     this.state.items.push(item);
     this.persist();
     return { ...item };
+  }
+
+  // Prueba que arranca sola al desplegar (si nunca ha corrido una con ese texto B para ese mensaje).
+  seed({ slot, name, bText }) {
+    if (this.active(slot) || this.state.items.some(item => item.slot === slot && item.b_text === bText)) return null;
+    try { return this.create({ slot, name, bText }, { username: "mia", name: "Mia (automática)" }); }
+    catch (error) { console.error("NEXT: no se pudo iniciar la prueba A/B:", error.message); return null; }
   }
 
   finish(id, winner, by = null) {
