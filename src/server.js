@@ -100,7 +100,7 @@ try {
   }
   workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error));
   setInterval(()=>workflowBridge.retryPendingDeliveries().catch(error=>console.error("NEXT reintento de documentos pendientes:",error)),15*60*1000).unref();
-  const ai = new AiServices(openai, { ...config.openai, ...config.ai });
+  const ai = new AiServices(openai, { ...config.openai, ...config.ai, usageFile: path.join(config.storage.dataDir, "mia-ai-usage.json") });
   // Respuestas de Mia editables por el equipo (Operations → Respuestas de Mia).
   const teamAnswers = new TeamAnswerStore(path.join(config.storage.dataDir, "mia-team-answers.json"));
   ai.teamAnswers = teamAnswers;
@@ -232,7 +232,7 @@ try {
   // Aprendizaje semanal (9-nov): cada lunes 8:00 revisa la semana y propone respuestas a Supervisión.
   const weeklyReview = new WeeklyReviewService({ file: path.join(config.storage.dataDir, "mia-weekly-reviews.json"), memories, inspectorEvents, learningInbox, ai, experiments, notifier: opsNotifier });
   weeklyReview.start();
-  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox, replyFeedback, experiments, reactivation, weeklyReview }));
+  app.use(createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users: opsUsers, sessions: opsSessions, settings: opsSettings, audit: opsAudit, notifier: opsNotifier, push: opsPush, chatwoot, selfSenders, customerService, miaConsole, teamAnswers, learningInbox, replyFeedback, experiments, reactivation, weeklyReview, aiUsage: () => ai.usage() }));
   app.use(createRouter({ config, memories, buffer, inspectorEvents, handoffRotation, operationsConfig, chatwoot, miaConsole }));
 
   app.listen(config.port, "0.0.0.0", () => {

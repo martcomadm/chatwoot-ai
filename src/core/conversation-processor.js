@@ -19,6 +19,7 @@ import { menuChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { hotLeadReason } from "../operations/hot-lead-alerts.js";
+import { hardTurnReason } from "./hard-turn.js";
 import { updateProfile, personalTouch } from "../memory/customer-profile.js";
 import { isTeamOff, nextTeamDay, todayName, parseOffDays } from "./team-days.js";
 import { CALL_OFFER_MARK } from "./human-request.js";
@@ -850,6 +851,7 @@ export class ConversationProcessor {
     }
     const creditDecision = creditJustDetected ? { reply: INFONAVIT_CREDIT_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" } : null;
     const featureRejection = featureRejectionDecision(memory, combinedText);
+    let hardTurn = null;
     const teamOff = isTeamOff(new Date(), this.teamOffDays) ? { today: todayName(new Date()), next: nextTeamDay(new Date(), this.teamOffDays) } : null;
     const deferral = featureRejection ? null : deferralDecision(memory, combinedText, { resumedAfterHours, teamOff });
     // Notas de voz o archivos sin texto antes de iniciar el trámite: Mia no puede escucharlos
@@ -916,7 +918,9 @@ export class ConversationProcessor {
     else if (needDecision && !advisoryTurn) decision = protectDeterministicDecision(needDecision, "need_discovery");
     else if (compactRecommendation && !advisoryTurn) decision = protectDeterministicDecision(compactRecommendation, "compact_plan_recommendation");
     else {
-      const generated = await this.safeAi(conversationId, "decision", () => this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText), null);
+      // Modelo avanzado (9-nov) solo para los mensajes difíciles; sin OPENAI_MODEL_STRONG todo va con el normal.
+      hardTurn = this.ai?.strongModel?.() ? hardTurnReason({ text: combinedText, memory: base, frustrated: Boolean(patience?.state) }) : null;
+      const generated = await this.safeAi(conversationId, "decision", () => this.ai.generateDecision(conversation, currentLabels, memory, planner, combinedText, { strong: Boolean(hardTurn) }), null);
       decision = generated ? { ...generated, __source: "llm" } : { ...fallbackDecision(memory, planner, combinedText), __source: "fallback_ai_error" };
       if (!generated) replacedReasons.push("fallo_ia");
     }
@@ -1009,6 +1013,7 @@ export class ConversationProcessor {
       if (experimentHit.experiment) memory = { ...memory, experiments: { ...(memory.experiments || {}), [experimentHit.experiment]: memory.experiments?.[experimentHit.experiment] || { variant: experimentHit.variant, at: new Date().toISOString(), slot: decisionSource } } };
     }
     const decisionState = { payment_extension_request: Boolean(decision?.payment_extension_request), onboarding_declined: Boolean(decision?.onboarding_declined), plan_change_request: decision?.plan_change_request || null, nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
+    const modelTier = decision?.__tier || null;
     decision = stripDecisionMetadata(decision || {});
     decision.reply = String(decision.reply || "").trim().slice(0, this.config.ai.maxReplyChars || 850);
     // Mia no pone etiquetas que la callan (no_quiere_el_servicio, rechazado…): caso real 21-oct, la IA
@@ -1053,7 +1058,7 @@ export class ConversationProcessor {
     } else if (repeatsLast && /^(?:direct:|need_discovery$|progressive_opening$|compact_plan_recommendation$|contextual_plan_explanation$|coverage_and_requirements$)/.test(decisionSource)) {
       // Cualquier otra respuesta fija idéntica a la anterior (cirugía 3 veces a Julio, pregunta de necesidad
       // repetida a Silvia; casos reales 23 y 25-oct): la redacta la IA con el contexto del cliente.
-      const regenerated = await this.safeAi(conversationId, "decision_repeat", () => this.ai.generateDecision(conversation, currentLabels, memory, { ...planner, avoid_repeating: decision.reply }, combinedText), null);
+      const regenerated = await this.safeAi(conversationId, "decision_repeat", () => this.ai.generateDecision(conversation, currentLabels, memory, { ...planner, avoid_repeating: decision.reply }, combinedText, { strong: true }), null);
       const candidate = regenerated?.reply ? fitLength(scrubOpeners(regenerated.reply), this.config.ai.maxReplyChars || 850) : "";
       if (candidate && candidate.trim() !== decision.reply.trim() && quality(candidate).ok && !(hasInfonavitCredit(memory) && /\bplan\s*2\b/i.test(candidate))) {
         decision.reply = candidate;
@@ -1273,7 +1278,7 @@ export class ConversationProcessor {
       const notBefore = customerResumeAt(combinedText);
       this.followUps.afterReply(conversationId, { customerAt: new Date(lastCustomerAt), reply: decision.reply, notBefore });
     }
-    await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), customer_at: (() => { const t = Math.max(0, ...batch.map(m => Number(m.created_at || 0))); return t ? new Date(t * 1000).toISOString() : null; })(), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null,
+    await this.record(conversationId, "ai_reply_sent", { customer_text: combinedText.slice(0, 600), customer_at: (() => { const t = Math.max(0, ...batch.map(m => Number(m.created_at || 0))); return t ? new Date(t * 1000).toISOString() : null; })(), stage: memory.sales_cycle?.stage || null, reply: decision.reply, question_key: decision.question_key || null, decision_source: decisionSource, model_tier: modelTier, hard_turn: hardTurn, planner_action: planner?.action || null, quality: qualityCheck, progressive_disclosure: disclosureReasons, commitment: commitment?.commitment || null,
       ...(aiDraft && aiDraft.trim() !== String(decision.reply || "").trim() ? { ai_draft: aiDraft.slice(0, 900), replaced_reasons: [...new Set(replacedReasons)] } : {}) });
   }
 }

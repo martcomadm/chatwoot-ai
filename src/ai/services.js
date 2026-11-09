@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { jsonFrom } from "./json.js";
 import { transcribeAudioAttachment } from "./audio.js";
 import { historyOf, arrays } from "../utils/conversation.js";
@@ -17,8 +19,59 @@ function applyPublicIdentityGuard(decision, memory, publicName) {
   };
 }
 
+const mxDay = (now = new Date()) => new Date(now.getTime() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+
 export class AiServices {
-  constructor(openai, config) { this.openai = openai; this.config = config; }
+  constructor(openai, config) {
+    this.openai = openai; this.config = config;
+    this.usageState = { days: {} };
+    try { if (config?.usageFile) this.usageState = { days: {}, ...JSON.parse(fs.readFileSync(config.usageFile, "utf8")) }; } catch {}
+  }
+
+  // Modelo avanzado (9-nov): OPENAI_MODEL_STRONG para los mensajes difíciles, la corrección de respuestas,
+  // la lectura de documentos y las propuestas semanales. Si no está configurado o falla, se usa el normal.
+  strongModel() { return String(this.config?.strongModel || "").trim() || null; }
+
+  track(kind, tier, ok = true) {
+    const day = mxDay();
+    const d = this.usageState.days[day] ||= { normal: 0, strong: 0, strong_failed: 0, by_kind: {} };
+    if (!ok) d.strong_failed++;
+    else { d[tier]++; const k = d.by_kind[kind] ||= { normal: 0, strong: 0 }; k[tier]++; }
+    const keep = Object.keys(this.usageState.days).sort().slice(-31);
+    this.usageState.days = Object.fromEntries(keep.map(k => [k, this.usageState.days[k]]));
+    if (this.config?.usageFile && !this.usageTimer) {
+      this.usageTimer = setTimeout(() => {
+        this.usageTimer = null;
+        try { fs.mkdirSync(path.dirname(this.config.usageFile), { recursive: true }); fs.writeFileSync(this.config.usageFile, JSON.stringify(this.usageState)); } catch {}
+      }, 2000);
+      this.usageTimer.unref?.();
+    }
+  }
+
+  usage(now = new Date()) {
+    const today = this.usageState.days[mxDay(now)] || { normal: 0, strong: 0, strong_failed: 0, by_kind: {} };
+    return { model: this.config?.model || null, strong_model: this.strongModel(), today, days: this.usageState.days };
+  }
+
+  // Llamada al modelo: con strong=true usa el avanzado y, si falla, repite con el normal.
+  async create(params, { strong = false, kind = "otro" } = {}) {
+    const strongModel = strong ? this.strongModel() : null;
+    if (strongModel) {
+      try {
+        const response = await this.openai.responses.create({ ...params, model: strongModel });
+        this.track(kind, "strong");
+        response.__tier = "strong";
+        return response;
+      } catch (error) {
+        console.error(`NEXT: falló el modelo avanzado (${kind}), se usa el normal:`, error?.message || error);
+        this.track(kind, "strong", false);
+      }
+    }
+    const response = await this.openai.responses.create({ ...params, model: this.config.model });
+    this.track(kind, "normal");
+    response.__tier = "normal";
+    return response;
+  }
   knowledge() {
     if (this._knowledge === undefined) {
       let text = null;
@@ -45,7 +98,7 @@ export class AiServices {
     const images=(attachments||[]).filter(a=>{const type=String(a?.file_type||a?.content_type||a?.extension||"").toLowerCase();const name=String(a?.file_name||a?.filename||a?.name||"").toLowerCase();const url=String(a?.data_url||a?.download_url||a?.file_url||a?.url||"");if(/audio|video/.test(type))return false;return Boolean(url)&&(/image|photo|jpeg|jpg|png|webp|heic/.test(type)||/\.(?:jpe?g|png|webp|heic)(?:\?|$)/i.test(name)||/\.(?:jpe?g|png|webp|heic)(?:\?|$)/i.test(url)||Boolean(a?.id));}).map(a=>a?.data_url||a?.download_url||a?.file_url||a?.url).filter(Boolean).slice(0,3);
     if(!images.length)return {};
     const content=[{type:"input_text",text:"Analiza estos documentos del titular. Extrae solo datos claramente visibles. Devuelve solo JSON: {\\\"nombre\\\":null,\\\"curp_valor\\\":null,\\\"nss_valor\\\":null,\\\"curp_recibida\\\":false,\\\"nss_recibido\\\":false,\\\"document_type\\\":null,\\\"ine_recibida\\\":false}. document_type solo puede ser \\\"ine\\\", \\\"curp\\\", \\\"nss\\\" u \\\"other\\\". Marca ine_recibida=true solo si la imagen muestra claramente una credencial para votar/INE mexicana; una foto cualquiera nunca cuenta como INE. CURP debe tener 18 caracteres válidos de formato y NSS exactamente 11 dígitos. No inventes ni completes caracteres ilegibles."},...images.map(image_url=>({type:"input_image",image_url,detail:"high"}))];
-    const response=await this.openai.responses.create({model:this.config.model,input:[{role:"user",content}]});
+    const response=await this.create({input:[{role:"user",content}]},{strong:true,kind:"documentos"});
     return jsonFrom(response.output_text)||{};
   }
 
@@ -62,34 +115,34 @@ CURP y NSS nunca son nombres. Un nombre completo escrito solo sí debe extraerse
     return { ...jsonFrom(response.output_text), ...commercialPatch, commercial_need: commercialNeed };
   }
 
-  async generateDecision(conversation, labels, memory, planner, combinedText) {
-    const response = await this.openai.responses.create({
-      model: this.config.model,
+  async generateDecision(conversation, labels, memory, planner, combinedText, { strong = false } = {}) {
+    const response = await this.create({
       instructions: `${this.knowledge()}\n\n${commercialInstruction(memory)}\n\nMEMORIA:\n${JSON.stringify(memory, null, 2)}\n\nDECISIÓN COMERCIAL:\n${JSON.stringify(planner, null, 2)}\n\nDevuelve solo JSON:\n{"reply":"mensaje breve","question_key":"nombre|edad|actividad|tiene_imss|ultima_cotizacion|necesidad_principal|curp|nss|aclarar_contradiccion|afiliado_imss_al_fallecer|afore_contactada|motivo_negativa|beneficiarios_fallecimiento|detalle_retiro_afore|detalle_pension_fallecimiento|detalle_queja|null","add_labels":[],"remove_labels":[],"handoff":false,"handoff_reason":""}\nObedece al planner y a la intención detectada. MODO ASESOR: conversa con libertad natural usando MARTCOM_KNOWLEDGE como fuente de verdad. No exijas que el cliente formule una pregunta con palabras exactas: interpreta paráfrasis, contexto, dudas abiertas y solicitudes de asesoría. Si el cliente pide orientación general, explica lo relevante y haz como máximo una pregunta útil para entender su objetivo; no lo fuerces a un formulario ni a elegir un plan antes de comprender su necesidad. Si DECISIÓN COMERCIAL tiene advisory=true, responde primero como asesor: reconoce brevemente lo que el cliente ya contó, explica qué aspectos de MARTCOM pueden ser relevantes para su situación usando solo hechos autorizados y después formula una sola pregunta que realmente reduzca la incertidumbre. No repitas literalmente una pregunta de descubrimiento ya hecha, no respondas solo con un menú de opciones y no recomiendes Plan 1 o Plan 2 todavía si commercial_need sigue unknown. Una frase como “no sé qué me conviene”, “quiero que me guíen” u “oriéntame” requiere conversación y orientación de Mia, nunca silencio ni transferencia por sí sola. Las reglas determinísticas protegen hechos críticos (precios, salario registrado, aportaciones, requisitos y tiempos), pero fuera de esos hechos redacta y razona de forma conversacional sin inventar datos. JERARQUÍA NEXT: 1) preferencia humana/handoff, 2) pregunta explícita o duda implícita del cliente, 3) objeción, 4) corrección del cliente, 5) datos nuevos, 6) siguiente paso comercial. No interpretes automáticamente una negación ambigua como rechazo. Solo trata como rechazo frases claras como “no me interesa”, “no quiero el servicio”, “ya no quiero continuar”. Si MEMORIA.orchestration.direct_answer tiene contenido, responde primero esa duda. No vuelvas a pedir un dato cuyo slot esté unavailable, refused o ask_later, ni uno incluido en blocked_questions. Para Plan 1 y Plan 2 usa los precios oficiales configurados. La actividad laboral nunca es suficiente para recomendar un plan: primero debe existir una necesidad comercial explícita del cliente. Antes de autorización, CURP/NSS no son el objetivo del flujo comercial: vende y resuelve dudas primero. Si sales_cycle.authorized=true, NO hagas handoff por autorización: confirma brevemente que iniciaremos el proceso y deja question_key=null; el Workflow Engine de NEXT abrirá el expediente. Handoff queda reservado para solicitud humana, proveedor/B2B, frustración o casos especiales. No hagas afirmaciones concluyentes sobre pensión, semanas necesarias, modalidad legal, alta patronal o mecánica jurídica si no están expresamente en conocimiento autorizado. Si el planner es especializado, no conviertas el caso en cotización o afiliación. Si MEMORIA.presentacion_realizada=true, está prohibido volver a presentarte o iniciar con “soy Mia de MARTCOM”. ESTILO CONVERSACIONAL: evita muletillas y prefijos repetitivos. No empieces cada respuesta con “Claro”, “Perfecto”, “Entiendo”, “Gracias”, “Con gusto” ni con frases como “te ayudo a revisar tu caso”. Si el turno anterior ya confirmó que ayudarás o revisarás el caso, ve directamente a la siguiente pregunta o respuesta. Usa una confirmación breve solo cuando aporte información nueva o marque un cambio real de etapa. Varía naturalmente la redacción y no repitas la misma apertura en turnos consecutivos.\nPara RETIRO_AFORE_FALLECIMIENTO está prohibido pedir edad, actividad, CURP, NSS o hablar de cotización. Si caso_sujeto.tipo es "tercero", cualquier CURP/NSS solicitado corresponde al titular del caso, no necesariamente a quien escribe. Máximo ${this.config.maxReplyChars} caracteres. Una sola pregunta. Preséntate únicamente como ${this.config.publicName || "Mia de MARTCOM"}; no uses nombres de asesores humanos. No agregues cliente, venta, cerrado ni no_contesta.`,
       input: `MENSAJES NUEVOS:\n${combinedText}\n\nETIQUETAS:\n${labels.join(", ") || "ninguna"}\n\nHISTORIAL:\n${historyOf(conversation, this.config.maxHistory)}`,
-    });
+    }, { strong, kind: strong ? "respuesta_dificil" : "respuesta" });
     const decision = jsonFrom(response.output_text);
-    return applyPublicIdentityGuard(decision, memory, this.config.publicName || "Mia de MARTCOM");
+    const guarded = applyPublicIdentityGuard(decision, memory, this.config.publicName || "Mia de MARTCOM");
+    return guarded && typeof guarded === "object" ? { ...guarded, __tier: response.__tier } : guarded;
   }
 
   async repairDecision(conversation, memory, planner, combinedText, decision, reasons) {
-    const response = await this.openai.responses.create({
-      model:this.config.model,
+    // La corrección (lo que escribió el modelo normal no pasó la revisión de calidad) va con el avanzado.
+    const response = await this.create({
       instructions:`${this.knowledge()}\n\n${commercialInstruction(memory)}\nReescribe la respuesta porque falló calidad: ${reasons.join(", ")}. Obedece: ${JSON.stringify(planner)}. Devuelve el mismo JSON. Una pregunta, natural, sin recitar memoria. Si sales_cycle.authorized=true, no fuerces handoff: NEXT abrirá un expediente operativo. Si MEMORIA.presentacion_realizada=true, no vuelvas a presentarte como Mia de MARTCOM. Evita muletillas y aperturas repetidas: no uses sistemáticamente “Claro”, “Perfecto”, “Entiendo”, “Gracias”, “Con gusto” ni “te ayudo a revisar tu caso”; si ya se confirmó la ayuda, ve directo al contenido o a la siguiente pregunta.`,
       input:`MEMORIA:\n${JSON.stringify(memory)}\n\nMENSAJES:\n${combinedText}\n\nRESPUESTA RECHAZADA:\n${JSON.stringify(decision)}\n\nHISTORIAL:\n${historyOf(conversation,this.config.maxHistory)}`
-    });
+    }, { strong: true, kind: "correccion" });
     const repaired = jsonFrom(response.output_text);
-    return applyPublicIdentityGuard(repaired, memory, this.config.publicName || "Mia de MARTCOM");
+    const guarded = applyPublicIdentityGuard(repaired, memory, this.config.publicName || "Mia de MARTCOM");
+    return guarded && typeof guarded === "object" ? { ...guarded, __tier: response.__tier } : guarded;
   }
 
   // Aprendizaje semanal (9-nov): respuesta propuesta para una pregunta que Mia contestó mal. La revisa
   // Supervisión antes de usarse. "NO_SE" si la base de conocimiento no alcanza para contestarla.
   async draftTeamAnswer({ question, examples = [] }) {
-    const response = await this.openai.responses.create({
-      model: this.config.model,
+    const response = await this.create({
       instructions: `${this.knowledge()}\n\nEres Mia, asistente de MARTCOM. Escribe UNA respuesta corta (máximo 500 caracteres), en español de México, cálida y clara, para la pregunta de clientes que se muestra. Usa SOLO datos de la base de conocimiento; no inventes precios, plazos ni reglas. Termina con una pregunta que lleve a iniciar el trámite cuando tenga sentido. Si la base de conocimiento no alcanza para contestar con seguridad, responde exactamente NO_SE.`,
       input: `PREGUNTA:\n${question}\n\nOTRAS FORMAS EN QUE LA HICIERON:\n${examples.filter(e => e !== question).slice(0, 3).join("\n") || "(ninguna)"}`,
-    });
+    }, { strong: true, kind: "propuesta_semanal" });
     const text = String(response.output_text || "").trim();
     return !text || /^NO_SE\b/.test(text) ? null : text.slice(0, 600);
   }

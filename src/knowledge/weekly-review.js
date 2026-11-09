@@ -58,6 +58,7 @@ export function buildWeeklyReview({ memories = [], events = [], since, until, ex
   const funnel = { chats: 0, saw_plan: 0, explained: 0, close: 0, accepted: 0, docs: 0 };
   const stages = new Map(); const dropAfter = new Map(); const reasons = new Map(); const winners = new Map();
   const weak = [];
+  const tiers = { strong: { chats: 0, accepted: 0 }, normal: { chats: 0, accepted: 0 } };
   for (const [id, list] of byConv) {
     list.sort((a, b) => ms(a.timestamp) - ms(b.timestamp));
     const first = ms(list[0]?.timestamp);
@@ -77,6 +78,9 @@ export function buildWeeklyReview({ memories = [], events = [], since, until, ex
     if (accepted) funnel.accepted++;
     if (memory.operations?.documents_complete) funnel.docs++;
     const customerTurns = replies.filter(e => e.details?.customer_text).length;
+    // Modelo avanzado (9-nov): ¿venden más los chats donde contestó?
+    const tier = replies.some(e => e.details?.model_tier === "strong") ? "strong" : "normal";
+    tiers[tier].chats++; if (accepted) tiers[tier].accepted++;
     const stage = accepted ? "accepted" : close ? "close" : explained ? "explained" : saw ? "saw_plan" : customerTurns <= 1 ? "one" : "started";
     bump(stages, stage);
     for (const e of replies) {
@@ -118,6 +122,7 @@ export function buildWeeklyReview({ memories = [], events = [], since, until, ex
     unanswered,
     winners: top(winners, 6),
     weak_replies: weak.length,
+    model_tiers: { strong: { ...tiers.strong, accepted_pct: pct(tiers.strong.accepted, tiers.strong.chats) }, normal: { ...tiers.normal, accepted_pct: pct(tiers.normal.accepted, tiers.normal.chats) } },
     experiments,
   };
 }

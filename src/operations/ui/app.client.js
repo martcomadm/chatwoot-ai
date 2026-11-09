@@ -1546,11 +1546,15 @@ function weeklyBlock(w) {
   const head = `<div class="toolbar"><button class="btn primary" data-answer-act="weekly-run" ${w.running ? "disabled" : ""}>${w.running ? "Generando…" : "Generar ahora"}</button>
     ${reports.length > 1 ? `<select class="input" data-weekly-pick data-answer-act="weekly-pick" aria-label="Semana" style="max-width:260px">${reports.map(x => `<option value="${esc(x.id)}" ${r && x.id === r.id ? "selected" : ""}>${esc(dateOnly(x.since))} – ${esc(dateOnly(x.until))}</option>`).join("")}</select>` : ""}
     <span class="muted">Se genera solo cada lunes a las 8:00 con los 7 días anteriores.</span></div>`;
-  if (!r) return head + `<div class="empty"><strong>Todavía no hay aprendizaje semanal</strong>Toca "Generar ahora" para revisar los últimos 7 días.</div>`;
+  const u = w.usage;
+  const usage = u ? `<div class="notice" style="margin-bottom:12px"><strong>Modelo de IA:</strong> ${esc(u.model || "—")}${u.strong_model ? ` · avanzado: <strong>${esc(u.strong_model)}</strong> · hoy lo usó en ${u.today?.strong || 0} de ${(u.today?.strong || 0) + (u.today?.normal || 0)} llamadas${u.today?.strong_failed ? ` (${u.today.strong_failed} fallaron y se usó el normal)` : ""}` : " · modelo avanzado apagado (agrega OPENAI_MODEL_STRONG en EasyPanel para usarlo)"}</div>` : "";
+  if (!r) return head + usage + `<div class="empty"><strong>Todavía no hay aprendizaje semanal</strong>Toca "Generar ahora" para revisar los últimos 7 días.</div>`;
   const f = r.funnel || {};
   const kpi = (label, n, small) => `<div class="react-kpi"><span>${esc(label)}</span><b>${n}</b>${small ? `<small>${esc(small)}</small>` : ""}</div>`;
   const list = (items, empty, render) => items?.length ? `<div class="answer-list">${items.map(render).join("")}</div>` : `<p class="muted">${esc(empty)}</p>`;
-  return head + `
+  const mt = r.model_tiers;
+  return head + usage + `
+    ${mt && mt.strong.chats ? `<p class="muted">Chats con respuestas del modelo avanzado: ${mt.strong.chats}, aceptaron ${mt.strong.accepted} (${mt.strong.accepted_pct}%) · sin él: ${mt.normal.chats}, aceptaron ${mt.normal.accepted} (${mt.normal.accepted_pct}%).</p>` : ""}
     <p class="muted">Chats nuevos del ${esc(dateOnly(r.since))} al ${esc(dateOnly(r.until))} · generado ${esc(dateTime(r.created_at))}${r.created_by ? ` por ${esc(r.created_by.name || r.created_by.username || "")}` : ""}</p>
     <div class="react-kpis">
       ${kpi("Chats nuevos", f.chats || 0)}

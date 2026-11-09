@@ -115,6 +115,9 @@ export const EVENT_LABELS = {
 // "Pasó a una persona" con la rotación de atención humana es Atención a Clientes (6-nov).
 const eventLabel = e => e.type === "handoff" && e.details?.rotation === "atencion_humana" ? "Pasó a Atención a Clientes (atención humana)" : EVENT_LABELS[e.type];
 
+// 9-nov: lo que escribió el modelo avanzado se marca (y por qué se usó).
+const replyLabel = d => `${sourceLabel(d?.decision_source)}${d?.model_tier === "strong" ? ` · modelo avanzado${d?.hard_turn ? ` (${d.hard_turn})` : ""}` : ""}`;
+
 const SILENCE_EVENTS = new Set(["already_answered_skip", "empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule", "agent_owned_skip", "onboarding_declined", "payment_extension_requested", "capture_review_handoff"]);
 
 const REASON_LABELS = {
@@ -498,7 +501,7 @@ export class MiaConsole {
             if (match) usedReplies.add(match);
             let who = "persona";
             let label = m.sender?.name ? `Persona · ${m.sender.name}` : "Persona del equipo";
-            if (match) { who = "mia"; label = sourceLabel(match.details?.decision_source); }
+            if (match) { who = "mia"; label = replyLabel(match.details); }
             else if (NOTICE_RE.test(text)) { who = "mia"; label = "Aviso de horario"; }
             else if (followTexts.has(text)) { who = "mia"; label = "Seguimiento"; }
             else if (this.selfSenders?.isOwn?.(m)) { who = "mia"; label = "Mia"; }
@@ -511,7 +514,7 @@ export class MiaConsole {
       const seen = new Set();
       for (const e of replyEvents) {
         if (e.details?.customer_text) transcript.push({ who: "cliente", text: e.details.customer_text, at: e.timestamp });
-        transcript.push({ who: "mia", label: sourceLabel(e.details?.decision_source), text: e.details?.reply || "", at: e.timestamp, flags: replyFlags(e, seen), why: (e.details?.replaced_reasons || []).map(replacedReasonLabel) });
+        transcript.push({ who: "mia", label: replyLabel(e.details), text: e.details?.reply || "", at: e.timestamp, flags: replyFlags(e, seen), why: (e.details?.replaced_reasons || []).map(replacedReasonLabel) });
         seen.add(norm(e.details?.reply));
       }
     }

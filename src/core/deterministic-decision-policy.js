@@ -132,6 +132,6 @@ export function shouldSkipQualityRepair(decision) {
 
 export function stripDecisionMetadata(decision) {
   if (!decision || typeof decision !== "object") return decision;
-  const { __deterministic, __source, ...publicDecision } = decision;
+  const { __deterministic, __source, __tier, ...publicDecision } = decision;
   return publicDecision;
 }
