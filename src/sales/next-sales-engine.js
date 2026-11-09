@@ -206,6 +206,7 @@ export function analyzeNextSale(text, memory = {}) {
       interested: Boolean(previous.interested || interest),
       authorized: Boolean(previous.authorized || authorized),
       authorization_text: authorized ? String(text || "").trim() : previous.authorization_text || null,
+      ...(authorized && !previous.authorized ? { authorized_at: new Date().toISOString() } : {}),
       ...(authorized && scheduled ? { scheduled_start: { ...scheduled, at: new Date().toISOString() } } : {}),
       price_objection_count: Number(previous.price_objection_count || 0) + (priceObjection ? 1 : 0),
       last_signal_at: new Date().toISOString(),

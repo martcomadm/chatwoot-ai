@@ -19,6 +19,14 @@ import { menuChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { hotLeadReason } from "../operations/hot-lead-alerts.js";
+import { isTeamOff, nextTeamDay, todayName, parseOffDays } from "./team-days.js";
+import { CALL_OFFER_MARK } from "./human-request.js";
+
+// Quita la pregunta final y ofrece la llamada (9-nov).
+export function withCallOffer(reply = "") {
+  const base = String(reply).trim().replace(/\s*¿[^¿?]*\?\s*$/, "").trim();
+  return `${base} Si te ayuda a decidir, ¿${CALL_OFFER_MARK} unos minutos y lo resuelva contigo? Dime sí y a qué hora te queda bien, y te marcamos a este número.`.trim();
+}
 import { scheduledStartIntro, scheduledStartNote } from "../sales/scheduled-start.js";
 import { TEMPLATE_TEXTS } from "../chatwoot/whatsapp-templates.js";
 import { directAnswerDecision, protectDeterministicDecision, isDeterministicDecision, stripDecisionMetadata } from "./deterministic-decision-policy.js";
@@ -164,6 +172,8 @@ export class ConversationProcessor {
     this.templates = templates;
     this.teamAnswers = teamAnswers;
     this.experiments = experiments;
+    // Sin config.team (pruebas) no hay días sin equipo; en producción viene de TEAM_OFF_DAYS.
+    this.teamOffDays = config?.team ? parseOffDays(config.team.offDays) : new Set();
     this.config = config;
     this.chatwoot = chatwoot;
     this.labels = labels;
@@ -834,7 +844,8 @@ export class ConversationProcessor {
     }
     const creditDecision = creditJustDetected ? { reply: INFONAVIT_CREDIT_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" } : null;
     const featureRejection = featureRejectionDecision(memory, combinedText);
-    const deferral = featureRejection ? null : deferralDecision(memory, combinedText, { resumedAfterHours });
+    const teamOff = isTeamOff(new Date(), this.teamOffDays) ? { today: todayName(new Date()), next: nextTeamDay(new Date(), this.teamOffDays) } : null;
+    const deferral = featureRejection ? null : deferralDecision(memory, combinedText, { resumedAfterHours, teamOff });
     // Notas de voz o archivos sin texto antes de iniciar el trámite: Mia no puede escucharlos
     // ni revisarlos, así que lo dice en vez de contestar algo sin relación.
     const mediaOnly = !combinedText && !memory.sales_cycle?.authorized && batch.some(hasAttachments)
@@ -969,6 +980,16 @@ export class ConversationProcessor {
     if (hotReason && this.onHotLead) {
       try { await this.onHotLead({ conversation_id: conversationId, memory, text: combinedText, reason: hotReason }); memory = { ...memory, hot_lead_alert: { at: new Date().toISOString(), reason: hotReason } }; }
       catch (error) { console.error("NEXT aviso de cliente listo:", error?.message || error); }
+    }
+    // Dos objeciones seguidas (precio, confianza, "lo pienso"…): se ofrece la llamada en ese momento, una vez
+    // (9-nov, punto 4; antes solo en el seguimiento de 20 h).
+    const objection = /^(?:price_objection|direct:(?:trust|legitimacy|other_price|drop_guarantee|not_free)|customer_deferral)$/.test(decisionSource) && !deferral?.schedule_offer && !deferral?.weekend_offer && deferral?.deferral !== "start_later";
+    const objectionStreak = objection ? (Number(memory.objection_streak) || 0) + 1 : 0;
+    memory = { ...memory, objection_streak: objectionStreak };
+    if (objection && objectionStreak >= 2 && !memory.early_call_offer_at && !memory.sales_cycle?.authorized && String(decision?.reply || "").trim()) {
+      decision = { ...decision, reply: withCallOffer(decision.reply) };
+      memory = { ...memory, early_call_offer_at: new Date().toISOString() };
+      await this.record(conversationId, "early_call_offer", { decision_source: decisionSource });
     }
     // Pruebas A/B (4-nov): versión A/B del mensaje o texto ganador.
     const experimentHit = this.experiments?.apply?.(decisionSource, conversationId, decision?.reply);
@@ -1150,6 +1171,10 @@ export class ConversationProcessor {
     // programa y que hoy no paga, y Captura recibe la fecha en una nota privada.
     const scheduledNow = memory.sales_cycle?.authorized && memory.sales_cycle?.scheduled_start && !base.sales_cycle?.scheduled_start ? memory.sales_cycle.scheduled_start : null;
     if (scheduledNow && decision.reply) decision.reply = `${scheduledStartIntro(scheduledNow)} ${String(decision.reply).replace(/^(?:¡?perfecto[.!,]*\s*)/i, "")}`.trim();
+    // Aceptó en un día sin equipo (9-nov, punto 5): que sepa cuándo arranca y mande hoy sus documentos.
+    else if (memory.sales_cycle?.authorized && !base.sales_cycle?.authorized && decision.reply && isTeamOff(new Date(), this.teamOffDays)) {
+      decision.reply = `${String(decision.reply).trim()} Hoy es ${todayName(new Date())} y el equipo arranca ${nextTeamDay(new Date(), this.teamOffDays)} a primera hora: si me mandas hoy tus documentos, tu trámite queda listo para ser de los primeros.`;
+    }
     await this.chatwoot.sendMessage(conversationId, decision.reply);
     if (scheduledNow) {
       try { await this.chatwoot.sendMessage(conversationId, scheduledStartNote(scheduledNow), true); } catch {}
@@ -1186,7 +1211,7 @@ export class ConversationProcessor {
     if (deferral) {
       // Reactivación (5-nov): si dijo cuándo retoma ("en la quincena"), ese día se le escribe.
       const nowIso = new Date().toISOString();
-      memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: nowIso, deferral_text: combinedText.slice(0, 200), deferral_resume_date: resumeDate(combinedText, nowIso), ...(deferral.schedule_offer ? { schedule_offered: true } : {}) } };
+      memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), deferral: deferral.deferral, deferral_at: nowIso, deferral_text: combinedText.slice(0, 200), deferral_resume_date: resumeDate(combinedText, nowIso), ...(deferral.schedule_offer ? { schedule_offered: true } : {}), ...(deferral.weekend_offer ? { weekend_offer: nowIso } : {}) } };
     }
     // Pidió que no le escribamos: sin seguimientos ni reactivación.
     if (asksNoContact(combinedText)) memory = { ...memory, no_contact: { at: new Date().toISOString(), text: combinedText.slice(0, 200) } };

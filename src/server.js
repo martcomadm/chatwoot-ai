@@ -1,4 +1,5 @@
 import { HotLeadAlerts } from "./operations/hot-lead-alerts.js";
+import { parseOffDays } from "./core/team-days.js";
 import { CaptureReviewRouter } from "./operations/capture-review.js";
 import "dotenv/config";
 import express from "express";
@@ -150,8 +151,9 @@ try {
     // Cliente que vio el plan y lleva 2 h sin contestar: aviso a Captura (4-nov).
     const coldLeads = new ColdLeadAlerts({ followUpStore: followUps.store, memories, notifier: opsNotifier, inspectorEvents, isOpen: now => processor.inSchedule(now) });
     coldLeads.start();
-    const hotLeads = new HotLeadAlerts({ memories, notifier: opsNotifier, inspectorEvents });
+    const hotLeads = new HotLeadAlerts({ memories, notifier: opsNotifier, inspectorEvents, offDays: parseOffDays(config.team.offDays) });
     processor.onHotLead = input => hotLeads.alert(input);
+    hotLeads.start();
   }
   // Rescate: cada 15 min (y al arrancar) retoma chats que se quedaron solo con el aviso
   // de horario o con un mensaje del cliente que nunca se procesó.

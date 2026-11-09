@@ -166,7 +166,7 @@ export function priceObjectionDecision(memory = {}, combinedText = "") {
   const plan = effectivePlan(memory);
   const price = plan === "plan_2" ? "$1,500 MXN mensuales" : plan === "plan_1" ? "$1,100 MXN mensuales" : null;
   return {
-    reply: `Entiendo que el precio sea importante para ti.${price ? ` El costo informado para ${plan === "plan_2" ? "el Plan 2" : "el Plan 1"} es de ${price}.` : ""} El precio es fijo y actualmente no manejamos descuentos. Si quieres, puedo explicarte qué incluye el plan para que puedas valorar si se ajusta a lo que necesitas.`,
+    reply: `Entiendo que el precio sea importante para ti.${price ? ` El costo informado para ${plan === "plan_2" ? "el Plan 2" : "el Plan 1"} es de ${price}.` : ""} El precio es fijo y actualmente no manejamos descuentos. Con nosotros primero compruebas tu alta en el IMSS y después pagas, y llevamos 5 años en el mercado con más de 5,000 clientes afiliados en toda la República. Si quieres, puedo explicarte qué incluye el plan para que puedas valorar si se ajusta a lo que necesitas.`,
     question_key: null,
     add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
   };

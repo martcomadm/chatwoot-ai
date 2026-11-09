@@ -159,7 +159,7 @@ export function isCourtesy(text) {
     || /^(?:ok|okey|okay|va|sale|vale|listo|entendido|enterado|de acuerdo|perfecto|bien|muy bien|si|claro|igualmente|buen dia|bonito dia|que este bien)(?: gracias| muchas gracias| igualmente)?$/.test(value);
 }
 
-export function deferralDecision(memory = {}, combinedText = "", { resumedAfterHours = false } = {}) {
+export function deferralDecision(memory = {}, combinedText = "", { resumedAfterHours = false, teamOff = null } = {}) {
   // Cliente con trámite iniciado: "Muchas gracias" no es despedida de venta ("cuando quieras
   // continuar…" no aplica). Lo atiende el seguimiento del expediente.
   if (memory.sales_cycle?.authorized) return null;
@@ -211,6 +211,8 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   // hoy no paga nada y se le ofrece programar el alta para cuando tenga el pago.
   else if (kind === "no_money" && plan && !memory.sales_cycle?.schedule_offered && !lastReply.includes(SCHEDULE_OFFER_MARK)) reply = `Entiendo${name}, no te preocupes. Para iniciar hoy no pagas nada: el primer pago se hace hasta que tu alta ya aparece vigente. Si te ayuda, dejamos tu trámite listo y programamos tu alta para cuando tengas el pago (por ejemplo, tu próxima quincena). ${SCHEDULE_OFFER_MARK}`;
   else if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
+  // Día sin equipo (9-nov, punto 5): una vez se le ofrece dejar su lugar apartado para el siguiente día hábil.
+  else if (kind === "later" && !alreadyClosed && teamOff && plan && !memory.sales_cycle?.weekend_offer) reply = `Claro${name}, sin problema. Por si te sirve: hoy es ${teamOff.today} y el equipo arranca ${teamOff.next} a primera hora. Si me mandas hoy tu CURP, te aparto un lugar para que tu trámite sea de los primeros, y no pagas nada hasta que compruebes tu alta en el IMSS. Si prefieres pensarlo con calma, ${CLOSING_MARK} cuando quieras.`;
   // "Déjeme pensar bien qué plan me conviene y ya le aviso" (8-nov): se le ayuda a decidir.
   else if (kind === "later" && !alreadyClosed && /\b(?:que|cual)\s+plan\b/.test(norm(combinedText))) reply = `Claro${name}, tómate tu tiempo. Por si te ayuda a decidir: si lo que más te importa es el servicio médico y seguir sumando semanas, el Plan 1 ($1,100 MXN mensuales) es suficiente; el Plan 2 ($1,500 MXN mensuales) conviene si además quieres aportaciones a tu AFORE. Cuando lo tengas, ${CLOSING_MARK} y lo iniciamos.`;
   else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando puedas, ${CLOSING_MARK} y con gusto continuamos con tu trámite. Aquí estaré para ayudarte.`;
@@ -222,6 +224,7 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
     add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
     deferral: startLater ? "start_later" : kind || "closing",
     ...(reply.includes(SCHEDULE_OFFER_MARK) ? { schedule_offer: true } : {}),
+    ...(teamOff && reply.includes("te aparto un lugar para que tu trámite sea de los primeros") ? { weekend_offer: true } : {}),
   };
 }
 
