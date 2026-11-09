@@ -19,6 +19,7 @@ import { menuChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { hotLeadReason } from "../operations/hot-lead-alerts.js";
+import { updateProfile, personalTouch } from "../memory/customer-profile.js";
 import { isTeamOff, nextTeamDay, todayName, parseOffDays } from "./team-days.js";
 import { CALL_OFFER_MARK } from "./human-request.js";
 
@@ -678,6 +679,11 @@ export class ConversationProcessor {
     );
     memory.intent = intent;
     memory.contradicciones = reliability.contradictions;
+    // Ficha del cliente (9-nov): semanas, ley, edad, para quién, objeción, prisa y señales de compra.
+    memory.profile = updateProfile(memory.profile, combinedText, {
+      attachments: batch.filter(hasAttachments).length,
+      curp: Boolean(memory.curp_valor && !base.curp_valor) || /\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/i.test(combinedText),
+    });
     for (const message of batch) if (hasAttachments(message)) memory.documentos_recibidos = arrays(memory.documentos_recibidos, message.attachments.map(a => a?.file_type || a?.extension || "archivo"));
     await this.memories.set(conversationId, memory);
 
@@ -990,6 +996,11 @@ export class ConversationProcessor {
       decision = { ...decision, reply: withCallOffer(decision.reply) };
       memory = { ...memory, early_call_offer_at: new Date().toISOString() };
       await this.record(conversationId, "early_call_offer", { decision_source: decisionSource });
+    }
+    // Ficha del cliente (9-nov): al explicar el plan, una frase con lo que nos contó, antes de la pregunta de cierre.
+    const touch = decisionSource === "contextual_plan_explanation" ? personalTouch(memory.profile) : null;
+    if (touch && /¿[^¿]*\?\s*$/.test(String(decision?.reply || "")) && !String(decision.reply).includes(touch)) {
+      decision = { ...decision, reply: String(decision.reply).replace(/\s*(¿[^¿]*\?)\s*$/, ` ${touch} $1`) };
     }
     // Pruebas A/B (4-nov): versión A/B del mensaje o texto ganador.
     const experimentHit = this.experiments?.apply?.(decisionSource, conversationId, decision?.reply);

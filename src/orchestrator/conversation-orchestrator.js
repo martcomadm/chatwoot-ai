@@ -432,6 +432,10 @@ export function startedBefore1997(text=''){
 // Enriquecer una pregunta con el contexto del cliente (plan, Ley 73, si ya se le explicó, confianza).
 function enrich(direct,text,memory){
   if(!direct) return direct;
+  // Ficha del cliente (9-nov): "¿Puedo cotizar para completar las 500 semanas?" con sus semanas y ley ya dichas.
+  const prof=memory?.profile||{};
+  if(direct.answerKey==='weeks_status'&&!direct.ley&&prof.ley) return {...direct,ley:prof.ley};
+  if(['min_weeks','needs_weeks'].includes(direct.answerKey)&&prof.weeks&&prof.ley&&!/\b(?:esposa?|mama|papa|hij\w*|mi (?:pareja|marido))\b/.test(norm(text))) return {type:'weeks_status',priority:'high',answerKey:'weeks_status',weeks:prof.weeks,ley:prof.ley};
   if(direct.answerKey==='weeks_status'&&!direct.ley){
     const pre=memory?.pension_data?.cotizo_antes_1997;
     if(pre===true) return {...direct,ley:73};

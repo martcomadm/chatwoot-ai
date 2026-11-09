@@ -1401,13 +1401,21 @@ async function renderCustomerService(view) {
 // ── Chats de Mia (3-nov): todas las conversaciones de la IA; Captura interviene para salvar la venta ──
 const MIA_FILTERS = [["risk", "En riesgo"], ["hot", "Interesados"], ["all", "Todos"], ["intervened", "Intervenidos"], ["authorized", "Aceptaron"]];
 const RISK_TONE = { cold: "bad", angry: "bad", lost: "bad", price: "warn", deferred: "warn", no_response: "warn", silent: "", error: "bad" };
+// Puntaje de compra (9-nov): Alta ≥ 60, Media 35–59, Baja < 35; quien ya aceptó dice "Aceptó".
+function scoreChip(score) {
+  if (!score) return "";
+  const tone = score.level === "accepted" ? "ok" : score.level === "high" ? "hot" : score.level === "medium" ? "warn" : "";
+  return `<span class="tag score ${tone}" title="${esc((score.reasons || []).join(" · "))}">${score.level === "accepted" ? "Aceptó" : `Prob. ${esc(score.label)} · ${score.score}`}</span>`;
+}
+
 async function renderMiaChats(view) {
   view.style.setProperty("--area", areaVar("chats"));
   state.miaFilter = state.miaFilter || "risk";
   state.miaDays = state.miaDays || 7;
+  state.miaSort = state.miaSort || "score";
   let result;
   state.miaPage = state.miaPage || 1;
-  try { result = await api(`/operations/api/mia-chats?filter=${encodeURIComponent(state.miaFilter)}&days=${state.miaDays}&page=${state.miaPage}&q=${encodeURIComponent(state.filter.search || "")}`); }
+  try { result = await api(`/operations/api/mia-chats?filter=${encodeURIComponent(state.miaFilter)}&days=${state.miaDays}&page=${state.miaPage}&sort=${state.miaSort}&q=${encodeURIComponent(state.filter.search || "")}`); }
   catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudieron cargar los chats</strong>${esc(error.message)}</div>`; return; }
   state.miaChats = result.items || [];
   state.miaPage = result.page || 1;
@@ -1422,7 +1430,7 @@ async function renderMiaChats(view) {
     </nav>` : "";
   const counts = result.counts || {};
   const rows = state.miaChats.length ? `<div class="queue-row queue-head mia-row" role="row"><span>Cliente</span><span>Último mensaje</span><span>Etapa</span><span>Señales</span><span>Hace</span></div>` + state.miaChats.map(c => `<button class="queue-row mia-row" role="row" data-mia-chat="${c.id}" ${state.miaChatId === c.id ? 'aria-current="true"' : ""}>
-      <span class="cell-customer"><strong>${esc(c.name || "Sin nombre")}</strong><small class="mono">#${c.id}${c.phone ? ` · ${esc(c.phone)}` : ""}</small></span>
+      <span class="cell-customer"><strong>${esc(c.name || "Sin nombre")}</strong><small class="mono">#${c.id}${c.phone ? ` · ${esc(c.phone)}` : ""}</small>${scoreChip(c.score)}</span>
       <span class="cell-sub" style="margin:0">${esc(String(c.last_customer || c.last_reply || "—").slice(0, 90))}</span>
       <span>${esc(c.stage)}${c.plan ? `<span class="cell-sub">${esc(c.plan)}</span>` : ""}</span>
       <span class="mia-flags">${c.intervention ? `<span class="tag area" style="--area:${areaVar("chats")}">Intervenido · ${esc(c.intervention.by || "")}</span>` : ""}${c.risks.map(r => `<span class="tag ${RISK_TONE[r.key] || ""}">${esc(r.label)}</span>`).join("")}${!c.risks.length && !c.intervention ? '<span class="muted">—</span>' : ""}</span>
@@ -1432,6 +1440,7 @@ async function renderMiaChats(view) {
     ${pageHead("chats", "Chats de Mia", AREA_INTRO.chats, `<p class="muted" style="margin:0">${plural(counts.all || 0, "conversación", "conversaciones")} en ${state.miaDays} días</p>`)}
     <div class="toolbar">
       <div class="segmented" role="group">${MIA_FILTERS.map(([k, l]) => `<button data-mia-filter="${k}" aria-pressed="${state.miaFilter === k}">${esc(l)}${counts[k] != null ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
+      <div class="segmented" role="group" aria-label="Orden">${[["score", "Más probables"], ["recent", "Más recientes"]].map(([k, l]) => `<button data-mia-sort="${k}" aria-pressed="${state.miaSort === k}">${l}</button>`).join("")}</div>
       <div class="segmented" role="group" aria-label="Periodo">${[[1, "Hoy"], [7, "7 días"], [30, "30 días"]].map(([d, l]) => `<button data-mia-days="${d}" aria-pressed="${state.miaDays === d}">${l}</button>`).join("")}</div>
       <input class="input" type="search" data-search placeholder="${state.me.can.mia_phones ? "Buscar nombre, #, celular o texto" : "Buscar nombre, # o texto"}" value="${esc(state.filter.search || "")}" style="max-width:260px">
     </div>
@@ -1475,6 +1484,7 @@ async function openMiaChat(id) {
           ${c.human && !c.intervention ? `<div class="notice warn" style="margin-top:10px">Este chat ya pasó a una persona del equipo.</div>` : ""}
           <dl class="facts" style="margin-top:12px">
             ${c.phone ? `<div><dt>Celular</dt><dd class="mono"><a href="tel:${esc(String(c.phone).replace(/[^\d+]/g, ""))}">${esc(c.phone)}</a></dd></div>` : ""}
+            ${c.score ? `<div><dt>Probabilidad de compra</dt><dd>${scoreChip(c.score)}${c.score.reasons?.length ? `<span class="cell-sub">${esc(c.score.reasons.join(" · "))}</span>` : ""}</dd></div>` : ""}
             <div><dt>Etapa</dt><dd>${esc(c.stage)}</dd></div>
             <div><dt>Plan</dt><dd>${esc(c.plan || "—")}</dd></div>
             <div><dt>Respuestas de Mia</dt><dd>${c.replies}</dd></div>
@@ -1482,6 +1492,7 @@ async function openMiaChat(id) {
           </dl>
           ${buttons.length ? `<div class="actions" style="margin-top:12px">${buttons.join("")}</div>` : ""}
         </section>
+        ${(c.profile || []).length ? `<section><h3>Ficha del cliente</h3><dl class="facts">${c.profile.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl></section>` : ""}
         <section id="sale-chat-section"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">Conversación</h3><button class="btn quiet small" data-act="reload-chat">Actualizar</button></div><div id="sale-chat" class="sale-chat"><p class="muted">Cargando conversación…</p></div></section>
       </div>
     </aside>`;
@@ -1970,7 +1981,7 @@ function handleNotify(n) {
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
-  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-page], [data-answer-act], [data-answers-tab], [data-rate]");
+  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-sort], [data-mia-page], [data-answer-act], [data-answers-tab], [data-rate]");
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.act === "logout") return logout();
@@ -1988,6 +1999,7 @@ document.addEventListener("click", async event => {
   if (target.dataset.miaChat) return openMiaChat(target.dataset.miaChat);
   if (target.dataset.miaAct) { target.disabled = true; try { await miaChatAction(target.dataset.miaAct); } finally { target.disabled = false; } return; }
   if (target.dataset.miaFilter) { state.miaFilter = target.dataset.miaFilter; state.miaPage = 1; return renderView(); }
+  if (target.dataset.miaSort) { state.miaSort = target.dataset.miaSort; state.miaPage = 1; return renderView(); }
   if (target.dataset.miaDays) { state.miaDays = Number(target.dataset.miaDays); state.miaPage = 1; return renderView(); }
   if (target.dataset.miaPage) { state.miaPage = Number(target.dataset.miaPage); await renderView(); document.getElementById("view")?.scrollIntoView?.({ block: "start" }); window.scrollTo?.({ top: 0 }); return; }
   if (target.dataset.case) return openCase(target.dataset.case);

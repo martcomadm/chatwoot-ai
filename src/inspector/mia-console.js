@@ -1,3 +1,5 @@
+import { leadScore } from "../sales/lead-score.js";
+import { profileFacts } from "../memory/customer-profile.js";
 import fs from "node:fs";
 import path from "node:path";
 // Datos del nuevo inspector de Mia (vista de Admin).
@@ -404,7 +406,7 @@ export class MiaConsole {
   // ── Chats de Mia (Operations, pedido 3-nov) ──────────────────────
   // Todas las conversaciones que atiende la IA, con las señales de que se está perdiendo
   // la venta, para que Captura intervenga y trate de salvarla.
-  rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false } = {}) {
+  rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false, sort = "recent" } = {}) {
     const byConv = this.eventsByConversation();
     const since = now.getTime() - Math.max(1, Number(days) || 7) * DAY;
     const q = norm(search).toLowerCase();
@@ -435,6 +437,9 @@ export class MiaConsole {
         intervention,
         human: Boolean(base.handoff) || Boolean(memory.service_sale?.active),
         phone: memory.contact_phone || null,
+        // 9-nov: puntaje de compra y ficha del cliente.
+        score: leadScore(memory, { lastCustomerAt: lastCustomerAt ? new Date(lastCustomerAt).toISOString() : null, now }),
+        profile: profileFacts(memory.profile),
       });
     }
     const qDigits = q.replace(/\D/g, "");
@@ -455,7 +460,9 @@ export class MiaConsole {
     const size = Math.min(200, Math.max(1, Number(pageSize) || 40));
     const pages = Math.max(1, Math.ceil(items.length / size));
     const current = Math.min(pages, Math.max(1, Math.floor(Number(page) || 1)));
-    const sorted = items.sort((a, b) => ms(b.last_at) - ms(a.last_at));
+    // "Más probables" (9-nov): primero quien está por cerrar; los que ya aceptaron van al final.
+    const rank = i => (i.authorized ? -1 : i.score?.score ?? 0);
+    const sorted = sort === "score" ? items.sort((a, b) => rank(b) - rank(a) || ms(b.last_at) - ms(a.last_at)) : items.sort((a, b) => ms(b.last_at) - ms(a.last_at));
     return { items: sorted.slice((current - 1) * size, current * size), total: items.length, counts, page: current, pages, page_size: size };
   }
 
