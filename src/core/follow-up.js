@@ -271,9 +271,12 @@ export class FollowUpService {
         if (!text) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "not_applicable" }); continue; }
         // Pruebas A/B del menú del segundo seguimiento (4-nov).
         const original = text;
-        const hit = this.experiments?.apply?.("followup:menu", id, text);
+        // 9-nov: también los seguimientos a quien ya vio el plan (followup:plan:0/1/2).
+        let slot = "followup:menu";
+        let hit = this.experiments?.apply?.(slot, id, text);
+        for (let k = 0; !hit && k < 3; k++) { slot = `followup:plan:${k}`; hit = this.experiments?.apply?.(slot, id, text, { nombre: memory.primer_nombre || memory.nombre || "" }); }
         if (hit) text = hit.text;
-        const experiments = hit?.experiment ? { ...(memory.experiments || {}), [hit.experiment]: memory.experiments?.[hit.experiment] || { variant: hit.variant, at: now.toISOString(), slot: "followup:menu" } } : memory.experiments;
+        const experiments = hit?.experiment ? { ...(memory.experiments || {}), [hit.experiment]: memory.experiments?.[hit.experiment] || { variant: hit.variant, at: now.toISOString(), slot } } : memory.experiments;
         await this.chatwoot.sendMessage(id, text);
         await this.memories.set(id, { ...memory, ...(experiments ? { experiments } : {}), ultima_respuesta_agente: text, ultima_pregunta: null, followups_sent: [...new Set([...used, original, text])] });
         const { conversationId: _omit, ...stored } = entry;

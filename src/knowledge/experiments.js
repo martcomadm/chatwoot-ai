@@ -7,20 +7,66 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { AD_OPENINGS } from "../sales/ad-openings.js";
 import { NEED_MENU_TEXT, NEED_MENU_MARK } from "../sales/need-menu.js";
+import { directAnswerText } from "../orchestrator/conversation-orchestrator.js";
+import { priceObjectionDecision } from "../sales/progressive-disclosure.js";
+import { deferralDecision } from "../sales/customer-deferral.js";
+import { SCHEDULE_OFFER_MARK } from "../sales/scheduled-start.js";
+import { CALL_OFFER_MARK } from "../core/human-request.js";
+
+const answer = key => directAnswerText({ answerKey: key, type: key }) || "";
+const PLAN1 = { sales_cycle: { recommended_plan: "plan_1", explained_plans: ["plan_1"] } };
 
 export const CLOSE_DEFAULT = "¿Quieres que iniciemos tu trámite?";
 // Versión B del cierre: pide un paso pequeño y concreto (la CURP) y quita el riesgo de pagar.
 export const CLOSE_CURP_B = "Para apartarte un lugar solo necesito tu CURP: con eso empiezo tu trámite hoy, y tú compruebas tu alta en el IMSS antes de pagar. ¿Me la compartes?";
 
 // Mensajes que se pueden probar. "required" son frases que Mia necesita para seguir el flujo.
+// mode: "exact" = el mensaje es exactamente ese texto (o termina con él); "starts" = empieza con él (se conserva
+// lo que sigue); "full" = cualquier mensaje de ese tipo (el texto cambia según el plan o el nombre): la versión B
+// lo reemplaza completo y puede usar {plan}, {precio} y {nombre}. 9-nov: más mensajes para probar.
+const PLACEHOLDERS = ["{plan}", "{precio}", "{nombre}"];
 export const SLOTS = Object.freeze({
-  "ad_opening:case_review": { label: "Apertura del anuncio \"revisar mi caso\"", defaultText: AD_OPENINGS.case_review, required: ["en qué año empezaste a cotizar"] },
-  "ad_opening:pension": { label: "Apertura del anuncio \"seguir sumando para pensión\"", defaultText: AD_OPENINGS.pension, required: ["en qué año empezaste a cotizar"] },
-  "ad_opening:no_imss": { label: "Apertura del anuncio \"no cuento con IMSS\"", defaultText: AD_OPENINGS.no_imss, required: [] },
-  // 9-nov (punto 1 para cerrar más): cómo termina la explicación completa del plan.
-  "contextual_plan_explanation": { label: "Cierre después de explicar el plan", defaultText: CLOSE_DEFAULT, required: [] },
-  "followup:menu": { label: "Segundo seguimiento (menú numerado)", defaultText: NEED_MENU_TEXT, required: [NEED_MENU_MARK, "1", "2", "3"] },
+  // Aperturas
+  "ad_opening:case_review": { group: "Aperturas", label: "Apertura del anuncio \"revisar mi caso\"", defaultText: AD_OPENINGS.case_review, required: ["en qué año empezaste a cotizar"] },
+  "ad_opening:pension": { group: "Aperturas", label: "Apertura del anuncio \"seguir sumando para pensión\"", defaultText: AD_OPENINGS.pension, required: ["en qué año empezaste a cotizar"] },
+  "ad_opening:no_imss": { group: "Aperturas", label: "Apertura del anuncio \"no cuento con IMSS\"", defaultText: AD_OPENINGS.no_imss, required: [] },
+  // Cierre
+  "contextual_plan_explanation": { group: "Cierre", label: "Cierre después de explicar el plan", defaultText: CLOSE_DEFAULT, required: [] },
+  // Objeciones
+  "price_objection": { group: "Objeciones", label: "Objeción de precio (\"está caro\", \"¿descuento?\")", mode: "full", match: /^Entiendo que el precio sea importante para ti/, defaultText: priceObjectionDecision(PLAN1, "esta caro")?.reply || "", required: [] },
+  "direct:other_price": { group: "Objeciones", label: "Compara con otro precio (\"me ofrecieron más barato\")", defaultText: answer("other_price"), required: [] },
+  "direct:legitimacy": { group: "Objeciones", label: "Duda de fraude / ¿es seguro?", mode: "starts", defaultText: answer("legitimacy"), required: [] },
+  "direct:trust": { group: "Objeciones", label: "Desconfianza (\"¿dónde están?\", \"¿cómo confío?\")", mode: "starts", defaultText: answer("trust"), required: [] },
+  "direct:drop_guarantee": { group: "Objeciones", label: "\"¿Qué seguridad tengo de que no me den de baja?\"", defaultText: answer("drop_guarantee"), required: [] },
+  "customer_deferral:later": { group: "Objeciones", label: "\"Lo pienso\" / \"le aviso\" (despedida)", mode: "full", match: /^Claro[^.]{0,30}, sin problema\. Cuando puedas, escríbeme por aquí/, defaultText: deferralDecision(PLAN1, "lo pienso y le aviso")?.reply || "", required: ["escríbeme por aquí"] },
+  "customer_deferral:no_money": { group: "Objeciones", label: "\"No tengo dinero\" (ofrece programar el alta)", mode: "full", match: new RegExp(SCHEDULE_OFFER_MARK.replace(/[?¿]/g, ".") + "$"), defaultText: deferralDecision(PLAN1, "no tengo dinero")?.reply || "", required: [SCHEDULE_OFFER_MARK] },
+  // Dudas frecuentes
+  "direct:fees": { group: "Dudas frecuentes", label: "\"¿Cobran algo aparte?\" / honorarios", defaultText: answer("fees"), required: [] },
+  "direct:requirements": { group: "Dudas frecuentes", label: "\"¿Qué documentos necesito?\"", defaultText: answer("requirements"), required: [] },
+  "direct:how_to_start": { group: "Dudas frecuentes", label: "\"¿Cómo le hago para iniciar?\"", defaultText: answer("how_to_start"), required: [] },
+  "direct:process_time": { group: "Dudas frecuentes", label: "\"¿Cuánto tarda el alta?\"", defaultText: answer("process_time"), required: [] },
+  "direct:payment_method": { group: "Dudas frecuentes", label: "\"¿Cómo se paga?\"", defaultText: answer("payment_method"), required: [] },
+  "direct:what_is_martcom": { group: "Dudas frecuentes", label: "\"¿Qué es MARTCOM?\"", defaultText: answer("what_is_martcom"), required: [] },
+  "direct:still_covered": { group: "Dudas frecuentes", label: "Ya tiene vigencia con otro gestor", defaultText: answer("still_covered"), required: [SCHEDULE_OFFER_MARK] },
+  // Seguimientos
+  "followup:plan:0": { group: "Seguimientos", label: "1er seguimiento (20 min) a quien ya vio el plan", mode: "full", match: /^¿Te quedó alguna duda sobre el Plan [12]\? Con gusto te la resuelvo\.$/, defaultText: "¿Te quedó alguna duda sobre el Plan 1? Con gusto te la resuelvo.", required: [] },
+  "followup:plan:1": { group: "Seguimientos", label: "2º seguimiento (3 h) a quien ya vio el plan", mode: "full", match: /^Hola de nuevo\. ¿Te gustaría que iniciemos tu trámite con el Plan [12]\?/, defaultText: "Hola de nuevo. ¿Te gustaría que iniciemos tu trámite con el Plan 1? Si tienes alguna duda, con gusto te la resuelvo.", required: [] },
+  "followup:plan:2": { group: "Seguimientos", label: "3er seguimiento (20 h): ofrece la llamada", mode: "full", match: /^¿Prefieres que un asesor te llame unos minutos y te explique el Plan [12] con calma\?/, defaultText: "¿Prefieres que un asesor te llame unos minutos y te explique el Plan 1 con calma? Dime sí y a qué hora te queda bien, y te marcamos a este número.", required: [CALL_OFFER_MARK] },
+  "followup:menu": { group: "Seguimientos", label: "Segundo seguimiento sin plan (menú numerado)", defaultText: NEED_MENU_TEXT, required: [NEED_MENU_MARK, "1", "2", "3"] },
 });
+
+// {plan}, {precio}, {nombre}: del mensaje original (el plan que menciona) y de la memoria.
+export function fillPlaceholders(template, original = "", vars = {}) {
+  const plan = /Plan 2/.test(original) ? "Plan 2" : /Plan 1/.test(original) ? "Plan 1" : (vars.plan || "plan");
+  const precio = plan === "Plan 2" ? "$1,500 MXN mensuales" : plan === "Plan 1" ? "$1,100 MXN mensuales" : "";
+  const nombre = String(vars.nombre || "").trim().split(/\s+/)[0] || "";
+  return String(template)
+    .replace(/\{plan\}/g, `el ${plan}`).replace(/\bel el /g, "el ").replace(/\bde el /g, "del ").replace(/\ba el /g, "al ")
+    .replace(/(^|[.!?]\s+|[¿¡])el (Plan|plan)\b/g, (m, p1, p2) => `${p1}El ${p2}`)
+    .replace(/\{precio\}/g, precio)
+    .replace(/\{nombre\}/g, nombre ? nombre.charAt(0).toUpperCase() + nombre.slice(1).toLowerCase() : "")
+    .replace(/\s+([,.!?])/g, "$1").replace(/[ \t]{2,}/g, " ").trim();
+}
 
 const norm = v => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
@@ -47,7 +93,7 @@ export class ExperimentStore {
   }
 
   slots() {
-    return Object.entries(SLOTS).map(([key, slot]) => ({ key, label: slot.label, default_text: slot.defaultText, current_text: this.state.overrides[key]?.text || slot.defaultText, override: this.state.overrides[key] || null, required: slot.required, active: this.active(key)?.id || null }));
+    return Object.entries(SLOTS).map(([key, slot]) => ({ key, label: slot.label, group: slot.group || "Otros", mode: slot.mode || "exact", match_source: slot.match ? slot.match.source : null, placeholders: slot.mode === "full" ? PLACEHOLDERS : [], default_text: slot.defaultText, current_text: this.state.overrides[key]?.text || slot.defaultText, override: this.state.overrides[key] || null, required: slot.required, active: this.active(key)?.id || null }));
   }
   list() { return this.state.items.map(item => ({ ...item })); }
   active(slot) { return this.state.items.find(item => item.slot === slot && item.status === "active") || null; }
@@ -94,17 +140,33 @@ export class ExperimentStore {
 
   // Texto que se manda para un mensaje probado. Solo reemplaza el texto estándar (si el
   // mensaje se armó distinto, p. ej. con el precio agregado, no se toca).
-  apply(slot, conversationId, reply) {
+  apply(slot, conversationId, reply, vars = {}) {
     const def = SLOTS[slot];
     const value = String(reply || "");
-    // Puede venir con el saludo antes ("¡Hola! Soy Mia de MARTCOM. " + texto).
-    if (!def || !(value === def.defaultText || value.endsWith(` ${def.defaultText}`))) return null;
-    const prefix = value.slice(0, value.length - def.defaultText.length);
+    if (!def || !value) return null;
     const override = this.state.overrides[slot]?.text || null;
     const exp = this.active(slot);
-    if (!exp) return override ? { text: prefix + override, experiment: null } : null;
+    if (!exp && !override) return null;
+    // "full": cualquier mensaje de ese tipo; B (o el ganador) lo reemplaza completo, con {plan}/{precio}/{nombre}.
+    if (def.mode === "full") {
+      if (!def.match?.test(value)) return null;
+      if (!exp) return { text: fillPlaceholders(override, value, vars), experiment: null };
+      const variant = variantFor(exp.id, conversationId);
+      const a = override ? fillPlaceholders(override, value, vars) : value;
+      return { text: variant === "B" ? fillPlaceholders(exp.b_text, value, vars) : a, experiment: exp.id, variant };
+    }
+    let prefix = "", suffix = "";
+    if (def.mode === "starts") {
+      if (!value.startsWith(def.defaultText)) return null;
+      suffix = value.slice(def.defaultText.length);
+    } else {
+      // Puede venir con el saludo antes ("¡Hola! Soy Mia de MARTCOM. " + texto).
+      if (!(value === def.defaultText || value.endsWith(` ${def.defaultText}`))) return null;
+      prefix = value.slice(0, value.length - def.defaultText.length);
+    }
+    if (!exp) return { text: prefix + override + suffix, experiment: null };
     const variant = variantFor(exp.id, conversationId);
-    return { text: prefix + (variant === "B" ? exp.b_text : exp.a_text), experiment: exp.id, variant };
+    return { text: prefix + (variant === "B" ? exp.b_text : exp.a_text) + suffix, experiment: exp.id, variant };
   }
 
   // Resultados desde las memorias: cada conversación guarda experiments[id] = { variant, at, replied_at }.

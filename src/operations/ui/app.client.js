@@ -1538,6 +1538,12 @@ function answerFields(item = {}) {
 }
 const answerBody = data => ({ topic: data.topic, answer: data.answer, phrases: data.phrases, active: data.active !== "0" });
 
+// ¿Qué mensaje de las pruebas A/B es este texto de Mia? (para "Probar en A/B" desde una corrección).
+function slotForText(slots = [], text = "") {
+  const t = String(text || "").trim();
+  return slots.find(sl => sl.mode === "full" ? (sl.match_source && new RegExp(sl.match_source).test(t)) : sl.mode === "starts" ? t.startsWith(sl.default_text) || t.startsWith(sl.current_text) : (t === sl.current_text || t.endsWith(` ${sl.current_text}`) || t === sl.default_text || t.endsWith(` ${sl.default_text}`))) || null;
+}
+
 // Aprendizaje semanal (9-nov): embudo, dónde se van, motivos, preguntas sin buena respuesta y qué funcionó.
 function weeklyBlock(w) {
   if (w.available === false) return `<div class="empty">Aprendizaje semanal no disponible.</div>`;
@@ -1612,7 +1618,7 @@ async function renderMiaAnswers(view) {
   let answers, learning;
   try {
     [answers, learning, state.miaFeedback] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null), state.answersTab === "rated" ? api("/operations/api/mia-feedback") : Promise.resolve(null)]);
-    state.miaExperiments = state.answersTab === "ab" ? await api("/operations/api/mia-experiments") : null;
+    state.miaExperiments = ["ab", "rated"].includes(state.answersTab) ? await api("/operations/api/mia-experiments") : null;
     state.miaReactivation = state.answersTab === "react" ? await api("/operations/api/reactivation") : null;
     state.miaWeekly = state.answersTab === "weekly" ? await api(`/operations/api/mia-weekly${state.weeklyId ? `?id=${encodeURIComponent(state.weeklyId)}` : ""}`) : null;
   } catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudo cargar</strong>${esc(error.message)}</div>`; return; }
@@ -1669,7 +1675,7 @@ async function renderMiaAnswers(view) {
   } else if (state.answersTab === "ab") {
     const ex = state.miaExperiments || { slots: [], items: [] };
     const cell = r => `${r.sent} enviados · <strong>${r.replied_pct ?? "—"}%</strong> contestaron · <strong>${r.accepted_pct ?? "—"}%</strong> aceptaron · ${r.docs} con documentos`;
-    body = `<p class="muted">Los chats se reparten mitad y mitad entre el texto actual (A) y tu versión (B). Espera al menos 30 chats por versión antes de elegir ganadora; si gana B, queda como texto permanente.</p>
+    body = `<p class="muted">Los chats se reparten mitad y mitad entre el texto actual (A) y tu versión (B). Espera al menos 30 chats por versión antes de elegir ganadora; si gana B, queda como texto permanente. Puedes probar aperturas, el cierre, objeciones (precio, fraude, "lo pienso", "no tengo dinero"), dudas frecuentes y seguimientos; también desde "Correcciones 👎" con "Probar en A/B". Puede haber varias pruebas a la vez, una por mensaje.</p>
       <div class="toolbar"><button class="btn primary" data-answer-act="ab-new">+ Nueva prueba</button></div>
       ${ex.slots.filter(sl => sl.override).map(sl => `<div class="notice">“${esc(sl.label)}” usa un texto ganador de una prueba. <button class="btn small quiet" data-answer-act="ab-revert" data-slot="${esc(sl.key)}">Volver al original</button></div>`).join("")}
       ${ex.items.length ? `<div class="answer-list">${ex.items.map(i => {
@@ -1679,7 +1685,7 @@ async function renderMiaAnswers(view) {
           <header><strong>${esc(i.name || label)}</strong><span class="mia-flags">${i.status === "active" ? '<span class="tag ok">En curso</span>' : `<span class="tag">Terminada · ganó ${esc(i.winner)}</span>`}</span></header>
           <p class="muted small">${esc(label)} · desde ${esc(dateTime(i.started_at))}${i.started_by ? ` · ${esc(i.started_by)}` : ""}</p>
           <div class="ab-grid">
-            <div class="ab-col ${i.winner === "A" ? "win" : ""}"><span class="muted small">A · texto actual</span><p>${esc(i.a_text)}</p><p class="small">${r.A ? cell(r.A) : ""}</p></div>
+            <div class="ab-col ${i.winner === "A" ? "win" : ""}"><span class="muted small">A · texto actual${(ex.slots.find(sl => sl.key === i.slot) || {}).mode === "full" ? " (ejemplo)" : ""}</span><p>${esc(i.a_text)}</p><p class="small">${r.A ? cell(r.A) : ""}</p></div>
             <div class="ab-col ${i.winner === "B" ? "win" : ""}"><span class="muted small">B · nueva versión</span><p>${esc(i.b_text)}</p><p class="small">${r.B ? cell(r.B) : ""}</p></div>
           </div>
           ${i.status === "active" ? `<footer><small class="muted">${r.enough ? "Ya hay datos suficientes para decidir." : "Aún hay pocos datos: espera a 30 chats por versión."}</small><span class="actions"><button class="btn small" data-answer-act="ab-finish" data-exp-id="${i.id}" data-winner="A">Terminar: gana A</button><button class="btn small primary" data-answer-act="ab-finish" data-exp-id="${i.id}" data-winner="B">Terminar: gana B</button></span></footer>` : ""}
@@ -1696,7 +1702,7 @@ async function renderMiaAnswers(view) {
         <p><span class="muted small">Mia dijo</span><br>${esc(i.mia_text)}</p>
         <p class="learn-a"><span class="muted small">Debió decir</span><br>${esc(i.correction)}</p>
         ${i.note ? `<p class="muted small">Nota: ${esc(i.note)}</p>` : ""}
-        <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="fb-convert" data-fb-id="${esc(i.id)}">Convertir en respuesta del equipo</button><button class="btn small quiet" data-answer-act="fb-archive" data-fb-id="${esc(i.id)}">Archivar</button></span></footer>
+        <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="fb-convert" data-fb-id="${esc(i.id)}">Convertir en respuesta del equipo</button>${slotForText(state.miaExperiments?.slots || [], i.mia_text) ? `<button class="btn small" data-answer-act="fb-ab" data-fb-id="${esc(i.id)}">Probar en A/B</button>` : ""}<button class="btn small quiet" data-answer-act="fb-archive" data-fb-id="${esc(i.id)}">Archivar</button></span></footer>
       </article>`).join("")}</div>` : `<div class="empty"><strong>Sin correcciones pendientes</strong>En "Chats de Mia", abre un chat y usa 👍 / 👎 en los mensajes de Mia.</div>`);
   } else {
     body = `<p class="muted">Estas reglas ya vienen en Mia (confirmadas con ustedes). Para cambiar una, agrega una respuesta del equipo sobre el mismo tema: la del equipo manda.</p><ul class="fixed-rules">${(answers.fixed || []).map(r => `<li>${esc(r)}</li>`).join("")}</ul>`;
@@ -1753,17 +1759,30 @@ async function miaAnswerAction(target) {
     const data = await ask({ title: "Tope diario de reactivación", fields: [{ name: "cap", label: "Mensajes máximos por día", type: "number", required: true, value: String(state.miaReactivation?.config?.daily_cap || 100) }], confirm: "Guardar" });
     if (data && await run(() => api("/operations/api/reactivation", { method: "POST", body: { daily_cap: Number(data.cap) } }), "Tope actualizado")) renderView();
   }
-  if (act === "ab-new") {
-    const slots = (state.miaExperiments?.slots || []).filter(sl => !sl.active);
+  if (act === "ab-new" || act === "fb-ab") {
+    // 9-nov: más mensajes para probar, agrupados; desde una corrección 👎 se abre con su texto como versión B.
+    const all = state.miaExperiments?.slots || [];
+    const slots = all.filter(sl => !sl.active);
     if (!slots.length) return toast("Todos los mensajes ya tienen una prueba en curso");
-    const pick = await ask({ title: "Nueva prueba A/B", text: "Elige el mensaje que quieres probar.", fields: [{ name: "slot", label: "Mensaje", type: "select", value: slots[0].key, options: slots.map(sl => [sl.key, sl.label]) }], confirm: "Siguiente", area: "respuestas" });
-    if (!pick) return;
-    const slot = slots.find(sl => sl.key === pick.slot);
-    const data = await ask({ title: slot.label, text: `<span class="muted small">A · texto actual</span><br>${esc(slot.current_text)}${slot.required.length ? `<br><br><span class="muted small">La versión B debe incluir: ${slot.required.map(r => `“${esc(r)}”`).join(", ")}${pick.slot === "followup:menu" ? ". Las opciones 1, 2 y 3 deben significar lo mismo: servicio médico, semanas para pensión, y además AFORE e INFONAVIT" : ""}.</span>` : ""}`, fields: [
-      { name: "name", label: "Nombre de la prueba (opcional)", placeholder: "Ej. Apertura más corta" },
-      { name: "b_text", label: "Versión B", type: "textarea", required: true, value: slot.current_text },
+    const fb = act === "fb-ab" ? (state.miaFeedback?.items || []).find(i => i.id === target.dataset.fbId) : null;
+    let key = fb ? slotForText(all, fb.mia_text)?.key : null;
+    if (fb && key && !slots.some(sl => sl.key === key)) return toast("Ese mensaje ya tiene una prueba en curso");
+    if (!key) {
+      const pick = await ask({ title: "Nueva prueba A/B", text: "Elige el mensaje que quieres probar.", fields: [{ name: "slot", label: "Mensaje", type: "select", value: slots[0].key, options: slots.map(sl => [sl.key, `${sl.group} · ${sl.label}`]) }], confirm: "Siguiente", area: "respuestas" });
+      if (!pick) return;
+      key = pick.slot;
+    }
+    const slot = slots.find(sl => sl.key === key);
+    const full = slot.mode === "full";
+    const help = [
+      full ? `Este mensaje cambia según el cliente. Tu versión B reemplaza el mensaje completo y puede usar <strong>{plan}</strong> (el Plan 1 o el Plan 2), <strong>{precio}</strong> ($1,100 o $1,500 MXN mensuales) y <strong>{nombre}</strong> (el nombre del cliente, si lo sabemos).` : "",
+      slot.required.length ? `La versión B debe incluir: ${slot.required.map(r => `“${esc(r)}”`).join(", ")}${key === "followup:menu" ? ". Las opciones 1, 2 y 3 deben significar lo mismo: servicio médico, semanas para pensión, y además AFORE e INFONAVIT" : ""} (Mia lo necesita para seguir la conversación).` : "",
+    ].filter(Boolean).map(t => `<br><br><span class="muted small">${t}</span>`).join("");
+    const data = await ask({ title: slot.label, text: `<span class="muted small">A · texto actual${full ? " (ejemplo con el Plan 1)" : ""}</span><br>${esc(slot.current_text)}${help}`, fields: [
+      { name: "name", label: "Nombre de la prueba (opcional)", placeholder: fb ? "Ej. Corrección de Sofi" : "Ej. Respuesta más corta" },
+      { name: "b_text", label: "Versión B", type: "textarea", required: true, value: fb?.correction || slot.current_text },
     ], confirm: "Iniciar prueba", area: "respuestas" });
-    if (data && await run(() => api("/operations/api/mia-experiments", { method: "POST", body: { slot: pick.slot, name: data.name, b_text: data.b_text } }), "Prueba iniciada: los chats nuevos se reparten A/B")) renderView();
+    if (data && await run(() => api("/operations/api/mia-experiments", { method: "POST", body: { slot: key, name: data.name, b_text: data.b_text } }), "Prueba iniciada: los chats nuevos se reparten A/B")) { if (fb) state.answersTab = "ab"; renderView(); }
   }
   if (act === "ab-finish") {
     const winner = target.dataset.winner;

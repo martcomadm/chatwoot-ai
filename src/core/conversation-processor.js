@@ -1007,10 +1007,15 @@ export class ConversationProcessor {
       decision = { ...decision, reply: String(decision.reply).replace(/\s*(¿[^¿]*\?)\s*$/, ` ${touch} $1`) };
     }
     // Pruebas A/B (4-nov): versión A/B del mensaje o texto ganador.
-    const experimentHit = this.experiments?.apply?.(decisionSource, conversationId, decision?.reply);
+    // 9-nov: también objeciones, dudas frecuentes y "lo pospone" (por tipo: customer_deferral:later, :no_money).
+    const expPlan = memory.sales_cycle?.selected_plan || memory.sales_cycle?.last_plan || memory.sales_cycle?.recommended_plan || null;
+    const experimentVars = { nombre: memory.primer_nombre || memory.nombre || "", plan: expPlan === "plan_2" ? "Plan 2" : expPlan === "plan_1" ? "Plan 1" : null };
+    let experimentSlot = decisionSource;
+    let experimentHit = this.experiments?.apply?.(decisionSource, conversationId, decision?.reply, experimentVars);
+    if (!experimentHit && deferral?.deferral) { experimentSlot = `${decisionSource}:${deferral.deferral}`; experimentHit = this.experiments?.apply?.(experimentSlot, conversationId, decision?.reply, experimentVars); }
     if (experimentHit) {
       decision = { ...decision, reply: experimentHit.text };
-      if (experimentHit.experiment) memory = { ...memory, experiments: { ...(memory.experiments || {}), [experimentHit.experiment]: memory.experiments?.[experimentHit.experiment] || { variant: experimentHit.variant, at: new Date().toISOString(), slot: decisionSource } } };
+      if (experimentHit.experiment) memory = { ...memory, experiments: { ...(memory.experiments || {}), [experimentHit.experiment]: memory.experiments?.[experimentHit.experiment] || { variant: experimentHit.variant, at: new Date().toISOString(), slot: experimentSlot } } };
     }
     const decisionState = { payment_extension_request: Boolean(decision?.payment_extension_request), onboarding_declined: Boolean(decision?.onboarding_declined), plan_change_request: decision?.plan_change_request || null, nss_resolution: decision?.nss_resolution || null, onboarding_requirement: decision?.onboarding_requirement || onboardingDecision?.onboarding_requirement || null };
     const modelTier = decision?.__tier || null;
