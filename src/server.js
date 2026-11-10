@@ -1,3 +1,4 @@
+import { NotificationInbox } from "./operations/notifications/notification-inbox.js";
 import { HotLeadAlerts } from "./operations/hot-lead-alerts.js";
 import { WeeklyReviewService } from "./knowledge/weekly-review.js";
 import { parseOffDays } from "./core/team-days.js";
@@ -83,7 +84,7 @@ try {
   workflowBridge.start();
   // Avisos para la gente de Operations (página + Web Push al celular o la computadora).
   const opsPush = new PushStore(path.join(config.storage.dataDir, "ops-push.json"), { publicKey: process.env.OPS_VAPID_PUBLIC_KEY || "", privateKey: process.env.OPS_VAPID_PRIVATE_KEY || "" });
-  const opsNotifier = new OpsNotifier({ users: opsUsers, store: opsPush, settings: opsSettings, subject: process.env.OPS_VAPID_SUBJECT || "https://martcom-econtact.mx" });
+  const opsNotifier = new OpsNotifier({ users: opsUsers, store: opsPush, settings: opsSettings, inbox: new NotificationInbox(path.join(config.storage.dataDir, "ops-notifications.json")), subject: process.env.OPS_VAPID_SUBJECT || "https://martcom-econtact.mx" });
   saleStore.on("sale", event => void opsNotifier.handleSaleEvent(event));
   opsNotifier.start(() => saleStore.list());
   // Si Chatwoot no responde al arrancar (502 de EasyPanel mientras se levanta), se reintenta cada 10 min, hasta 12 veces.

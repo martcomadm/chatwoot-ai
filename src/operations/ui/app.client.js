@@ -175,6 +175,31 @@ function toast(message, kind = "") {
   setTimeout(() => item.remove(), kind === "bad" ? 6000 : 3200);
 }
 
+// Aviso de una notificación (10-nov: "se desaparece muy rápido"): dura 30 s (los urgentes, 60 s), se pausa con el
+// mouse encima, se abre al tocarlo y se cierra con ✕. Todo queda además en la pestaña Notificaciones.
+function notifyToast(n, urgent) {
+  const item = document.createElement("div");
+  item.className = `toast note ${urgent ? "bad" : ""}`;
+  item.setAttribute("role", "status");
+  const open = document.createElement("button");
+  open.type = "button"; open.className = "toast-open";
+  const title = document.createElement("strong"); title.textContent = n.title || "Aviso";
+  open.appendChild(title);
+  if (n.body) { const body = document.createElement("span"); body.textContent = n.body; open.appendChild(body); }
+  const close = document.createElement("button");
+  close.type = "button"; close.className = "toast-close"; close.setAttribute("aria-label", "Cerrar aviso"); close.textContent = "✕";
+  item.append(open, close);
+  while (toastEl.querySelectorAll(".toast.note").length >= 4) toastEl.querySelector(".toast.note").remove();
+  toastEl.appendChild(item);
+  let timer = null;
+  const arm = () => { timer = setTimeout(() => item.remove(), urgent ? 60000 : 30000); };
+  item.addEventListener("mouseenter", () => clearTimeout(timer));
+  item.addEventListener("mouseleave", arm);
+  close.addEventListener("click", () => item.remove());
+  open.addEventListener("click", () => { item.remove(); openNotification(n); });
+  arm();
+}
+
 async function api(path, { method = "GET", body } = {}) {
   const response = await fetch(path, {
     method,
@@ -364,7 +389,8 @@ async function start() {
   state.me = await api("/operations/api/me");
   const params = new URLSearchParams(location.search);
   const pathSale = location.pathname.match(/^\/operations\/sales\/([^/]+)/);
-  const available = state.me.areas.map(area => area.key);
+  const available = [...state.me.areas.map(area => area.key), "notificaciones"];
+  state.unreadNotifications = state.me.unread_notifications || 0;
   const requested = params.get("area");
   state.view = available.includes(requested) ? requested : (available.find(area => WORK_AREAS.includes(area)) || available[0]);
   state.saleId = pathSale ? decodeURIComponent(pathSale[1]) : params.get("sale");
@@ -424,7 +450,7 @@ function renderShell() {
   app.innerHTML = `<div class="shell">
     <nav class="rail" aria-label="Áreas">
       <div class="brand"><strong>MARTCOM</strong><span>Operations NEXT</span>${me.build ? `<small class="muted" style="display:block;font-size:11px">Versión ${esc(me.build)}</small>` : ""}</div>
-      <div class="nav">${nav}</div>
+      <div class="nav">${nav}<div class="nav-sep" role="presentation"></div><button class="nav-item" data-go="notificaciones" ${state.view === "notificaciones" ? 'aria-current="page"' : ""}><span>🔔 Notificaciones</span>${state.unreadNotifications ? `<span class="nav-count alert" title="${state.unreadNotifications} sin leer">${state.unreadNotifications}</span>` : ""}</button></div>
       <div class="rail-foot">
         ${miaStatusHtml()}
         <div id="notify-box">${notifyBoxHtml()}</div>
@@ -486,6 +512,7 @@ async function renderView() {
   if (state.view === "atencion") return renderCustomerService(view);
   if (state.view === "chats") return renderMiaChats(view);
   if (state.view === "respuestas") return renderMiaAnswers(view);
+  if (state.view === "notificaciones") return renderNotifications(view);
   if (state.view === "admin") return renderAdmin(view);
 }
 
@@ -2038,12 +2065,69 @@ function playChime(kind) {
   } catch {}
 }
 
+const URGENT_KINDS = new Set(["issue", "overdue", "cold_lead", "hot_lead"]);
+
+// Contador de la pestaña Notificaciones sin redibujar toda la página.
+function renderShellBadge() {
+  const btn = document.querySelector('[data-go="notificaciones"]');
+  if (!btn) return;
+  btn.querySelector(".nav-count")?.remove();
+  if (state.unreadNotifications) btn.insertAdjacentHTML("beforeend", `<span class="nav-count alert" title="${state.unreadNotifications} sin leer">${state.unreadNotifications}</span>`);
+}
+
+// Abre a donde lleva el aviso (expediente, chat de Mia, caso de Atención o pestaña) y lo marca leído.
+async function openNotification(n) {
+  if (n.id && !n.read_at) {
+    try { const r = await api("/operations/api/notifications/read", { method: "POST", body: { ids: [n.id] } }); state.unreadNotifications = r.unread; renderShellBadge(); } catch {}
+  }
+  const has = key => state.me.areas.some(a => a.key === key);
+  const url = n.url ? new URL(n.url, location.origin) : null;
+  const saleId = n.sale_id || url?.pathname.match(/^\/operations\/sales\/([^/]+)/)?.[1];
+  if (saleId) return openSale(decodeURIComponent(saleId));
+  const chatId = url?.searchParams.get("chat"), caseId = url?.searchParams.get("case"), area = url?.searchParams.get("area"), tab = url?.searchParams.get("tab");
+  if (chatId && has("chats")) { if (state.view !== "chats") await go("chats"); return openMiaChat(chatId); }
+  if (caseId && has("atencion")) { if (state.view !== "atencion") await go("atencion"); return openCase(caseId); }
+  if (area && has(area)) { if (tab) state.answersTab = tab; if (state.view !== area) return go(area); return renderView(); }
+  if (state.view === "notificaciones") renderView();
+}
+
+const NOTE_ICON = { hot_lead: "🔥", cold_lead: "⏳", issue: "⚠️", overdue: "⏰", assigned: "👤", customer: "💬", payment: "💳", info: "ℹ️" };
+async function renderNotifications(view) {
+  let data;
+  try { data = await api("/operations/api/notifications"); }
+  catch (error) { view.innerHTML = `<div class="empty">${esc(error.message)}</div>`; return; }
+  state.notifications = data.items || [];
+  state.unreadNotifications = data.unread || 0;
+  renderShellBadge();
+  const filter = state.noteFilter === "unread" ? "unread" : "all";
+  const items = state.notifications.filter(n => filter === "all" || !n.read_at);
+  view.innerHTML = `
+    <div class="view-head"><div><h1>Notificaciones</h1><p>Tus avisos de los últimos 14 días. Toca uno para abrirlo.</p></div></div>
+    <div class="toolbar">
+      <div class="segmented" role="group" aria-label="Filtro">
+        <button data-note-filter="all" aria-pressed="${filter === "all"}">Todas (${state.notifications.length})</button>
+        <button data-note-filter="unread" aria-pressed="${filter === "unread"}">Sin leer (${data.unread || 0})</button>
+      </div>
+      ${data.unread ? `<button class="btn" data-note-act="read-all">Marcar todas como leídas</button>` : ""}
+    </div>
+    ${items.length ? `<div class="note-list">${items.map(n => `<button type="button" class="note-row ${n.read_at ? "" : "unread"} ${URGENT_KINDS.has(n.kind) ? "urgent" : ""}" data-note="${esc(n.id)}">
+        <span class="note-icon" aria-hidden="true">${NOTE_ICON[n.kind] || "🔔"}</span>
+        <span class="note-main"><strong>${esc(n.title)}</strong>${n.body ? `<span>${esc(n.body)}</span>` : ""}</span>
+        <small class="mono muted">${esc(dateTime(n.at))}${n.read_at ? "" : " · sin leer"}</small>
+      </button>`).join("")}</div>`
+      : `<div class="empty"><strong>${filter === "unread" ? "No tienes avisos sin leer" : "Todavía no tienes avisos"}</strong>${filter === "unread" ? "Ya revisaste todo." : "Aquí aparecerán los avisos de expedientes, clientes listos para comprar, atrasos y casos."}</div>`}`;
+}
+
 function updateTitle() { document.title = notifyState.unread ? `(${notifyState.unread}) ${BASE_TITLE}` : BASE_TITLE; }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { notifyState.unread = 0; updateTitle(); } });
 
 function handleNotify(n) {
   playChime(n.kind);
-  toast(`${n.title}${n.body ? `: ${n.body}` : ""}`, n.kind === "issue" || n.kind === "overdue" || n.kind === "cold_lead" || n.kind === "hot_lead" ? "bad" : "");
+  notifyToast(n, URGENT_KINDS.has(n.kind));
+  if (n.id) {
+    state.unreadNotifications = (state.unreadNotifications || 0) + 1;
+    if (state.view === "notificaciones") renderView(); else renderShellBadge();
+  }
   if (document.hidden) { notifyState.unread += 1; updateTitle(); }
   // Sin Web Push en este dispositivo: aviso del sistema mientras la página siga abierta.
   if (document.hidden && !notifyState.subscribed && "Notification" in window && Notification.permission === "granted") {
@@ -2057,9 +2141,12 @@ function handleNotify(n) {
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
-  const target = event.target.closest("[data-go], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-sort], [data-mia-page], [data-answer-act], [data-answers-tab], [data-rate]");
+  const target = event.target.closest("[data-go], [data-note], [data-note-filter], [data-note-act], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-sort], [data-mia-page], [data-answer-act], [data-answers-tab], [data-rate]");
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
+  if (target.dataset.noteFilter) { state.noteFilter = target.dataset.noteFilter; return renderView(); }
+  if (target.dataset.noteAct === "read-all") { try { const r = await api("/operations/api/notifications/read", { method: "POST", body: {} }); state.unreadNotifications = r.unread; } catch (error) { toast(error.message, "bad"); } return renderView(); }
+  if (target.dataset.note) { const n = (state.notifications || []).find(i => i.id === target.dataset.note); if (n) return openNotification(n); return; }
   if (target.dataset.act === "logout") return logout();
   if (target.dataset.act === "push-enable") return enablePush();
   if (target.dataset.act === "push-test") return testPush();

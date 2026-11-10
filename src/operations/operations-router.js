@@ -150,6 +150,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const user = req.opsUser;
     res.json({
       user,
+      unread_notifications: notifier?.inbox?.unread?.(user.username) || 0,
       areas: [...AREAS.filter(area => hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : [])],
       visible_queues: visibleQueues(user),
       queue_labels: QUEUE_LABELS,
@@ -194,6 +195,15 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.post("/operations/api/push/unsubscribe", (req, res) => {
     if (push && req.body?.endpoint) push.remove(req.opsUser.username, String(req.body.endpoint));
     res.json({ ok: true });
+  });
+  // Buzón de notificaciones de cada persona (10-nov).
+  router.get("/operations/api/notifications", (req, res) => {
+    res.json(notifier?.inbox ? notifier.inbox.list(req.opsUser.username) : { items: [], unread: 0 });
+  });
+  router.post("/operations/api/notifications/read", (req, res) => {
+    if (!notifier?.inbox) return res.json({ changed: 0, unread: 0 });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 200) : [];
+    res.json(notifier.inbox.markRead(req.opsUser.username, ids));
   });
   router.post("/operations/api/push/test", async (req, res) => {
     if (!notifier) return res.status(503).json({ error: "Avisos no disponibles" });

@@ -22,11 +22,12 @@ const plan = sale => PLAN_LABEL[sale?.sale?.plan] ? ` · ${PLAN_LABEL[sale.sale.
 const clip = (text, n = 120) => { const t = String(text || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
 export class OpsNotifier extends EventEmitter {
-  constructor({ users, store, settings = null, subject = "https://martcom-econtact.mx", sendPush = sendWebPush, logger = console } = {}) {
+  constructor({ users, store, settings = null, inbox = null, subject = "https://martcom-econtact.mx", sendPush = sendWebPush, logger = console } = {}) {
     super();
     this.users = users;
     this.store = store;
     this.settings = settings;
+    this.inbox = inbox;
     this.subject = subject;
     this.sendPush = sendPush;
     this.logger = logger;
@@ -119,7 +120,9 @@ export class OpsNotifier extends EventEmitter {
   async notify(n) {
     const to = [...new Set((n.to || []).filter(Boolean))];
     if (!to.length) return { to: [], pushed: 0 };
-    const payload = { title: n.title, body: n.body, kind: n.kind, sale_id: n.sale_id || null, url: n.url || "/operations", at: new Date().toISOString() };
+    // 10-nov: cada aviso queda en el buzón de la persona (Operations → Notificaciones).
+    const id = this.inbox?.add?.(to, n) || null;
+    const payload = { id, title: n.title, body: n.body, kind: n.kind, sale_id: n.sale_id || null, url: n.url || "/operations", at: new Date().toISOString() };
     // Dentro de la página (SSE): sonido y aviso para quien la tenga abierta.
     this.emit("notify", { ...payload, to });
     let pushed = 0;
