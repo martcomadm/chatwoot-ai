@@ -125,7 +125,10 @@ export function contextualPlanExplanation(memory = {}, combinedText = "") {
   const offered = /explique como funciona el plan ([12])/.exec(norm(memory?.ultima_respuesta_agente || ""))?.[1];
   // "¿Te gustaría que te explique cómo funciona para cuando lo necesites?" sin plan aún (sigue cotizando con su
   // trabajo, 1-nov): se explica el Plan 1 en lugar de volver a ofrecer la explicación.
-  const plan = offered ? `plan_${offered}` : effectivePlan(memory) || (contextualAffirmative ? "plan_1" : null);
+  // "Me interesa plan dos, me das información" (10-nov: se le explicó el Plan 1): si nombra un plan, es ese.
+  const named = /\bplan\s*(?:2|dos)\b/.test(value) && !/\bplan\s*(?:1|uno)\b/.test(value) && !memory?.sales_cycle?.infonavit_credit ? "plan_2"
+    : /\bplan\s*(?:1|uno)\b/.test(value) && !/\bplan\s*(?:2|dos)\b/.test(value) ? "plan_1" : null;
+  const plan = (explicitExplanationRequest && named) || (offered ? `plan_${offered}` : effectivePlan(memory) || (contextualAffirmative ? "plan_1" : null));
   // Ya se explicó este plan: no se manda otra vez el mismo bloque (caso real: Silvia recibió
   // dos veces la explicación completa del Plan 2).
   // La recomendación corta ("…¿Quieres que te explique cómo funciona?") cuenta como plan mencionado, no explicado:

@@ -128,7 +128,7 @@ export function reactivationReplyDecision(memory = {}, text = "") {
   // "❓❔", "¿quién es?", "¿de dónde o qué es martcom?" (9-nov): no recuerda la plática. Se le recuerda quién
   // le escribe y por qué.
   const raw = String(text || "").trim();
-  if (/^[\s?¿❓❔!]+$/.test(raw) || /^(?:hola\s+|buen(?:os)? dias?\s+|disculpe\s+)*(?:quien (?:es|eres|habla|me escribe)|de donde (?:me escribe|es|son)|quienes son|que es esto|de que es|no se quien es|perdon quien es)\b/.test(norm(raw))) {
+  if (/^[\s?¿❓❔!]+$/.test(raw) || /^(?:hola\s+|buen(?:os)? dias?\s+|disculpe\s+)*(?:quien (?:es|eres|habla|me escribe)|de donde (?:me escribe|es|son)|quienes son|que es esto|de que es|no se quien es|perdon quien es)\b/.test(norm(raw)) || /\b(?:que|quien|quienes) (?:es|son) martcom\b|\bde donde o que es\b/.test(norm(raw))) {
     const planName = plan0 === "plan_2" ? "el Plan 2" : plan0 === "plan_1" ? "el Plan 1" : null;
     return { reply: `¡Hola! Soy Mia, la asistente virtual de MARTCOM. Somos una consultoría que te ayuda a darte de alta ante el IMSS para que tengas servicio médico y sigas sumando semanas. Hace unos días platicamos sobre tu afiliación${planName ? ` y ${planName}` : ""}, y te escribí para saber si te quedó alguna duda. ¿Quieres que te explique cómo funciona ${planName || "el Plan 1"}?`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", plan: plan0 };
   }
@@ -137,7 +137,11 @@ export function reactivationReplyDecision(memory = {}, text = "") {
   const c = memory.sales_cycle || {};
   const plan = c.selected_plan || c.recommended_plan || (c.explained_plans || []).at(-1) || (c.pitched_plans || []).at(-1) || null;
   // seguimiento4 pregunta "¿Ha tenido alguna duda…?": "Sí" es que tiene una duda.
-  if (lastName === "seguimiento4") {
+  // Solo un "sí" pelón; "Sí me interesa" (10-nov: recibió "cuéntame cuál es tu duda") es interés, no una duda,
+  // y un saludo solo ("Buenos días") lo contesta el flujo normal.
+  const interested = /\b(?:interesa|quiero|iniciar|empezar|afiliarme|continuar|adelante)\b/.test(v);
+  if (lastName === "seguimiento4" && /^(?:hola|buen dia|buenos dias|buenas tardes|gracias)(?: (?:hola|buen dia|buenos dias|buenas tardes|gracias))*$/.test(v)) return null;
+  if (lastName === "seguimiento4" && !interested) {
     const recap = plan === "plan_2" ? " Te recuerdo que el Plan 2 cuesta $1,500 MXN mensuales e incluye servicio médico del IMSS, semanas cotizadas y aportaciones a tu AFORE e INFONAVIT."
       : plan === "plan_1" ? " Te recuerdo que el Plan 1 cuesta $1,100 MXN mensuales e incluye servicio médico del IMSS y semanas cotizadas." : "";
     return { reply: `Con gusto te ayudo, cuéntame cuál es tu duda.${recap}${recap ? " El primer pago se hace hasta que tu alta ya está vigente." : ""}`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", plan };

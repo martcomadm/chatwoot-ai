@@ -23,6 +23,11 @@ const NO_MONEY_RE = [
 ];
 
 const LATER_RE = [
+  // 10-nov: "Si pero por el momento no lo haré", "esperemos al lunes", "te envío mis datos el fin de semana",
+  // "se los envío el jueves o más tardar el viernes" (recibieron el plan otra vez o una pregunta genérica).
+  /\bpor (?:el|este) momento no\b|\bpor ahora no\b|\bde momento no\b/,
+  /\besper(?:emos|amos|o|are|ame|eme)\s+(?:al?|hasta|para)\s+(?:el\s+|la\s+)?(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim\w+|otra semana|quincena|fin de mes|manana)\b/,
+  /\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b.{0,40}\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|fin de semana|manana|mas tarde|al rato|en la tarde|en la noche|quincena)\b/,
   // "Estoy de viaje… cuando regrese por favor", "le resuelvo luego" (casos reales 7 y 9-nov).
   /\b(?:estoy|ando|voy)\s+de\s+viaje\b|\bcuando\s+(?:regrese|vuelva|llegue a casa|este de regreso)\b|\b(?:le|te|les)\s+resuelvo\s+(?:luego|despues|mas tarde|en un rato)\b/,
   /\b(?:yo )?(?:le|les|los|las|te) (?:aviso|abiso|escribo|contacto|marco|busco|confirmo)\b/,
@@ -205,7 +210,7 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   let reply;
   // Quiere iniciar pero después ("Podemos iniciar el trámite el lunes, voy a buscar mis papeles",
   // "mañana le envío papeles"; casos reales 21 y 22-oct): se le dice qué tener listo.
-  const startLater = kind === "later" && /\b(?:papeles|documentos|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
+  const startLater = kind === "later" && /\b(?:papeles|documentos|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
   if (startLater) reply = String(memory.ultima_respuesta_agente || "").includes(START_LATER_MARK) ? "" : `Perfecto${name}. Cuando tengas a la mano tu CURP, NSS e INE, ${START_LATER_MARK}${plan ? ` con ${plan}` : ""}.`;
   // Sin dinero por ahora (5-nov: la objeción más común, y siempre terminaba en despedida): una vez se le dice que
   // hoy no paga nada y se le ofrece programar el alta para cuando tenga el pago.

@@ -8,7 +8,8 @@ function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').repl
 
 function isRequirementsQuestion(v){
   if(/\b(?:cumplo|ya cumplo|tengo|ya tengo) (?:con )?(?:los |todos los |los demas )?requisitos\b|\brequisitos los cumplo\b/.test(v)) return false;
-  const cleaned=String(v||"").replace(/[¿?¡!.,;:()[\]{}]/g," ").replace(/\s+/g," ").trim();
+  // "que nececito para los tramites" (10-nov: quedó con respuesta genérica).
+  const cleaned=String(v||"").replace(/[¿?¡!.,;:()[\]{}]/g," ").replace(/\bne[csz]e[csz]it/g,"necesit").replace(/\btramites\b/g,"tramite").replace(/\s+/g," ").trim();
   const hasRequirements=/\brequisitos?\b/.test(cleaned);
   const hasDocuments=/\b(documentos?|documentacion|papeles?|papeleria)\b/.test(cleaned);
   if(/\bque (?:necesita|necesitas|ocupa|ocupas|requiere|requieres) que (?:le|te) (?:envie|mande|pase|de)\b/.test(cleaned)) return true;
@@ -28,6 +29,8 @@ const CALL_OFFER_TEXT = `¿${CALL_OFFER_MARK.charAt(0).toUpperCase()}${CALL_OFFE
 
 export function detectDirectRequest(text){
   const v=norm(text);
+  // 10-nov: "Estaría bien ver tus testimonios", "¿qué respaldo tengo?", "¿tienen reseñas?".
+  if(/\b(?:testimonios?|resenas?|opiniones|recomendaciones|referencias|comentarios de (?:clientes|otras personas))\b/.test(v) || /\bque respaldo (?:tengo|tienen|me dan|ofrecen)\b/.test(v)) return {type:'testimonials',priority:'high',answerKey:'testimonials'};
   // 9-nov (export 5 al 9-nov):
   // "Buenos días disculpe, de dónde o qué es martcom" (contestó la plantilla de seguimiento; recibió el Plan 1).
   if(/\b(?:que|quien|quienes)\s+(?:es|son)\s+(?:martcom|ustedes|esto)\b|\bque empresa es martcom\b|\bde donde o que es\b/.test(v)) return {type:'what_is_martcom',priority:'high',answerKey:'what_is_martcom'};
@@ -310,6 +313,7 @@ export function directAnswerText(request){
   if(request.answerKey==='beneficiary') return `Sí. Con tu alta con nosotros puedes registrar como beneficiarios a ${request.partner?'tu pareja (aunque vivan en unión libre)':'tu pareja'}, a tus hijos menores de 16 años y a tus padres, sujeto a validación del IMSS. Está incluido desde el Plan 1, de $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`;
   if(request.answerKey==='info_free') return 'No, la información no tiene ningún costo: con gusto te resuelvo tus dudas por aquí. Solo pagas la mensualidad del plan si decides afiliarte: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes. ¿Qué te gustaría saber?';
   if(request.answerKey==='plan1_no_afore'&&request.feature==='incapacidades') return 'Al contrario: el Plan 1 ($1,100 MXN mensuales) sí incluye incapacidad por enfermedad, conforme a las reglas del IMSS, además de servicio médico y semanas cotizadas. Lo que no manejamos en ningún plan es la incapacidad por accidente o riesgo de trabajo, porque no trabajas para nosotros. El Plan 2 ($1,500 MXN mensuales) suma además AFORE e INFONAVIT. ¿Cuál te interesa más?';
+  if(request.answerKey==='testimonials') return 'Claro. Puedes ver lo que opinan nuestros clientes en nuestra página de Facebook, Consultoría en Afiliaciones Martcom, en la sección de recomendaciones. Llevamos 5 años en el mercado y más de 5,000 clientes afiliados en toda la República. Y tu mejor respaldo es que primero queda tu alta, la compruebas tú mismo en la app IMSS Digital o en tu clínica, y hasta entonces haces tu primer pago. ¿Quieres que iniciemos tu trámite?';
   if(request.answerKey==='what_is_martcom') return 'MARTCOM es una consultoría privada que gestiona afiliaciones ante el IMSS: te damos de alta para que tengas servicio médico del IMSS y sigas sumando semanas cotizadas, con un salario diario registrado de $480 MXN. Llevamos 5 años en el mercado y más de 5,000 clientes afiliados en toda la República. Yo soy Mia, la asistente virtual de MARTCOM. ¿Quieres que te explique cómo funciona el Plan 1?';
   if(request.answerKey==='send_weeks') return 'Claro, envíame por aquí tu reporte de semanas cotizadas (foto o PDF) y lo revisamos para decirte cómo te conviene continuar.';
   if(request.answerKey==='data_correction') return `Entiendo. Corregir datos como tu nombre o tu fecha de nacimiento ante el IMSS depende de cada caso, así que es mejor que lo revise un asesor contigo. ${CALL_OFFER_TEXT}`;
