@@ -24,6 +24,7 @@ test("Respuestas de Mia: permisos, alta/edición/borrado y convertir lo que cont
   users.create({ username: "sofi.super", name: "Sofi", areas: ["supervision"], password: "clave-segura-123" });
   users.create({ username: "ana.admin", name: "Ana", areas: ["admin"], password: "clave-segura-123" });
   users.create({ username: "carla.captura", name: "Carla", areas: ["captura"], password: "clave-segura-123" });
+  users.create({ username: "quique.calidad", name: "Quique", areas: ["calidad"], password: "clave-segura-123" });
   const memories = new MemoryStore(path.join(dir, "m.json"));
   await memories.merge(7, { nombre: "Rosa", handoff: { status: "completed" } });
   const chatwoot = { async getAllMessages() { return { payload: [
@@ -55,6 +56,19 @@ test("Respuestas de Mia: permisos, alta/edición/borrado y convertir lo que cont
   assert.ok((await sofi("/operations/api/me")).body.areas.some(a => a.key === "respuestas"));
   assert.ok((await ana("/operations/api/me")).body.areas.some(a => a.key === "respuestas"));
   assert.ok(!(await carla("/operations/api/me")).body.areas.some(a => a.key === "respuestas"));
+  // 10-nov: "Calidad de Mia" solo ve Chats de Mia y Respuestas de Mia; califica y enseña, no interviene ni ve
+  // celulares, expedientes ni el interruptor de la reactivación.
+  const quique = await as("quique.calidad");
+  const qme = (await quique("/operations/api/me")).body;
+  assert.deepEqual(qme.areas.map(a => a.key), ["chats", "respuestas"]);
+  assert.equal(qme.can.intervene, false);
+  assert.equal(qme.can.mia_phones, false);
+  assert.deepEqual(qme.visible_queues, []);
+  assert.equal((await quique("/operations/api/mia-chats")).status, 200);
+  assert.equal((await quique("/operations/api/mia-answers")).status, 200);
+  assert.equal((await quique("/operations/api/mia-chats/7/intervene", {})).status, 403);
+  assert.equal((await quique("/operations/api/reactivation", { enabled: true })).status, 403);
+  assert.equal((await quique("/operations/api/admin/users")).status, 403);
   assert.equal((await carla("/operations/api/mia-answers")).status, 403);
   assert.equal((await carla("/operations/api/mia-answers", { topic: "x", answer: "y" })).status, 403);
 

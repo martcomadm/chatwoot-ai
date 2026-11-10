@@ -56,12 +56,14 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   }
 
   const canInterveneMia = user => hasArea(user, "captura");
-  const canTeachMia = user => hasArea(user, "supervision");
+  const isQuality = user => (user?.areas || []).includes("calidad");
+  const canTeachMia = user => hasArea(user, "supervision") || isQuality(user);
+  const canRateMia = user => canInterveneMia(user) || isQuality(user);
   // Celulares de los clientes: solo Supervisión y Admin (pedido 4-nov).
   // Cobranza también (4-nov): ve Chats de Mia (sin intervenir) con los celulares.
   const isCobranza = user => (user?.areas || []).includes("cobranza");
   const canSeeMiaPhones = user => hasArea(user, "supervision") || isCobranza(user);
-  const canSeeMiaChats = user => canInterveneMia(user) || isCobranza(user) || (user?.areas || []).includes("observador");
+  const canSeeMiaChats = user => canInterveneMia(user) || isCobranza(user) || (user?.areas || []).includes("observador") || isQuality(user);
 
   function fail(res, error, status = 400) { return res.status(status).json({ error: error?.message || String(error) }); }
 
@@ -151,7 +153,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     res.json({
       user,
       unread_notifications: notifier?.inbox?.unread?.(user.username) || 0,
-      areas: [...AREAS.filter(area => hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : [])],
+      areas: [...AREAS.filter(area => area.key !== "calidad" && hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : [])],
       visible_queues: visibleQueues(user),
       queue_labels: QUEUE_LABELS,
       can: {
@@ -294,12 +296,12 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const id = Number(req.params.id);
     if (!id || !chatwoot) return res.json({ items: [], available: false });
     try {
-      res.json({ items: await conversationItems(id, memory?.nombre || null), available: true, ratings: replyFeedback?.forConversation(id) || {}, can_rate: canInterveneMia(req.opsUser) && Boolean(replyFeedback) });
+      res.json({ items: await conversationItems(id, memory?.nombre || null), available: true, ratings: replyFeedback?.forConversation(id) || {}, can_rate: canRateMia(req.opsUser) && Boolean(replyFeedback) });
     } catch (error) { res.status(502).json({ error: "No se pudo leer la conversación de Chatwoot", detail: String(error?.message || error).slice(0, 200) }); }
   });
   // Calificar una respuesta de Mia (4-nov): 👍 o 👎 con "así debió contestar".
   router.post("/operations/api/mia-chats/:id/rate", async (req, res) => {
-    if (!canInterveneMia(req.opsUser) || !replyFeedback) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin califican respuestas", code: "forbidden" });
+    if (!canRateMia(req.opsUser) || !replyFeedback) return res.status(403).json({ error: "Solo Captura, Calidad de Mia, Supervisión o Admin califican respuestas", code: "forbidden" });
     try {
       const id = Number(req.params.id);
       const items = await conversationItems(id, null);
@@ -336,7 +338,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
 
   // ── Respuestas de Mia (4-nov): el equipo enseña a Mia sin redespliegue ──
   const teachGuard = (req, res) => {
-    if (!canTeachMia(req.opsUser)) { res.status(403).json({ error: "Solo Supervisión y Admin pueden editar las respuestas de Mia", code: "forbidden" }); return false; }
+    if (!canTeachMia(req.opsUser)) { res.status(403).json({ error: "Solo Calidad de Mia, Supervisión y Admin pueden editar las respuestas de Mia", code: "forbidden" }); return false; }
     if (!teamAnswers) { res.status(503).json({ error: "Respuestas de Mia no disponibles" }); return false; }
     return true;
   };
@@ -413,7 +415,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     });
   });
   router.post("/operations/api/reactivation", (req, res) => {
-    if (!teachGuard(req, res)) return;
+    // Encender/apagar y el tope son de Supervisión y Admin (Calidad de Mia solo consulta).
+    if (!hasArea(req.opsUser, "supervision")) return res.status(403).json({ error: "Solo Supervisión y Admin encienden o apagan la reactivación", code: "forbidden" });
     try {
       const config = settings.setReactivation({ enabled: req.body?.enabled, daily_cap: req.body?.daily_cap }, actorOf(req.opsUser));
       audit.record("reactivation.config", actorOf(req.opsUser), config);

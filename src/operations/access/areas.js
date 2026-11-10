@@ -12,6 +12,9 @@ export const AREAS = Object.freeze([
   { key: "cobranza", label: "Cobranza", queue: "payment" },
   { key: "atencion", label: "Atención a Clientes", queue: null },
   { key: "observador", label: "Observador", queue: null },
+  // 10-nov: solo Chats de Mia (ver y calificar 👍/👎) y Respuestas de Mia (enseñar y corregir). Sin expedientes,
+  // sin celulares y sin intervenir chats.
+  { key: "calidad", label: "Calidad de Mia", queue: null },
   { key: "supervision", label: "Supervisión", queue: null },
   { key: "admin", label: "Admin", queue: null },
 ]);

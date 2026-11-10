@@ -10,7 +10,7 @@ const QUEUE_AREA = { capture: "captura", validation: "validacion", validity: "vi
 const QUEUE_LABEL_TEXT = { capture: "Captura", validation: "Validación", validity: "Vigencia", payment: "Cobranza" };
 const AREA_QUEUE = { captura: "capture", validacion: "validation", vigencia: "validity", cobranza: "payment" };
 const WORK_AREAS = ["captura", "validacion", "vigencia", "cobranza"];
-const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", atencion: "Atención a Clientes", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
+const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", atencion: "Atención a Clientes", calidad: "Calidad de Mia", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
 const STAGES = [["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completado"]];
 
 const AREA_INTRO = {
@@ -1687,7 +1687,7 @@ async function renderMiaAnswers(view) {
     const NAMES = { seguimiento4: "Día 2 · seguimiento4", seguimiento3: "Día 2 · seguimiento3", procesoafiliacion1: "Día 7 · procesoafiliacion1", saludodia2: "Día 30 · saludodia2", recordatorio1: "Documentos · recordatorio1" };
     body = r.available === false ? `<div class="empty">Reactivación no disponible.</div>` : `
       <div class="notice ${cfg.enabled ? "" : "warn"}"><strong>${cfg.enabled ? "Encendida" : "Apagada"}</strong> · tope ${cfg.daily_cap} mensajes al día · enviados hoy: ${r.sent_today || 0}${cfg.changed_by ? ` · cambió ${esc(cfg.changed_by.name || cfg.changed_by.username || "")} ${esc(dateTime(cfg.changed_at))}` : ""}
-        <div class="actions" style="margin-top:8px"><button class="btn small ${cfg.enabled ? "" : "primary"}" data-answer-act="react-toggle">${cfg.enabled ? "Apagar" : "Encender"}</button><button class="btn small quiet" data-answer-act="react-cap">Cambiar tope diario</button></div></div>
+        ${state.me.can.supervise ? `<div class="actions" style="margin-top:8px"><button class="btn small ${cfg.enabled ? "" : "primary"}" data-answer-act="react-toggle">${cfg.enabled ? "Apagar" : "Encender"}</button><button class="btn small quiet" data-answer-act="react-cap">Cambiar tope diario</button></div>` : ""}</div>
       <p class="muted">Solo chats asignados a Mia y sin etiqueta de cierre. A quien no compró y dejó de escribir: día 2 <strong>seguimiento4</strong>, día 7 <strong>procesoafiliacion1</strong>, día 30 <strong>saludodia2</strong> (o el día que dijo que retomaba, p. ej. "en la quincena"). A quien aceptó y no mandó documentos: <strong>recordatorio1</strong> una vez. Solo de 10:00 a 19:00, nunca a quien no le interesa, se equivocó, pidió no recibir mensajes o está con una persona.</p>
       <div class="react-kpis">
         <div class="react-kpi"><span>Listos para enviar ahora</span><b>${r.pending_now || 0}</b><small>${Object.entries(r.pending_by_template || {}).map(([k, v]) => `${esc(NAMES[k] || k)}: ${v}`).join(" · ") || "—"}</small></div>
