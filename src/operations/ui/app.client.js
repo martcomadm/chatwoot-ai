@@ -696,9 +696,68 @@ function readOnlyFor(sale) {
 
 function canAct(sale, area) { return sale.queue === AREA_QUEUE[area] && hasArea(area); }
 
+// ── Acciones del expediente (rediseño 11-nov) ─────────────────────────────
+// El paso que sigue va arriba, grande; lo demás se agrupa por para qué sirve, con ícono y una línea de ayuda.
+const ACT_ICONS = {
+  play: '<path d="M7 5v14l11-7z"/>',
+  check: '<path d="M4 12.5l5 5L20 6.5"/>',
+  calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
+  id: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6 16c.6-1.6 5.4-1.6 6 0M15 10h3M15 14h3"/>',
+  hash: '<path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16"/>',
+  pencil: '<path d="M4 20l1-4L16 5l3 3L8 19zM14 7l3 3"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/>',
+  phone: '<path d="M6 3h3l2 5-2 1.5a12 12 0 0 0 5.5 5.5L16 13l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"/>',
+  help: '<path d="M4 13v-1a8 8 0 0 1 16 0v1"/><rect x="3" y="13" width="4" height="6" rx="1.5"/><rect x="17" y="13" width="4" height="6" rx="1.5"/><path d="M20 19c0 2-2 2-5 2"/>',
+  alert: '<path d="M12 4l9 16H3zM12 10v4M12 17v.5"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+  money: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 9.5v5M17.5 9.5v5"/>',
+  back: '<path d="M9 7l-5 5 5 5M4 12h11a5 5 0 0 1 0 10h-2"/>',
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-4.5 13-4.5 14 0"/>',
+  swap: '<path d="M4 8h14l-3-3M20 16H6l3 3"/>',
+  tag: '<path d="M4 4h8l8 8-8 8-8-8zM8.5 8.5h.01"/>',
+};
+// acción → [grupo, ícono, ayuda]
+const ACT_META = {
+  "capture-start": ["main", "play"], "capture-complete": ["main", "check"],
+  "validation-reopen": ["main", "back"], "validity-confirm": ["main", "upload"], "validity-reopen": ["main", "back"],
+  "payment-request": ["main", "money"], "payment-receive": ["main", "upload"], "payment-validate": ["main", "check"], "payment-reopen": ["main", "back"],
+  "capture-curp": ["data", "id", "La de la foto que mandó"], "capture-nss": ["data", "hash", "Cuando lo localices"],
+  "capture-name": ["data", "pencil", "Como viene en su CURP"], "documents-sync": ["data", "refresh", "Trae lo que mandó por WhatsApp"],
+  "capture-call": ["client", "phone", "Mia le pide un horario"], "capture-schedule": ["client", "calendar", "No cuenta tiempo hasta ese día"],
+  "capture-resume": ["client", "play", "El tiempo cuenta desde ahora"], "send-service": ["client", "help", "Dudas que no son del trámite"],
+  "validation-correction-capture": ["issue", "back", "Regresa a Captura"], "validation-correction-customer": ["issue", "pencil", "Mia se lo pide al cliente"],
+  "validation-reject": ["issue", "x"], "validity-issue": ["issue", "alert"], "payment-issue": ["issue", "alert"],
+  "sup-reactivate": ["main", "check"], "sup-drop": ["issue", "alert", "Guarda su adeudo"], "sup-cancel": ["issue", "x"],
+  "sup-assign": ["sup", "user", "Elegir responsable"], "sup-plan": ["sup", "tag", "Plan 1 ↔ Plan 2"], "sup-name": ["sup", "pencil"],
+  "sup-return": ["sup", "swap", "Mover a otra etapa"],
+};
+const ACT_GROUPS = [["data", "Datos del expediente"], ["client", "Con el cliente"], ["issue", "Correcciones e incidencias"], ["sup", ""]];
+function actIcon(name) { return `<svg class="act-ico" viewBox="0 0 24 24" aria-hidden="true">${ACT_ICONS[name] || ACT_ICONS.pencil}</svg>`; }
+function actionTile(b) {
+  const [, icon, hint] = ACT_META[b.action] || [];
+  const sub = b.disabled || hint || "";
+  return `<button class="act ${b.kind === "danger" ? "danger" : ""}" data-sale-act="${b.action}" ${b.disabled ? `disabled title="${esc(b.disabled)}"` : ""}>${actIcon(icon)}<span class="act-text"><span class="act-label">${esc(b.label)}</span>${sub ? `<small>${esc(sub)}</small>` : ""}</span></button>`;
+}
+function actionsHtml(list, { mainTitle = "Siguiente paso", issueTitle = null } = {}) {
+  if (!list.length) return "";
+  const groupOf = b => (ACT_META[b.action] || ["data"])[0];
+  const main = list.filter(b => groupOf(b) === "main");
+  const mainHtml = main.length ? `<div class="act-group">${mainTitle ? `<h4>${esc(mainTitle)}</h4>` : ""}<div class="act-main">${main.map(b => {
+    const [, icon] = ACT_META[b.action] || [];
+    return `<button class="btn ${b.kind === "primary" ? "primary" : ""} act-next" data-sale-act="${b.action}" ${b.disabled ? "disabled" : ""}>${actIcon(icon)}<span>${esc(b.label)}</span></button>`;
+  }).join("")}</div>${main.filter(b => b.disabled).map(b => `<p class="act-why"><strong>${esc(b.label)}</strong> se activa al completar documentos. ${esc(b.disabled)}</p>`).join("")}</div>` : "";
+  const groups = ACT_GROUPS.map(([key, title]) => {
+    const items = list.filter(b => groupOf(b) === key);
+    const head = key === "issue" && issueTitle ? issueTitle : title;
+    return items.length ? `<div class="act-group">${head ? `<h4>${esc(head)}</h4>` : ""}<div class="act-grid">${items.map(actionTile).join("")}</div></div>` : "";
+  }).join("");
+  return `<div class="act-panel">${mainHtml}${groups}</div>`;
+}
+
 function areaActions(sale) {
   const buttons = [];
-  const add = (action, label, kind = "", disabled = "") => buttons.push(`<button class="btn ${kind}" data-sale-act="${action}" ${disabled ? `disabled title="${esc(disabled)}"` : ""}>${esc(label)}</button>`);
+  const add = (action, label, kind = "", disabled = "") => buttons.push({ action, label, kind, disabled });
   // En Atención a Clientes: el área espera a que se lo regresen (Supervisión usa su sección).
   if (sale.service?.open && !(state.me?.user?.areas || []).includes("admin")) return buttons;
   // Baja por falta de pago y reactivación: también Cobranza (Supervisión los tiene en su sección).
@@ -812,15 +871,15 @@ function renderPanel() {
   const actions = areaActions(sale);
   const supervision = [];
   if (hasArea("supervision")) {
-    if (workArea) supervision.push(`<button class="btn" data-sale-act="sup-assign">Asignar a…</button>`);
+    if (workArea) supervision.push({ action: "sup-assign", label: "Asignar a…", kind: "" });
     const dropped = sale.status === "dropped_nonpayment";
-    if (dropped) supervision.push(`<button class="btn primary" data-sale-act="sup-reactivate">Reactivar (ya pagó)</button>`);
-    if (!["cancelled", "dropped_nonpayment"].includes(sale.status)) supervision.push(`<button class="btn" data-sale-act="sup-plan">Cambiar plan</button>`);
-    if (sale.status !== "cancelled") supervision.push(`<button class="btn" data-sale-act="sup-name">Corregir nombre</button>`);
-    if (!["completed", "dropped_nonpayment"].includes(sale.status)) supervision.push(`<button class="btn" data-sale-act="sup-return">${sale.queue === "cancelled" ? "Reactivar en…" : "Regresar a…"}</button>`);
+    if (dropped) supervision.push({ action: "sup-reactivate", label: "Reactivar (ya pagó)", kind: "primary" });
+    if (!["cancelled", "dropped_nonpayment"].includes(sale.status)) supervision.push({ action: "sup-plan", label: "Cambiar plan", kind: "" });
+    if (sale.status !== "cancelled") supervision.push({ action: "sup-name", label: "Corregir nombre", kind: "" });
+    if (!["completed", "dropped_nonpayment"].includes(sale.status)) supervision.push({ action: "sup-return", label: sale.queue === "cancelled" ? "Reactivar en…" : "Regresar a…", kind: "" });
     // Baja por falta de pago: solo clientes con alta vigente (vigencia confirmada o completados).
-    if (!dropped && sale.status !== "cancelled" && (sale.validity?.confirmed || sale.status === "completed")) supervision.push(`<button class="btn danger" data-sale-act="sup-drop">Dar de baja por falta de pago</button>`);
-    if (!["completed", "cancelled", "dropped_nonpayment"].includes(sale.status)) supervision.push(`<button class="btn danger" data-sale-act="sup-cancel">Cancelar expediente</button>`);
+    if (!dropped && sale.status !== "cancelled" && (sale.validity?.confirmed || sale.status === "completed")) supervision.push({ action: "sup-drop", label: "Dar de baja por falta de pago", kind: "danger" });
+    if (!["completed", "cancelled", "dropped_nonpayment"].includes(sale.status)) supervision.push({ action: "sup-cancel", label: "Cancelar expediente", kind: "danger" });
   }
   const c = sale.customer || {};
   const facts = [
@@ -849,19 +908,21 @@ function renderPanel() {
       </div>
       <div class="panel-body">
         <section>
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
-            <div><span class="tag area" style="--area:${areaVar(area)}">${esc(statusLabel(sale.status))}</span></div>
+          <div class="sale-summary">
+            <div class="sale-summary-main">
+              <span class="tag area" style="--area:${areaVar(area)}">${esc(statusLabel(sale.status))}</span>
+              ${workArea ? `<div class="sale-owner"><span class="sale-owner-name"><span class="muted">Responsable</span> <strong>${sale.assignee ? esc(sale.assignee.name) : "Sin asignar"}</strong></span>${assignButtons.length ? `<span class="sale-owner-actions">${assignButtons.join("")}</span>` : ""}</div>` : ""}
+            </div>
             ${clock(sale)}
           </div>
-          ${workArea ? `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap"><div><span class="muted">Responsable:</span> <strong>${sale.assignee ? esc(sale.assignee.name) : "Sin asignar"}</strong></div><div class="actions">${assignButtons.join("")}</div></div>` : ""}
-          ${actions.length ? `<div class="actions" style="margin-top:14px">${actions.join("")}</div>` : ""}
+          ${actionsHtml(actions)}
           ${readOnlyFor(sale) ? `<p class="readonly-note">Modo observador: puedes seguir el avance de esta venta, pero no modificarla.</p>` : ""}
         </section>
         ${stageInfo(sale) ? `<section>${stageInfo(sale)}</section>` : ""}
         ${["validation", "validity", "payment", "completed"].includes(sale.queue) ? `<section><h3>Revisión de validación</h3>${validationChecks(sale)}</section>` : ""}
         <section><h3>Datos del cliente</h3><dl class="facts">${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join("")}</dl></section>
         <section><h3>Documentos</h3>${documentsHtml(sale)}</section>
-        ${supervision.length ? `<section><h3>Supervisión</h3><div class="actions">${supervision.join("")}</div></section>` : ""}
+        ${supervision.length ? `<section><h3>Supervisión</h3>${actionsHtml(supervision, { mainTitle: "", issueTitle: "Bajas y cancelación" })}</section>` : ""}
         ${sale.conversation_id ? `<section id="sale-chat-section"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h3 style="margin:0">Conversación con el cliente</h3><button class="btn quiet small" data-act="reload-chat">Actualizar</button></div><div id="sale-chat" class="sale-chat"><p class="muted">Cargando conversación…</p></div></section>` : ""}
         <section><h3>Historial</h3>${historyHtml(sale)}</section>
       </div>
