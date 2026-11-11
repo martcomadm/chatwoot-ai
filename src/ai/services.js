@@ -91,7 +91,7 @@ export class AiServices {
 
   // Nota de voz → texto (OpenAI). Ver src/ai/audio.js.
   async transcribeAudio(attachment) {
-    return transcribeAudioAttachment(this.openai, attachment, { model: this.config.transcribeModel || "gpt-4o-mini-transcribe" });
+    return transcribeAudioAttachment(this.openai, attachment, { model: this.config.transcribeModel || "gpt-transcribe" });
   }
 
   async extractDocumentData(attachments = []) {

@@ -25,7 +25,7 @@ test("transcribe hasta 10 min; más largo no se manda a OpenAI", async () => {
   const fetchOf = buf => async () => ({ ok: true, arrayBuffer: async () => buf });
   const ok = await transcribeAudioAttachment(openai, { file_type: "audio", data_url: "https://chat/a.ogg" }, { fetchImpl: fetchOf(opusOgg(9 * 60)) });
   assert.deepEqual([ok.ok, ok.text], [true, "Quiero saber cuánto cuesta el plan uno"]);
-  assert.equal(calls[0].model, "gpt-4o-mini-transcribe");
+  assert.equal(calls[0].model, "gpt-transcribe");
   assert.equal(calls[0].language, "es");
   assert.ok(calls[0].file instanceof File);
   const long = await transcribeAudioAttachment(openai, { file_type: "audio", data_url: "https://chat/b.ogg" }, { fetchImpl: fetchOf(opusOgg(MAX_AUDIO_SECONDS + 30)) });

@@ -28,6 +28,7 @@ import { TeamAnswerStore } from "./knowledge/team-answers.js";
 import { LearningInbox } from "./knowledge/learning-inbox.js";
 import { ReplyFeedbackStore } from "./knowledge/reply-feedback.js";
 import { ExperimentStore, CLOSE_CURP_B } from "./knowledge/experiments.js";
+import { migrateOpenAiConfig, withModelFallback } from "./ai/model-migration.js";
 import { AD_OPENING_PENSION_B, AD_OPENING_NO_IMSS_B } from "./sales/ad-openings.js";
 import { CaseStore } from "./operations/customer-service/case-store.js";
 import { CustomerService } from "./operations/customer-service/customer-service.js";
@@ -56,7 +57,12 @@ process.on("unhandledRejection", reason => {
 try {
   const config = loadConfig();
   // Sin límite, el SDK espera hasta 10 minutos por intento y deja la conversación trabada.
-  const openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: config.openai.timeoutMs, maxRetries: config.openai.maxRetries });
+  // 11-nov: OpenAI retira GPT-5 y o3 el 11-dic-2026; los nombres retirados se cambian solos por su reemplazo.
+  const migration = migrateOpenAiConfig({ ...config.openai, transcribeModel: config.openai.transcribeModel });
+  config.openai = migration.config;
+  if (migration.changes.length) console.log(`NEXT: modelos actualizados por retiro de OpenAI: ${migration.changes.join(", ")}`);
+  const previousOf = new Map([...migration.previousOf, ["gpt-transcribe", "gpt-4o-mini-transcribe"]]);
+  const openai = withModelFallback(new OpenAI({ apiKey: config.openai.apiKey, timeout: config.openai.timeoutMs, maxRetries: config.openai.maxRetries }), previousOf);
   // Aprende con qué cuenta publica Mia para no confundir sus mensajes con los de una persona.
   const selfSenders = new SelfSenders(path.join(config.storage.dataDir, "self-senders.json"), [config.chatwoot.agentId]);
   const chatwoot = selfSenders.wrap(new ChatwootApi(config.chatwoot));

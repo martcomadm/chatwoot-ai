@@ -31,7 +31,7 @@ export function oggOpusSeconds(buffer) {
 }
 
 // { ok: true, text, seconds } | { ok: false, reason: "too_long" | "too_big" | "download_failed" | "empty" | "error", seconds? }
-export async function transcribeAudioAttachment(openai, attachment, { model = "gpt-4o-mini-transcribe", fetchImpl = fetch, maxSeconds = MAX_AUDIO_SECONDS } = {}) {
+export async function transcribeAudioAttachment(openai, attachment, { model = "gpt-transcribe", fetchImpl = fetch, maxSeconds = MAX_AUDIO_SECONDS } = {}) {
   const url = attachment?.data_url || attachment?.download_url || attachment?.file_url || attachment?.url;
   if (!url) return { ok: false, reason: "download_failed" };
   let buffer;
