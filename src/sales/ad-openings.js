@@ -16,6 +16,16 @@ export const AD_OPENINGS = Object.freeze({
   already_affiliated: "Qué bien que ya cuentas con IMSS. Si en algún momento dejas de trabajar, con nosotros puedes seguir cotizando y conservar tu servicio médico. ¿Tu alta actual es por tu trabajo o estás buscando otra opción?",
 });
 
+// Versiones B que se prueban solas (A/B) desde el 11-nov. En tres exportaciones (5 al 11-nov) la apertura corta de
+// "revisar mi caso" tuvo 90% de respuesta y 11 de 89 aceptaron; la de "seguir sumando para pensión" (más larga) 59–72%
+// y 2 de 108; la de "no cuento con IMSS" 38–50% y 0 de 64. Se prueba una apertura corta con una sola pregunta, y el
+// menú numerado (contestar "2" cuesta menos que escribir su historia).
+export const AD_OPENING_PENSION_B = "¡Claro que sí se puede! Aunque hayas dejado de trabajar puedes seguir sumando semanas para tu pensión. Para revisar tu caso, ¿más o menos en qué año empezaste a cotizar?";
+export const AD_OPENING_NO_IMSS_B = `Claro que sí, te ayudo con tu afiliación al IMSS. Todo se hace por este WhatsApp y el alta suele quedar en unas 48 horas hábiles. ¿Qué te interesa más? Responde con el número:
+1️⃣ Servicio médico del IMSS
+2️⃣ Seguir sumando semanas para mi pensión
+3️⃣ Todo lo anterior y además AFORE e INFONAVIT`;
+
 export function adOpeningKind(text = "") {
   const raw = String(text || "");
   const v = norm(raw);

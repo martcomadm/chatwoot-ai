@@ -86,6 +86,7 @@ export function followUpMessage(memory = {}, step = 0) {
     const ops = memory.operations || {};
     if (ops.documents_complete) return null; // ya lo atiende el equipo de Operaciones
     if (altaOnHold(memory)) return null; // alta agendada para otro día: no se le insiste mientras llega
+    if (startDateOnHold(memory)) return null; // dijo "hasta el jueves": no se le piden documentos antes de ese día
     const key = ops.onboarding_next || ops.documents_missing?.[0] || null;
     const doc = key ? `tu ${onboardingLabel(key)}` : "la documentación pendiente";
     // 4-nov (punto 4): de 8 que aceptaron, 3 no completaron documentos. Los recordatorios dicen cómo
@@ -320,4 +321,16 @@ export function altaOnHold(memory = {}, now = new Date()) {
   const date = memory?.operations?.scheduled_alta;
   const start = date ? Date.parse(`${date}T00:00:00-06:00`) : NaN;
   return Number.isFinite(start) && now.getTime() < start;
+}
+
+// El cliente aceptó con fecha ("sería hasta el jueves para asegurar el dinero", 10-nov: aceptó y el mismo día
+// recibió dos recordatorios de su CURP). Hasta ese día no se le insiste; si la fecha no se puede calcular
+// ("en la quincena"), se esperan 48 horas.
+export function startDateOnHold(memory = {}, now = new Date()) {
+  const s = memory?.sales_cycle?.scheduled_start;
+  const at = Date.parse(s?.at || "");
+  if (!s || !Number.isFinite(at)) return false;
+  const resume = customerResumeAt(`${s.text || ""} ${s.when || ""}`, new Date(at));
+  const until = resume && resume.getTime() - at > 12 * 3600 * 1000 ? resume.getTime() : at + 48 * 3600 * 1000;
+  return now.getTime() < until;
 }

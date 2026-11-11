@@ -26,6 +26,8 @@ const LATER_RE = [
   // 10-nov: "Si pero por el momento no lo haré", "esperemos al lunes", "te envío mis datos el fin de semana",
   // "se los envío el jueves o más tardar el viernes" (recibieron el plan otra vez o una pregunta genérica).
   /\bpor (?:el|este) momento no\b|\bpor ahora no\b|\bde momento no\b/,
+  // "Si hoy le mando mensaje" (10-nov: la IA contestó "sí, puedes mandar el mensaje hoy" y repitió el plan).
+  /\b(?:hoy|manana|al rato|mas tarde|en la tarde|en la noche|luego|despues)\s+(?:le|les|te)\s+(?:mando|envio|escribo|marco)\b/,
   /\besper(?:emos|amos|o|are|ame|eme)\s+(?:al?|hasta|para)\s+(?:el\s+|la\s+)?(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|proxim\w+|otra semana|quincena|fin de mes|manana)\b/,
   /\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b.{0,40}\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|fin de semana|manana|mas tarde|al rato|en la tarde|en la noche|quincena)\b/,
   // "Estoy de viaje… cuando regrese por favor", "le resuelvo luego" (casos reales 7 y 9-nov).
@@ -103,6 +105,8 @@ export function detectDeferral(text) {
   // "Soy ley 73, en qué año no me acuerdo, necesito checar mis papeles" (caso real 27-oct) responde la pregunta.
   if (/\b(?:no me acuerdo|no recuerdo)\b/.test(value)) return null;
   if (LATER_RE.some(re => re.test(value))) return "later";
+  // "Gracias / Pero ahorita no / Estoy en proceso de pensión" (caso real 10-nov: recibió los planes otra vez).
+  if (String(text).split(/\n+/).some(line => /^(?:(?:pero|pues|gracias|no|ok|mmm|ay)\s+)*(?:ahorita|orita|por ahorita|por ahora|ahora)\s+no(?:\s+gracias)?$/.test(norm(line).replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim()))) return "later";
   return null;
 }
 
@@ -123,6 +127,12 @@ export function detectClosing(text, { lastReply = "" } = {}) {
   const value = stripThanksTail(norm(text).replace(/[^\p{L}\p{N}\s,.!]/gu, " ").replace(/\s+/g, " ").trim());
   if (!value || asksSomething(text)) return false;
   if (/^(?:si|claro)\b/.test(value) && OFFER_RE.test(norm(lastReply))) return false;
+  // "Agradezco la atención, estaremos en contacto por este medio", "Le agradezco mucho la información, que pase
+  // un buen día y estamos en contacto" (casos reales 10 y 11-nov: recibieron otra pregunta de venta).
+  const full = norm(text);
+  if (full.length <= 160 && !/\b(?:quiero|me interesa|iniciar|iniciemos|empezar|afiliarme|mando|envio)\b/.test(full)
+    && (/\b(?:estamos|estaremos|seguimos|seguiremos|quedamos|nos mantenemos|nos ponemos) en contacto\b/.test(full)
+      || (/\b(?:agradezco|gracias)\b/.test(full) && /\bque (?:pase|pasen|tenga|tengan|tengas)\b.{0,20}\b(?:dia|tarde|noche)\b/.test(full)))) return true;
   return THANKS_RE.test(value) && CLOSING_ONLY_RE.test(value);
 }
 

@@ -28,6 +28,7 @@ import { TeamAnswerStore } from "./knowledge/team-answers.js";
 import { LearningInbox } from "./knowledge/learning-inbox.js";
 import { ReplyFeedbackStore } from "./knowledge/reply-feedback.js";
 import { ExperimentStore, CLOSE_CURP_B } from "./knowledge/experiments.js";
+import { AD_OPENING_PENSION_B, AD_OPENING_NO_IMSS_B } from "./sales/ad-openings.js";
 import { CaseStore } from "./operations/customer-service/case-store.js";
 import { CustomerService } from "./operations/customer-service/customer-service.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
@@ -111,6 +112,9 @@ try {
   // 9-nov: prueba del cierre (A = "¿Quieres que iniciemos tu trámite?", B = pedir la CURP). Se ve y se termina
   // en Operations → Respuestas de Mia → Pruebas A/B.
   experiments.seed({ slot: "contextual_plan_explanation", name: "Cierre: pedir la CURP vs. ¿iniciamos?", bText: CLOSE_CURP_B });
+  // 11-nov: aperturas de los dos anuncios que menos contestan y menos venden (ver ad-openings.js).
+  experiments.seed({ slot: "ad_opening:pension", name: "Apertura pensión: corta con una sola pregunta", bText: AD_OPENING_PENSION_B });
+  experiments.seed({ slot: "ad_opening:no_imss", name: "Apertura \"no cuento con IMSS\": menú numerado", bText: AD_OPENING_NO_IMSS_B });
   const turnLock = new TurnLock(path.join(config.storage.dataDir, "turn-locks"));
   turnLock.prune();
   setInterval(() => turnLock.prune(), 6 * 60 * 60 * 1000).unref();

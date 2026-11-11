@@ -52,7 +52,7 @@ export function controlledAnswer(key,memory={}){
     services_plan_1:directAnswerText({answerKey:'services',plan:'plan_1'}),
     services_plan_2:directAnswerText({answerKey:'services',plan:'plan_2'}),
     services:directAnswerText({answerKey:'services'}),
-    trust:'Atendemos clientes de todo México y nuestra operación está en CDMX. Si antes de compartir datos quieres validar información de la empresa, es totalmente válido hacerlo primero.',
+    trust:'Nuestra operación está en la Ciudad de México y atendemos a clientes de todo el país; todo el trámite se hace por este medio. Tu alta queda registrada ante el IMSS con una de las empresas que manejamos y, cuando esté vigente, la puedes comprobar tú mismo en la app IMSS Digital o en tu clínica. Llevamos 5 años en el mercado y más de 5,000 clientes afiliados en toda la República; puedes ver sus recomendaciones en nuestra página de Facebook, Consultoría en Afiliaciones Martcom.',
     clarify_quote:'Me refiero a la cotización de la opción de afiliación que corresponda a tu caso: el plan, el salario de registro y los beneficios que buscas.',
     explain_curp:'La CURP es la Clave Única de Registro de Población; no es solamente la fecha de nacimiento. Si no la tienes a la mano, podemos dejar ese dato pendiente por ahora.',
     operational_model:OPERATIONAL_MODEL_ANSWER,

@@ -35,7 +35,7 @@ const FAVOR_RE = /^(?:si|ojala|pues|claro)?[ ,]*(?:que )?(?:me |nos )?(?:hiciera
 export function shortAffirmative(text) {
   // ". .si" (caso real 27-oct): los signos sueltos al inicio no cambian el sí.
   // "Si porfsvor", "si porfa vor", "si x fa" (caso real 6-nov: recibió dos respuestas genéricas).
-  const value = norm(text).replace(/^[\s.,;:!¡¿?-]+/, "").replace(/\bpor\s*f[sa]v[oa]r\b|\bporf[sa]vor\b|\bporfa\s*vor\b|\bporfabor\b|\bx\s*fa(?:vor)?\b|\bxfavor\b|\bpls\b/g, "por favor");
+  const value = norm(text).replace(/^[\s.,;:!¡¿?-]+/, "").replace(/\bpor\s*f[sa]v[oa]r\b|\bporf[sa]vor\b|\bporfavo[a-z]\b|\bporfa\s*vor\b|\bporfabor\b|\bx\s*fa(?:vor)?\b|\bxfavor\b|\bpls\b/g, "por favor");
   return Boolean(value) && !negatesCommitment(value) && (SHORT_AFFIRMATIVE_RE.test(value) || FAVOR_RE.test(value));
 }
 

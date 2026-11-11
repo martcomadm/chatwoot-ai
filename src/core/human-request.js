@@ -27,6 +27,13 @@ const PATTERNS = [
   /\b(?:es|sea|son)\s+(?:una?\s+)?(?:computadora|maquina|robot|bot|grabadora|contestadora)s?\b.{0,40}\b(?:contest|respond)\w*/,
   /\b(?:me|nos)\s+(?:esta\s+)?(?:contesta|responde|atiende)\s+(?:una?\s+)?(?:computadora|maquina|robot|bot|contestadora)\b/,
   /\bpinches?\s+(?:computadoras?|maquinas?|robots?|bots?)\b/,
+  // Cliente que ya está (o estuvo) con MARTCOM y reclama (caso real 10-nov: "ya pagué más de un año con ustedes… no me
+  // dieron de baja… no sé con quién hablo que no entiende" recibió los planes dos veces y terminó insultando).
+  /\bya (?:pague|cumpli|estuve|termine)\b.{0,40}\bcon ustedes\b|\b(?:llevo|tengo|pague|estuve)\b.{0,25}\b(?:ano|anos|meses)\b.{0,25}\bcon ustedes\b/,
+  /\bno (?:me )?(?:han dado|dieron|pueden dar|quieren dar|han podido dar)\s+(?:de\s+)?(?:la\s+)?baja\b|\bno presentan la baja\b|\bmi tramite esta detenido\b/,
+  /\bno he (?:tenido|recibido) (?:ninguna |una )?respuesta\b|\bsigo esperando\b.{0,30}\b(?:respuesta|llamada|que me)\b|^sigo esperando$/,
+  /\bno se con quien hablo\b|\b(?:que|usted|ustedes) no entiend\w+\b|\bno me entiend\w+\b/,
+  /\b(?:hdspm|chspm|hdp|hijos? de (?:su|tu) (?:puta|perra|chingada)|chingu?en a su|pendej[oa]s?|rater[oa]s|ladrones|estafadores)\b/,
 ];
 
 export function explicitHumanRequest(text) {
@@ -49,6 +56,9 @@ export function acceptsAdvisorOffer(text, lastReply = "") {
 // Pide platicarlo por teléfono ("Le puedo marcar xfa", "me gustaría platicarlo bien x teléfono",
 // casos reales 20-oct). Este número no recibe llamadas, pero un asesor sí puede regresarle la llamada.
 const CALL_PATTERNS = [
+  // "Por favor comuníquense conmigo" (10-nov: recibió "¿tienes alguna duda sobre el Plan 1?").
+  /\b(?:comuniquen?se|comuniquese|comunicarse|contactenme|contactense|llamenme|llameme|marqueme)\b(?:\s+con\s*migo|\s+conmigo)?/,
+  /\bque (?:alguien |un asesor |una persona )?se (?:comunique|comuniquen|contacte|contacten) con\s*migo\b/,
   /\b(?:le|te|les)?\s*(?:puedo|podria|puedes|pueden|podrian)\s+(?:marcar|llamar)(?:le|te|les)?\b/,
   /\b(?:me|nos)\s+(?:puede|pueden|podria|podrian|puedes|podrias)\s+(?:marcar|llamar|hablar por telefono)\b/,
   /\b(?:platicar\w*|hablar\w*|explicar\w*|ver\w*|tratar\w*)\b.{0,25}\b(?:por|x|via)\s+(?:telefono|llamada|cel|celular)\b/,

@@ -42,6 +42,11 @@ export function parseCaseData(text = "", { now = new Date(), askedStartYear = fa
     const bare = v.match(/^(?:(?:si|hola|buenos dias|buenas tardes|buenas noches|bueno)[ ,.]+)*(?:en\s+(?:el\s+)?|como\s+(?:en\s+(?:el\s+)?)?|el\s+|del\s+)?(19[4-9]\d|20[0-2]\d|[4-9]\d)[ .!]*$/);
     if (bare) startYear = fullYear(bare[1], nowYear);
   }
+  // "A partir del 2011 inicié al 2020", "empecé a cotizar en 1974 hasta 1998" (casos reales 10-nov: se tomó 2020
+  // como el año en que empezó): con un rango, el primero es cuando empezó y el segundo cuando dejó de cotizar.
+  const range = v.match(/\b(19[4-9]\d|20[0-2]\d)\b[^.\d]{0,28}\b(?:a|al|hasta|asta)\s+(?:el\s+)?(19[4-9]\d|20[0-2]\d)\b/);
+  let rangeEnd = null;
+  if (range && Number(range[1]) < Number(range[2]) && (startYear || new RegExp(START).test(v) || askedStartYear)) { startYear = Number(range[1]); rangeEnd = Number(range[2]); }
   if (startYear && (startYear < 1940 || startYear > nowYear)) startYear = null;
 
   let stoppedYearsAgo = null;
@@ -54,6 +59,7 @@ export function parseCaseData(text = "", { now = new Date(), askedStartYear = fa
     stoppedYearsAgo = /mes|semana/.test(stopAgo[2]) ? 0 : n;
   }
   const stopYear = v.match(/\bdeje de (?:cotizar|trabajar)(?:(?!\b(?:empe|enpe|comen|inici))[^.]){0,30}?\b(?:en|el|del|de|desde)\s+(?:el\s+|ano\s+)?(?:\d{1,2}\s+de\s+[a-z]+\s+(?:de|del)\s+)?(19[4-9]\d|20[0-2]\d|[4-9]\d|0\d|1\d|2[0-6])\b(?!\s*(?:anos|semanas|meses))/);
+  if (stoppedYearsAgo === null && rangeEnd && rangeEnd <= nowYear) stoppedYearsAgo = nowYear - rangeEnd;
   if (stoppedYearsAgo === null && stopYear) stoppedYearsAgo = Math.max(0, nowYear - fullYear(stopYear[1], nowYear));
 
   const stillContributing = /\b(?:sigo|aun estoy|todavia estoy|actualmente (?:sigo |estoy )?|estoy)\s+cotizando\b|\b(?:actualmente|aun|todavia) cotizo\b/.test(v);

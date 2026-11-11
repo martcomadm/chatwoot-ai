@@ -70,6 +70,8 @@ export function operationsMemoryFromSale(sale = {}) {
 // Estados en los que el expediente ya salió de Captura: el aviso de "expediente completo" ya no aplica.
 const PAST_CAPTURE = new Set(["alta_processed", "waiting_validation", "validation_in_progress", "validation_approved", "validation_rejected", "waiting_validity", "validity_confirmed", "validity_issue", "payment_requested", "payment_received", "payment_issue", "payment_validated", "completed", "cancelled", "dropped_nonpayment"]);
 
+export const WHO_CALLS_TEXT = "Es una asesora de nuestro equipo de MARTCOM: te está marcando para apoyarte con tu trámite. Si te queda mejor a otra hora, dime cuál y se lo paso.";
+export const DOCS_ALREADY_TEXT = "Gracias por avisarme. En cuanto tu asesor registre tus documentos seguimos con tu alta; si te falta alguno, me lo puedes mandar por aquí.";
 export const CALL_ACK_TEXT = "Gracias, ya le pasé tu respuesta al asesor y te llamará a este número. Cualquier cosa, aquí sigo.";
 
 export const PAYMENT_HOW_TEXT = "El pago se hace hasta que tu alta esté vigente: primero te enviamos tu documento de vigencia y después nuestra área de Cobranza te comparte por aquí los datos para tu primer pago, que puedes hacer por transferencia, depósito u OXXO.";
@@ -118,7 +120,9 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   const callAt = Date.parse(memory.operations.call_requested_at || "");
   if (Number.isFinite(callAt) && Date.now() - callAt < 48 * 3600 * 1000 && !(Date.parse(memory.call_ack_at || "") > callAt)
     && String(combinedText || "").trim() && !hasCurpValue(combinedText) && !hasNssValue(combinedText)
-    && !/[?¿]/.test(combinedText) && !/\b(?:ine|curp|nss|documento|documentos|foto|fotos|archivo)\b/.test(norm(combinedText))) {
+    && !/[?¿]/.test(combinedText) && !/\b(?:ine|curp|nss|documento|documentos|documentacion|papeles|foto|fotos|archivo|quien|quienes|por ?que)\b/.test(norm(combinedText))
+    // 11-nov: "Ya me pidieron la documentación" no es un horario (recibió "ya le pasé tu respuesta al asesor").
+    && looksLikeCallSlot(combinedText)) {
     return { reply: CALL_ACK_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
   }
   // Ya se agradeció su horario y precisa la hora ("Entre 9 y 11 de la mañana", caso real 27-oct: recibió el aviso de
@@ -193,6 +197,17 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   }
 
   const text = norm(combinedText);
+  // 11-nov (caso real, cliente con llamada pedida por Captura): "Ya me pidieron la documentación" y "¿quién es la
+  // señorita que me está llamando?" recibieron tres veces "compárteme la CURP del titular".
+  const lastReply = String(memory.ultima_respuesta_agente || "").trim();
+  const calledRecently = Number.isFinite(callAt) && Date.now() - callAt < 48 * 3600 * 1000;
+  if (calledRecently && /\bquien(?:es)?\b.{0,40}\b(?:llam\w+|marc\w+|habl\w+)\b|\b(?:llam\w+|marc\w+)\b.{0,30}\bquien(?:es)?\b/.test(text) && lastReply !== WHO_CALLS_TEXT) {
+    return { reply: WHO_CALLS_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+  }
+  if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
+    && /\bya\s+(?:me|se|le|les)?\s*(?:los?\s+|las?\s+)?(?:pidieron|pidio|mande|envie|entregue|pase|di|dimos)\b.{0,40}\b(?:documenta\w*|documentos?|papeles|datos|curp|ine|nss)\b|\bya\s+(?:se\s+)?(?:los?|las?)\s+(?:mande|envie|entregue|pase|di)\b/.test(text.replace(/[.,]+/g, " ").replace(/\s+/g, " "))) {
+    return { reply: lastReply === DOCS_ALREADY_TEXT ? "" : DOCS_ALREADY_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+  }
   const curpPending = memory.operations.onboarding_next === "curp" || memory.operations.documents_missing?.[0] === "curp";
   const saysNoCurp = /\b(no tengo|no cuento con|no se|no recuerdo|no conozco|no encuentro|no la tengo|no la se)\b.{0,35}\bcurp\b|\bcurp\b.{0,35}\b(no la tengo|no la se|no la recuerdo|no la encuentro)\b/.test(text);
   if (curpPending && saysNoCurp) {
@@ -274,3 +289,11 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
 }
 
 export function onboardingLabel(key) { return LABELS[key] || key; }
+
+// ¿El mensaje es un horario o un "sí" a la llamada? ("a las 5", "en la tarde", "ahorita", "sí, cuando gusten").
+export function looksLikeCallSlot(text = "") {
+  const v = norm(text);
+  if (/\b\d{1,2}(?::\d{2})?\s*(?:am|pm|hrs?|horas|de la)?\b/.test(v) && /\b(?:a las?|como a|entre|despues de|antes de|tipo|am|pm|hrs?|horas|de la (?:manana|tarde|noche))\b/.test(v)) return true;
+  if (/\b(?:manana|tarde|noche|mediodia|medio dia|ahorita|ahora|en este momento|cuando (?:gusten?|quieran?|puedan?)|a cualquier hora|cualquier hora|todo el dia|hoy|al rato|mas tarde|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(v)) return true;
+  return v.split(" ").length <= 5 && /^(?:si|claro|ok|okay|va|sale|de acuerdo|esta bien|bueno|perfecto|por favor|adelante)\b/.test(v);
+}

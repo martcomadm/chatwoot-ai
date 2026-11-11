@@ -218,7 +218,7 @@ export class ConversationProcessor {
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
     const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, summary, true);
-    await this.chatwoot.sendMessage(conversationId, customerText || "Voy a pedir apoyo a una persona de nuestro equipo para continuar contigo. Ya le dejo el contexto para que no tengas que repetir todo.");
+    await this.chatwoot.sendMessage(conversationId, customerText || "Claro, le pido a un asesor de nuestro equipo que continúe contigo por aquí. Ya le paso lo que platicamos para que no tengas que repetirlo; en un momento te escribe.");
     let routed = null;
     const human = !call && this.humanHandoffRouter ? this.humanHandoffRouter : null;
     const router = human || this.handoffRouter;
@@ -887,7 +887,16 @@ export class ConversationProcessor {
     const caseCompatible = !directRequest || ["price", "pension_general", "pension_orientation", "pension_min_term", "rights_recovery", "min_weeks", "missing_weeks", "few_weeks_left", "lost_rights"].includes(directRequest.answerKey);
     const caseDiagnosis = mediaDecision || adOpening || !caseCompatible ? null : caseDiagnosisDecision(base, combinedText);
     // Respuestas del equipo con frases del cliente (Operations → Respuestas de Mia, 4-nov): texto exacto.
-    const teamMatch = mediaDecision || adOpening || containsCurp(combinedText) || containsNss(combinedText) ? null : this.teamAnswers?.match?.(combinedText);
+    // 11-nov (export 10 al 11-nov): la respuesta del equipo con la frase "pensión" salió 15 veces en un día, dos
+    // veces seguidas a "¿cuánto queda la pensión?" y a un cliente que reclamaba su baja. Una frase corta (1 o 2
+    // palabras) es solo una palabra clave: cede ante lo que ya entiende mejor el mensaje (pregunta directa, caso del
+    // cliente, "no me interesa…", cliente que ya aceptó) y ninguna respuesta del equipo se manda dos veces al mismo chat.
+    const teamRaw = mediaDecision || adOpening || containsCurp(combinedText) || containsNss(combinedText) ? null : this.teamAnswers?.match?.(combinedText);
+    const teamWeak = teamRaw && String(teamRaw.matched_phrase || "").trim().split(/\s+/).length <= 2;
+    const teamRepeated = teamRaw && (base.team_answers_sent || []).includes(teamRaw.id);
+    const teamYields = teamWeak && Boolean(directRequest || featureRejection || deferral || caseDiagnosis || creditDecision || base.sales_cycle?.authorized);
+    const teamMatch = teamRaw && !teamRepeated && !teamYields ? teamRaw : null;
+    if (teamRaw && !teamMatch) await this.record(conversationId, "team_answer_skipped", { id: teamRaw.id, phrase: teamRaw.matched_phrase, reason: teamRepeated ? "ya_enviada" : "hay_respuesta_mas_especifica" });
     const teamDecision = teamMatch ? { reply: teamMatch.answer, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", team_answer: teamMatch.id } : null;
     // Reactivación (5-nov): "sí" a una plantilla → recordatorio del plan con cierre, o el menú si no hay plan.
     const reactivationReply = mediaDecision || adOpening ? null : reactivationReplyDecision(base, combinedText);
@@ -896,7 +905,10 @@ export class ConversationProcessor {
     else if (noContactDecision) decision = protectDeterministicDecision(noContactDecision, "no_contact");
     else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
     else if (reactivationReply) decision = protectDeterministicDecision(reactivationReply, "reactivation_reply");
-    else if (teamDecision) decision = protectDeterministicDecision(teamDecision, `team_answer:${teamMatch.id}`);
+    else if (teamDecision) {
+      decision = protectDeterministicDecision(teamDecision, `team_answer:${teamMatch.id}`);
+      memory = { ...memory, team_answers_sent: [...new Set([...(memory.team_answers_sent || []), teamMatch.id])].slice(-20) };
+    }
     else if (creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
     else if (featureRejection) {
       decision = protectDeterministicDecision(featureRejection, "feature_rejection");
@@ -1043,7 +1055,7 @@ export class ConversationProcessor {
     // no sabe qué sigue y la plática se muere (casos 17-oct). Se agrega el siguiente paso.
     // Nunca después de una despedida: "…cuando decidas, escríbeme y retomamos el trámite. ¿Tienes
     // alguna duda sobre el Plan 1…?" (casos reales 19 y 20-oct).
-    const closingLike = /escr[ií]beme|quedo al pendiente|aqu[ií] te espero|aqu[ií] estar[eé]|aqu[ií] quedo|cuando (?:lo tengas|puedas|regreses|est[eé]s list|quieras|decidas|gustes|tengas)|te aviso por aqu[ií]|que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que est[eé]s bien|retom(?:amos|arlo|emos)|t[oó]mate (?:el|tu) tiempo|gracias por (?:tu tiempo|avisar|contarme)/i;
+    const closingLike = /escr[ií]beme|escr[ií]bame|quedo pendiente|cuando quiera retomar|que tenga (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|quedo al pendiente|aqu[ií] te espero|aqu[ií] estar[eé]|aqu[ií] quedo|cuando (?:lo tengas|puedas|regreses|est[eé]s list|quieras|decidas|gustes|tengas)|te aviso por aqu[ií]|que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que est[eé]s bien|retom(?:amos|arlo|emos)|t[oó]mate (?:el|tu) tiempo|gracias por (?:tu tiempo|avisar|contarme)/i;
     const customerClosing = Boolean(detectDeferral(combinedText)) || detectClosing(combinedText, { lastReply: memory.ultima_respuesta_agente || "" });
     const openEnded = ["llm", "llm_repair"].includes(decisionSource) || /^direct:(services|price|location|registered_salary|requirements|process_time|payment_frequency|not_free|identity|website|are_you_imss)$/.test(decisionSource);
     if (openEnded && !customerClosing && !memory.sales_cycle?.authorized && !/[?¿]/.test(decision.reply) && !closingLike.test(decision.reply)) {

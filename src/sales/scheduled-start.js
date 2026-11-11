@@ -23,6 +23,8 @@ const INTENT_RE = new RegExp([
   "\\bsi me interesa\\b|\\bme interesa (?:mucho|bastante)\\b",
   // "Si me gustaría pero a mí me pagan hasta el sbdo" (caso real 5-nov).
   "^(?:si|claro|pues si)\\s+me gustaria\\b",
+  // "Si pero sería hasta el jueves para asegurar el dinero primero" (caso real 10-nov).
+  "^(?:si|claro|pues si|esta bien|ok)(?: pero| solo que| nada mas que| nomas que)? (?:seria|tendria que ser|podria ser|puede ser|lo haria|lo hariamos)\\b",
 ].join("|"));
 
 // Cuándo. Devuelve el texto tal como lo dijo, para repetírselo.
@@ -46,7 +48,7 @@ export const SCHEDULE_OFFER_MARK = "¿Para qué fecha te acomoda?";
 const ACCENTS = [[/\bdias\b/g, "días"], [/\bdia\b/g, "día"], [/\bproxima\b/g, "próxima"], [/\bproximo\b/g, "próximo"], [/\bmiercoles\b/g, "miércoles"], [/\bsabado\b|\bsbdo\b|\bsab\b/g, "sábado"]];
 
 export function detectScheduledStart(text = "", { offered = false } = {}) {
-  const value = norm(text).replace(/[,;:!¡¿?]+/g, " ").replace(/\.{1,}/g, " ").replace(/\s+/g, " ").trim();
+  const value = norm(text).replace(/[,;:!¡¿?]+/g, " ").replace(/\.{1,}/g, " ").replace(/\basta\b/g, "hasta").replace(/\s+/g, " ").trim();
   if (!value || negatesCommitment(value)) return null;
   if (/\bno (?:me interesa|quiero|voy a|creo)\b/.test(value)) return null;
   // A la oferta también se contesta solo con la fecha, o "sí, para el 15".

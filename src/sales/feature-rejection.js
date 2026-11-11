@@ -6,7 +6,7 @@ function norm(value) {
   return String(value ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-const FEATURE = "(?:el |la |lo de |lo del |los )?(?:infonavit|afore|credito|credito infonavit|puntos|vivienda|casa|plan (?:2|dos))";
+const FEATURE = "(?:para |por |en )?(?:el |la |lo de |lo del |los )?(?:infonavit|afore|credito|credito infonavit|puntos|vivienda|casa|plan (?:2|dos))";
 const REJECTS_FEATURE_RE = new RegExp(`^(?:(?:no|pues|pero|y|ok|bueno|gracias)\\s+)*(?:no\\s+)?(?:me interesa|quiero|necesito|ocupo|busco|me sirve)\\s+${FEATURE}\\b|^(?:(?:pero|y)\\s+)?(?:sin|menos|excepto|nada de)\\s+${FEATURE}\\b|^(?:(?:el|la)\\s+)?(?:infonavit|afore|plan (?:2|dos))\\s+no\\b|\\b(?:lo unico|la unica cosa|solo)\\s+(?:que|q|k)\\s+no\\s+(?:quiero|me interesa|necesito|ocupo)\\s+(?:es\\s+)?${FEATURE}\\b`);
 
 // Algún renglón pide AFORE sin negarlo ("aportaciones al Afore").
