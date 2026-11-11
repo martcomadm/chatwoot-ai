@@ -64,6 +64,7 @@ export function resumeDate(text = "", fromIso = new Date().toISOString()) {
 export function skipReason(memory = {}) {
   const c = memory.sales_cycle || {};
   if (memory.no_contact) return "no_contact";
+  if (memory.mia_omitted?.active) return "omitted";
   if (NO_CONTACT_DEFERRALS.has(String(c.deferral || ""))) return "not_interested";
   if (memory.capture_intervention?.active) return "intervened";
   if (memory.service_sale?.active) return "service_sale";

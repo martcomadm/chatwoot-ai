@@ -26,7 +26,7 @@ const URGENT_RE = /\b(?:urge|urgente|me urge|lo antes posible|cuanto antes|hoy m
 export function hotLeadReason({ memory = {}, text = "", answerKey = null, now = new Date() } = {}) {
   const c = memory.sales_cycle || {};
   if (c.authorized) return null;
-  if (memory.capture_intervention?.active || memory.service_sale?.active || memory.no_contact) return null;
+  if (memory.capture_intervention?.active || memory.service_sale?.active || memory.no_contact || memory.mia_omitted?.active) return null;
   if (memory.handoff?.status && !["completed", "returned"].includes(String(memory.handoff.status))) return null;
   const last = Date.parse(memory.hot_lead_alert?.at || "");
   if (Number.isFinite(last) && now.getTime() - last < DAY) return null;
@@ -47,7 +47,7 @@ export function weekendPending(memories = [], { since, until }) {
   const inWindow = at => { const t = Date.parse(at || ""); return Number.isFinite(t) && t >= since && t < until; };
   const out = [];
   for (const m of memories) {
-    if (!m?.id || Date.parse(m.weekend_digest_at || "") >= until || m.capture_intervention?.active || m.no_contact) continue;
+    if (!m?.id || Date.parse(m.weekend_digest_at || "") >= until || m.capture_intervention?.active || m.no_contact || m.mia_omitted?.active) continue;
     const c = m.sales_cycle || {};
     let reason = null;
     if (c.authorized && inWindow(c.authorized_at) && !m.operations?.documents_complete) reason = c.scheduled_start ? `aceptó con fecha (${c.scheduled_start.when})` : "aceptó iniciar; faltan documentos";

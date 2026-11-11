@@ -39,3 +39,35 @@ export async function releaseConversation({ memories, chatwoot, conversationId, 
   audit?.record?.("mia.release", { username: user.username, name: user.name }, { conversation_id: id, note: text || null });
   return memories.get(id);
 }
+
+// Omitir un chat (pedido 11-nov): el equipo lo saca de Mia por completo. Mia no le contesta, no le manda
+// seguimientos ni plantillas de reactivación, no genera avisos a Captura y el chat sale de las listas de
+// Chats de Mia (queda en "Omitidos"). No se toca nada en Chatwoot (ni asignación ni etiquetas): quien lo
+// atiende sigue igual. "Dejar de omitir" lo regresa a la normalidad.
+export function chatOmitted(memory) {
+  return Boolean(memory?.mia_omitted?.active);
+}
+
+export async function omitConversation({ memories, conversationId, user, note = "", followUps = null, audit = null, inspectorEvents = null }) {
+  const id = Number(conversationId);
+  if (!id) throw new Error("Conversación no válida");
+  const memory = memories.get(id);
+  if (!memory) throw new Error("Esta conversación no la atiende Mia");
+  if (chatOmitted(memory)) throw new Error(`Este chat ya lo omitió ${memory.mia_omitted.by || "otra persona"}`);
+  const text = String(note || "").trim().slice(0, 300) || null;
+  await memories.merge(id, { mia_omitted: { active: true, by: user.name || user.username, username: user.username, note: text, at: new Date().toISOString() } });
+  try { followUps?.cancel?.(id, "omitted"); } catch {}
+  try { await inspectorEvents?.record?.(id, "mia_omitted", { by: user.name || user.username, note: text }); } catch {}
+  audit?.record?.("mia.omit", { username: user.username, name: user.name }, { conversation_id: id, note: text });
+  return memories.get(id);
+}
+
+export async function unomitConversation({ memories, conversationId, user, audit = null, inspectorEvents = null }) {
+  const id = Number(conversationId);
+  const memory = memories.get(id);
+  if (!chatOmitted(memory)) throw new Error("Este chat no está omitido");
+  await memories.merge(id, { mia_omitted: { ...memory.mia_omitted, active: false, restored_at: new Date().toISOString(), restored_by: user.name || user.username } });
+  try { await inspectorEvents?.record?.(id, "mia_unomitted", { by: user.name || user.username }); } catch {}
+  audit?.record?.("mia.unomit", { username: user.username, name: user.name }, { conversation_id: id });
+  return memories.get(id);
+}

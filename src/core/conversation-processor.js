@@ -341,6 +341,8 @@ export class ConversationProcessor {
     const week = this.scheduleWeek();
     // Un aviso por conversación y por periodo cerrado: la clave es la fecha de la siguiente apertura.
     const period = week ? nextOpeningDate(week, now, this.config.ai.timezone) : "sin-horario";
+    // Chat omitido (11-nov): tampoco recibe el aviso de horario.
+    if (this.memories.get(conversationId)?.mia_omitted?.active) return this.record(conversationId, "ignored_out_of_schedule", { message_ids: messageIds.map(String), notice_sent: false, reason: "omitted" });
     const firstNotice = !this.turnLock || this.turnLock.claim(conversationId, [`fuera-horario-${period}`]);
     await this.record(conversationId, "ignored_out_of_schedule", { message_ids: messageIds.map(String), notice_sent: firstNotice, reopens: period });
     if (firstNotice && week) await this.chatwoot.sendMessage(conversationId, outOfScheduleMessage(week));
@@ -448,8 +450,10 @@ export class ConversationProcessor {
     // Pausa: global desde Operations o por conversación con la etiqueta "pausar_mia".
     // Mia no responde ni registra nada; los mensajes quedan para que los atienda una persona.
     const pausedByLabel = currentLabels.some(label => (typeof label === "string" ? label : label?.title) === PAUSE_LABEL);
-    if (pausedByLabel || this.isMiaPaused()) {
-      await this.record(conversationId, "mia_paused_skip", { reason: pausedByLabel ? "label" : "global", message_ids: (snapshot?.ids || []).map(String) });
+    // Chat omitido desde Operations → Chats de Mia (11-nov): igual que la pausa, pero sin etiqueta en Chatwoot.
+    const omitted = Boolean(this.memories.get(conversationId)?.mia_omitted?.active);
+    if (pausedByLabel || omitted || this.isMiaPaused()) {
+      await this.record(conversationId, "mia_paused_skip", { reason: pausedByLabel ? "label" : omitted ? "omitted" : "global", message_ids: (snapshot?.ids || []).map(String) });
       // Se marcan como atendidos para que, al reanudar, Mia no conteste mensajes viejos.
       if (snapshot?.ids?.length) await this.memories.markProcessedMany(conversationId, snapshot.ids);
       return;

@@ -1,4 +1,4 @@
-import { interveneConversation, releaseConversation } from "./mia-intervention.js";
+import { interveneConversation, releaseConversation, omitConversation, unomitConversation } from "./mia-intervention.js";
 import { closeSaleInService, returnSaleToMia } from "./customer-service/service-sale.js";
 import { extractContactPhone } from "./sale-factory.js";
 import { MARTCOM_KNOWLEDGE } from "../knowledge/martcom.js";
@@ -332,6 +332,22 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden regresar chats a Mia", code: "forbidden" });
     try {
       await releaseConversation({ memories, chatwoot, conversationId: req.params.id, user: req.opsUser, miaAgentId: config?.chatwoot?.agentId || null, note: req.body?.note, canForce: hasArea(req.opsUser, "supervision"), audit, inspectorEvents });
+      res.json({ ok: true });
+    } catch (error) { fail(res, error); }
+  });
+
+  // Omitir un chat (11-nov): Mia ya no le escribe, no avisa por él y sale de las listas. Nada cambia en Chatwoot.
+  router.post("/operations/api/mia-chats/:id/omit", async (req, res) => {
+    if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden omitir chats", code: "forbidden" });
+    try {
+      await omitConversation({ memories, conversationId: req.params.id, user: req.opsUser, note: req.body?.note, audit, inspectorEvents });
+      res.json({ ok: true });
+    } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-chats/:id/unomit", async (req, res) => {
+    if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden regresar chats omitidos", code: "forbidden" });
+    try {
+      await unomitConversation({ memories, conversationId: req.params.id, user: req.opsUser, audit, inspectorEvents });
       res.json({ ok: true });
     } catch (error) { fail(res, error); }
   });

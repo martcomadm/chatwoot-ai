@@ -218,6 +218,8 @@ export class FollowUpService {
         if (entry.not_before && now.getTime() < Date.parse(entry.not_before)) continue;
         // Pidió que no le escribamos (5-nov): se cancela la serie.
         if (this.memories.get(id)?.no_contact) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "no_contact" }); continue; }
+        // Omitido desde Chats de Mia (11-nov): no se le escribe más.
+        if (this.memories.get(id)?.mia_omitted?.active) { this.store.remove(id); await this.record(id, "followup_cancelled", { reason: "omitted" }); continue; }
         const windowClosed = now.getTime() > this.windowEnd(entry);
         const due = this.dueAt(entry);
         if (!windowClosed && (due === null || now.getTime() < due || !this.isOpen(now))) continue;

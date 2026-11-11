@@ -109,6 +109,8 @@ export const EVENT_LABELS = {
   scheduled_start: "Aceptó con fecha: alta programada (aviso a Captura)",
   hot_lead_alert: "Aviso inmediato a Captura: cliente listo para comprar",
   capture_intervention_released: "Captura regresó el chat a Mia",
+  mia_omitted: "Chat omitido: Mia ya no le escribe ni lo mueve",
+  mia_unomitted: "El chat dejó de estar omitido",
 };
 
 // Eventos que explican por qué Mia no contestó; van en el .txt junto a los mensajes.
@@ -432,12 +434,14 @@ export class MiaConsole {
       if (has(["ai_error", "processing_error"])) risks.push({ key: "error", label: "Error de Mia" });
       // Aviso a Captura de cliente interesado sin responder (4-nov): vigente mientras no vuelva a escribir.
       if (memory.cold_lead_alert?.at && !base.authorized && lastReplyAt <= ms(memory.cold_lead_alert.at)) risks.unshift({ key: "cold", label: "Interesado sin responder" });
+      const omitted = memory.mia_omitted?.active ? { by: memory.mia_omitted.by || null, at: memory.mia_omitted.at || null, note: memory.mia_omitted.note || null } : null;
       const intervention = memory.capture_intervention?.active ? { by: memory.capture_intervention.by || null, username: memory.capture_intervention.username || null, at: memory.capture_intervention.at || null } : null;
       items.push({
         ...base,
         risks,
         hot: !base.authorized && base.stage_rank >= 2,
         intervention,
+        omitted,
         human: Boolean(base.handoff) || Boolean(memory.service_sale?.active),
         phone: memory.contact_phone || null,
         // 9-nov: puntaje de compra y ficha del cliente.
@@ -448,15 +452,20 @@ export class MiaConsole {
     const qDigits = q.replace(/\D/g, "");
     if (q) items = items.filter(i => [i.id, i.name, i.last_customer, i.last_reply].map(v => String(v || "").toLowerCase()).join(" ").includes(q)
       || (searchPhones && qDigits.length >= 4 && String(i.phone || "").replace(/\D/g, "").includes(qDigits)));
+    // Omitidos (11-nov): salen de las listas y solo aparecen en su propio filtro (o al buscarlos).
+    const omittedItems = items.filter(i => i.omitted);
+    const active = q ? items : items.filter(i => !i.omitted);
     const counts = {
-      all: items.length,
-      risk: items.filter(i => i.risks.length && !i.authorized).length,
-      hot: items.filter(i => i.hot).length,
-      intervened: items.filter(i => i.intervention).length,
-      authorized: items.filter(i => i.authorized).length,
+      all: active.length,
+      risk: active.filter(i => i.risks.length && !i.authorized && !i.omitted).length,
+      hot: active.filter(i => i.hot && !i.omitted).length,
+      intervened: active.filter(i => i.intervention).length,
+      authorized: active.filter(i => i.authorized).length,
+      omitted: omittedItems.length,
     };
-    if (filter === "risk") items = items.filter(i => i.risks.length && !i.authorized);
-    if (filter === "hot") items = items.filter(i => i.hot);
+    items = filter === "omitted" ? omittedItems : active;
+    if (filter === "risk") items = items.filter(i => i.risks.length && !i.authorized && !i.omitted);
+    if (filter === "hot") items = items.filter(i => i.hot && !i.omitted);
     if (filter === "intervened") items = items.filter(i => i.intervention);
     if (filter === "authorized") items = items.filter(i => i.authorized);
     // Páginas de 40 (pedido 4-nov).

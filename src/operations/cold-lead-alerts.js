@@ -42,6 +42,7 @@ export function coldLeadSkipReason(memory = {}, entry = {}, now = new Date(), { 
   if (kind === "cold_lead" && SKIP_DEFERRALS.has(String(c.deferral || ""))) return "deferred";
   if (altaOnHold(memory, now)) return "scheduled_alta";
   if (memory.capture_intervention?.active) return "intervened";
+  if (memory.mia_omitted?.active) return "omitted";
   if (memory.service_sale?.active) return "service_sale";
   if (memory.handoff?.status) return "human";
   const miaAt = Date.parse(entry.mia_at || "");

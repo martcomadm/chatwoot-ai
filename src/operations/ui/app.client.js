@@ -1524,7 +1524,7 @@ async function renderCustomerService(view) {
 }
 
 // ── Chats de Mia (3-nov): todas las conversaciones de la IA; Captura interviene para salvar la venta ──
-const MIA_FILTERS = [["risk", "En riesgo"], ["hot", "Interesados"], ["all", "Todos"], ["intervened", "Intervenidos"], ["authorized", "Aceptaron"]];
+const MIA_FILTERS = [["risk", "En riesgo"], ["hot", "Interesados"], ["all", "Todos"], ["intervened", "Intervenidos"], ["authorized", "Aceptaron"], ["omitted", "Omitidos"]];
 const RISK_TONE = { cold: "bad", angry: "bad", lost: "bad", price: "warn", deferred: "warn", no_response: "warn", silent: "", error: "bad" };
 // Puntaje de compra (9-nov): Alta ≥ 60, Media 35–59, Baja < 35; quien ya aceptó dice "Aceptó".
 function scoreChip(score) {
@@ -1558,7 +1558,7 @@ async function renderMiaChats(view) {
       <span class="cell-customer"><strong>${esc(c.name || "Sin nombre")}</strong><small class="mono">#${c.id}${c.phone ? ` · ${esc(c.phone)}` : ""}</small>${scoreChip(c.score)}</span>
       <span class="cell-sub" style="margin:0">${esc(String(c.last_customer || c.last_reply || "—").slice(0, 90))}</span>
       <span>${esc(c.stage)}${c.plan ? `<span class="cell-sub">${esc(c.plan)}</span>` : ""}</span>
-      <span class="mia-flags">${c.intervention ? `<span class="tag area" style="--area:${areaVar("chats")}">Intervenido · ${esc(c.intervention.by || "")}</span>` : ""}${c.risks.map(r => `<span class="tag ${RISK_TONE[r.key] || ""}">${esc(r.label)}</span>`).join("")}${!c.risks.length && !c.intervention ? '<span class="muted">—</span>' : ""}</span>
+      <span class="mia-flags">${c.omitted ? `<span class="tag">Omitido · ${esc(c.omitted.by || "")}</span>` : ""}${c.intervention ? `<span class="tag area" style="--area:${areaVar("chats")}">Intervenido · ${esc(c.intervention.by || "")}</span>` : ""}${c.risks.map(r => `<span class="tag ${RISK_TONE[r.key] || ""}">${esc(r.label)}</span>`).join("")}${!c.risks.length && !c.intervention ? '<span class="muted">—</span>' : ""}</span>
       <span>${esc(sinceLabel(c.last_at))}</span>
     </button>`).join("") : `<div class="empty"><strong>Sin chats</strong>No hay conversaciones con este filtro.</div>`;
   view.innerHTML = `
@@ -1596,7 +1596,10 @@ async function openMiaChat(id) {
   state.miaChatId = id;
   const mine = c.intervention && c.intervention.username === state.me.user.username;
   const buttons = [];
-  if (state.me.can.intervene && !c.intervention) buttons.push(`<button class="btn small primary" data-mia-act="intervene">Intervenir</button>`);
+  if (state.me.can.intervene && !c.intervention && !c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="intervene">Intervenir</button>`);
+  // Omitir (11-nov): Mia ya no le escribe ni lo mueve; sale de las listas.
+  if (state.me.can.intervene && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="omit">Omitir chat</button>`);
+  if (state.me.can.intervene && c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="unomit">Dejar de omitir</button>`);
   if (state.me.can.intervene && c.intervention && (mine || state.me.can.supervise)) buttons.push(`<button class="btn small" data-mia-act="release">Regresar a Mia</button>`);
   const html = `
     <div class="scrim" id="scrim" data-act="close-case"></div>
@@ -1604,8 +1607,9 @@ async function openMiaChat(id) {
       <div class="panel-head"><div class="top"><div><h2 id="panel-title">${esc(c.name || "Sin nombre")}</h2><div class="folio mono">Conversación #${c.id}</div></div><button class="btn quiet" data-act="close-case" aria-label="Cerrar">Cerrar</button></div></div>
       <div class="panel-body">
         <section>
-          <div class="mia-flags">${c.intervention ? `<span class="tag area" style="--area:${areaVar("chats")}">Intervenido</span>` : `<span class="tag">Lo atiende Mia</span>`}${c.risks.map(r => `<span class="tag ${RISK_TONE[r.key] || ""}">${esc(r.label)}</span>`).join("")}</div>
+          <div class="mia-flags">${c.omitted ? `<span class="tag">Omitido</span>` : c.intervention ? `<span class="tag area" style="--area:${areaVar("chats")}">Intervenido</span>` : `<span class="tag">Lo atiende Mia</span>`}${c.omitted ? "" : c.risks.map(r => `<span class="tag ${RISK_TONE[r.key] || ""}">${esc(r.label)}</span>`).join("")}</div>
           ${c.intervention ? `<div class="notice" style="margin-top:10px"><strong>${esc(c.intervention.by || "Captura")} intervino este chat${c.intervention.at ? ` (${esc(dateTime(c.intervention.at))})` : ""}.</strong> Mia no contesta mientras esté asignado a esa persona en Chatwoot.</div>` : ""}
+          ${c.omitted ? `<div class="notice" style="margin-top:10px"><strong>${esc(c.omitted.by || "El equipo")} omitió este chat${c.omitted.at ? ` (${esc(dateTime(c.omitted.at))})` : ""}.</strong> Mia no le contesta ni le manda seguimientos o plantillas, y no genera avisos por él. En Chatwoot sigue igual.${c.omitted.note ? `<br><span class="muted">Nota: ${esc(c.omitted.note)}</span>` : ""}</div>` : ""}
           ${c.human && !c.intervention ? `<div class="notice warn" style="margin-top:10px">Este chat ya pasó a una persona del equipo.</div>` : ""}
           <dl class="facts" style="margin-top:12px">
             ${c.phone ? `<div><dt>Celular</dt><dd class="mono"><a href="tel:${esc(String(c.phone).replace(/[^\d+]/g, ""))}">${esc(c.phone)}</a></dd></div>` : ""}
@@ -1640,6 +1644,17 @@ async function miaChatAction(action) {
     const data = await ask({ title: "Regresar a Mia", text: "Mia vuelve a contestar a este cliente con el proceso normal de venta.", fields: [{ name: "note", label: "Nota (opcional)", type: "textarea", placeholder: "Ej. ya resolví su duda, quiere continuar" }], confirm: "Regresar a Mia", area: "captura" });
     if (!data) return;
     done = await run(() => api(`/operations/api/mia-chats/${id}/release`, { method: "POST", body: { note: data.note || "" } }), "El chat regresó con Mia");
+  }
+  if (action === "omit") {
+    const data = await ask({ title: "Omitir este chat", text: "Mia deja de contestarle, no le manda seguimientos ni plantillas de reactivación y no genera avisos por este cliente. El chat sale de las listas (queda en <strong>Omitidos</strong>). En Chatwoot no cambia nada: la asignación y las etiquetas se quedan igual.", fields: [{ name: "note", label: "Motivo (opcional)", type: "textarea", placeholder: "Ej. lo atiende Carlos por llamada; ya agendó su alta" }], confirm: "Omitir chat", area: "chats" });
+    if (!data) return;
+    done = await run(() => api(`/operations/api/mia-chats/${id}/omit`, { method: "POST", body: { note: data.note || "" } }), "Chat omitido: Mia ya no le escribe");
+    if (done) { closeCasePanel(); await renderView(); return; }
+  }
+  if (action === "unomit") {
+    const data = await ask({ title: "Dejar de omitir", text: "Mia vuelve a atender este chat con el proceso normal: contesta si el cliente escribe y puede mandarle seguimientos.", confirm: "Dejar de omitir", area: "chats" });
+    if (!data) return;
+    done = await run(() => api(`/operations/api/mia-chats/${id}/unomit`, { method: "POST", body: {} }), "El chat regresó con Mia");
   }
   if (done) { await renderView(); await openMiaChat(id); }
 }
