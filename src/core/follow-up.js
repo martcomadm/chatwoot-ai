@@ -85,6 +85,7 @@ export function followUpMessage(memory = {}, step = 0) {
   if (authorized) {
     const ops = memory.operations || {};
     if (ops.documents_complete) return null; // ya lo atiende el equipo de Operaciones
+    if (altaOnHold(memory)) return null; // alta agendada para otro día: no se le insiste mientras llega
     const key = ops.onboarding_next || ops.documents_missing?.[0] || null;
     const doc = key ? `tu ${onboardingLabel(key)}` : "la documentación pendiente";
     // 4-nov (punto 4): de 8 que aceptaron, 3 no completaron documentos. Los recordatorios dicen cómo
@@ -312,4 +313,11 @@ export function customerResumeAt(text = "", now = new Date()) {
   if (/\b(?:la (?:proxima|otra|siguiente) semana)\b/.test(v)) return atNine(((8 - localNow.getUTCDay()) % 7) || 7);
   if (/\b(?:al rato|en un rato|mas tarde|en la tarde|en la noche|hoy voy a buscar|voy hoy a buscar|llegando a (?:la )?casa|cuando llegue)\b/.test(v)) return new Date(now.getTime() + 3 * 3600 * 1000);
   return null;
+}
+
+// Alta agendada por Captura para un día que aún no llega (11-nov).
+export function altaOnHold(memory = {}, now = new Date()) {
+  const date = memory?.operations?.scheduled_alta;
+  const start = date ? Date.parse(`${date}T00:00:00-06:00`) : NaN;
+  return Number.isFinite(start) && now.getTime() < start;
 }

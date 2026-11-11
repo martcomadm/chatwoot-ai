@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { sendWebPush } from "./web-push.js";
-import { urgencyOf } from "../supervision-service.js";
+import { urgencyOf, scheduledAltaStart } from "../supervision-service.js";
 
 // Avisos para la gente de Operations: dentro de la página (sonido + aviso) y en el celular o la
 // computadora con Web Push aunque la página esté cerrada.
@@ -107,8 +107,15 @@ export class OpsNotifier extends EventEmitter {
     let sent = 0;
     for (const sale of sales) {
       const area = AREA_OF_QUEUE[sale.queue];
+      // Alta agendada (11-nov): el día acordado se avisa a Captura que ya toca iniciarla.
+      const scheduledStart = scheduledAltaStart(sale);
+      if (scheduledStart && now >= scheduledStart && this.store.markOnce(`scheduled-due:${sale.sale_id}:${sale.capture.scheduled.date}`)) {
+        const owner = sale.assignee?.username ? [sale.assignee.username] : this.areaUsers("captura");
+        await this.notify({ sale_id: sale.sale_id, url: `/operations/sales/${encodeURIComponent(sale.sale_id)}`, kind: "customer", to: owner, title: "Hoy toca un alta agendada", body: `${who(sale)} pidió iniciar su alta hoy${sale.capture.scheduled.note ? ` · ${clip(sale.capture.scheduled.note, 90)}` : ""}` });
+        sent++;
+      }
       if (!area || urgencyOf(sale, hours, now) !== "overdue") continue;
-      if (!this.store.markOnce(`overdue:${sale.sale_id}:${sale.queue}:${sale.queue_entered_at || ""}`)) continue;
+      if (!this.store.markOnce(`overdue:${sale.sale_id}:${sale.queue}:${sale.queue_entered_at || ""}:${sale.capture?.scheduled?.date || ""}`)) continue;
       const owner = sale.assignee?.username ? [sale.assignee.username] : this.areaUsers(area);
       await this.notify({ sale_id: sale.sale_id, url: `/operations/sales/${encodeURIComponent(sale.sale_id)}`, kind: "overdue", to: [...owner, ...this.areaUsers("supervision")], title: `Expediente atrasado en ${AREA_LABEL[area]}`, body: `${who(sale)} pasó su tiempo objetivo (${hours[sale.queue]} h)` });
       sent++;

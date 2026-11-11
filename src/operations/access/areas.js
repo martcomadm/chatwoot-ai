@@ -40,6 +40,8 @@ export const ACTION_AREAS = Object.freeze({
   "capture/name": "captura",
   "supervision/name": "supervision",
   "capture/start": "captura",
+  "capture/schedule": "captura",
+  "capture/resume": "captura",
   "capture/complete": "captura",
   "validation/check": "validacion",
   "validation/correction": "validacion",

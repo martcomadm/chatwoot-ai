@@ -678,6 +678,9 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   router.post(salePath("call"), requestCallHandler);
   router.post(salePath("capture/curp"), areaAction("capture/curp", (req, body) => workflow.registerCurp(req.params.id, body)));
   router.post(salePath("capture/start"), areaAction("capture/start", req => workflow.startCapture(req.params.id, { id: req.opsUser.username, name: req.opsUser.name })));
+  // Alta agendada para otro día: el expediente se queda en Captura sin contar tiempo hasta esa fecha.
+  router.post(salePath("capture/schedule"), areaAction("capture/schedule", (req, body) => workflow.scheduleCapture(req.params.id, body)));
+  router.post(salePath("capture/resume"), areaAction("capture/resume", (req, body) => workflow.resumeCapture(req.params.id, body)));
   router.post(salePath("capture/complete"), areaAction("capture/complete", (req, body) => workflow.completeCapture(req.params.id, body)));
   router.post(salePath("validation/check"), areaAction("validation/check", (req, body) => workflow.setValidationCheck(req.params.id, body.key, body.checked, body)));
   router.post(salePath("validation/correction"), areaAction("validation/correction", (req, body) => workflow.requestCorrection(req.params.id, body)));

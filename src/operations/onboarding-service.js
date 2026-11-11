@@ -55,6 +55,7 @@ export function operationsMemoryFromSale(sale = {}) {
     sale_id: sale.sale_id, status: sale.status, queue: sale.queue, plan: sale.sale?.plan || null,
     validation_approved: Boolean(sale.validation?.approved), validation_rejected: Boolean(sale.validation?.rejected), validation_correction: sale.validation?.correction || null,
     call_requested_at: sale.capture?.call_requested_at || null,
+    scheduled_alta: sale.queue === "capture" ? sale.capture?.scheduled?.date || null : null,
     validity_confirmed: Boolean(sale.validity?.confirmed), validity_confirmed_at: sale.validity?.confirmed_at || null, validity_confirmed_by: sale.validity?.confirmed_by || null, validity_issue: sale.validity?.issue || null, validity_document_name: sale.validity?.document_name || null, validity_awaiting_reply: Boolean(sale.validity?.awaiting_customer_reply),
     payment_requested: Boolean(sale.payment?.requested), payment_requested_at: sale.payment?.requested_at || null, payment_due_date: sale.payment?.due_date || null, payment_accounts_image_name: sale.payment?.accounts_image_name || null,
     payment_received: Boolean(sale.payment?.received), payment_received_at: sale.payment?.received_at || null, payment_reference: sale.payment?.reference || null, payment_proof_name: sale.payment?.proof_name || null, payment_issue: sale.payment?.issue || null,

@@ -9,6 +9,12 @@ export const CUSTOMER_MESSAGE_DEFINITIONS = Object.freeze([
     text: "Agradecemos su confianza. El trámite de afiliación ya se encuentra en proceso.\n\nEl Área de Validación se comunicará con usted para confirmar sus datos y asegurarse de que toda la información haya sido registrada correctamente.\nAdemás, por WhatsApp recibirá los Términos y Condiciones del servicio.\nLe pedimos, por favor, confirmar de enterado cuando los reciba.\n\nEl contacto se realizará desde los siguientes números:\n📞 561 485 8202\n📞 554 883 3726\n\nGracias nuevamente. Estamos para servirle.",
   },
   {
+    key: "capture.scheduled",
+    label: "Alta agendada para otro día",
+    help: "Se envía cuando Captura presiona 'Agendar alta para otro día'. {fecha} se reemplaza por el día elegido (ej. lunes 16 de noviembre). El expediente se queda en Captura sin contar tiempo.",
+    text: "Listo, tu alta quedó agendada para el {fecha}. Tu trámite se queda en espera hasta ese día: ahí lo iniciamos y te aviso por aquí. Si quieres adelantarlo o cambiar la fecha, solo dime.",
+  },
+  {
     key: "capture.call_requested",
     label: "Solicitud de llamada",
     help: "Se envía cuando un área (o Supervisión) presiona 'Solicitar llamada'. {motivo} se reemplaza por el motivo que escribió el área (si no escribió motivo, esa parte no se manda). El expediente se queda en su etapa.",
@@ -76,6 +82,7 @@ export function formatAmount(amount) {
 export function renderCustomerMessage(eventType, { sale, details } = {}, overrides = {}) {
   if (eventType === "validation.correction.requested" && details?.target !== "customer") return null;
   if (eventType === "supervision.plan_changed" && details?.notify_customer === false) return null;
+  if (eventType === "capture.scheduled" && details?.notify_customer === false) return null;
   let template = String(overrides?.[eventType] || "").trim() || DEFAULT_CUSTOMER_MESSAGES[eventType];
   if (!template) return null;
   // Solicitud de llamada: el motivo que escribió el área se le dice al cliente (23-oct).
@@ -87,6 +94,7 @@ export function renderCustomerMessage(eventType, { sale, details } = {}, overrid
     return template.replaceAll("{motivo}", reason).replace(/\s{2,}/g, " ").trim();
   }
   return template
+    .replaceAll("{fecha}", String(details?.date_label || details?.date || "día acordado"))
     .replaceAll("{monto}", formatAmount(sale?.payment?.amount ?? sale?.sale?.precio ?? ({ plan_1: 1100, plan_2: 1500 })[sale?.sale?.plan] ?? null))
     .replaceAll("{plan}", ({ plan_1: "Plan 1", plan_2: "Plan 2" })[sale?.sale?.plan] || "plan elegido")
     .replaceAll("{motivo}", String(details?.reason || "").trim() || "revisar la información enviada");

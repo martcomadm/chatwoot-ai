@@ -45,6 +45,8 @@ const EVENT_LABELS = {
   "supervision.plan_changed": "Plan cambiado",
   "customer.name_corrected": "Nombre corregido",
   "capture.started": "Captura iniciada",
+  "capture.scheduled": "Alta agendada para otro día",
+  "capture.schedule_resumed": "Se quitó la fecha agendada",
   "capture.completed": "Alta capturada",
   "validation.check.updated": "Revisión de validación actualizada",
   "validation.approved": "Validación aprobada",
@@ -567,7 +569,7 @@ function filteredSales(items) {
 
 // Lo más urgente primero: incidencias, atrasados, luego por tiempo en el área.
 function byUrgency(a, b) {
-  const rank = { issue: 0, overdue: 1, warning: 2, ok: 3 };
+  const rank = { issue: 0, overdue: 1, warning: 2, ok: 3, scheduled: 4 };
   return (rank[a.urgency] ?? 3) - (rank[b.urgency] ?? 3) || (b.hours_in_queue || 0) - (a.hours_in_queue || 0);
 }
 
@@ -575,8 +577,16 @@ function segmented(name, value, options) {
   return `<div class="segmented" role="group">${options.map(([key, label]) => `<button data-filter="${name}" data-value="${key}" aria-pressed="${value === key}">${esc(label)}</button>`).join("")}</div>`;
 }
 
+// "lun 16 nov" a partir de AAAA-MM-DD.
+function shortDay(date) {
+  const d = new Date(`${date}T12:00:00-06:00`);
+  return Number.isNaN(d.getTime()) ? String(date || "") : new Intl.DateTimeFormat("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone: "America/Mexico_City" }).format(d).replace(/[.,]/g, "");
+}
+
 function clock(sale) {
   if (["completed", "cancelled", "dropped"].includes(sale.queue)) return `<span class="muted">${dateTime(sale.completed_at || sale.updated_at)}</span>`;
+  // Alta agendada para otro día: no cuenta tiempo hasta esa fecha.
+  if (sale.urgency === "scheduled") return `<span class="clock" data-urgency="scheduled" title="El tiempo de Captura empieza a contar ese día"><span class="clock-ring" style="--pct:0"></span><span>Agendada<small>${esc(shortDay(sale.capture?.scheduled?.date))}</small></span></span>`;
   const pct = sale.limit_hours ? Math.min(100, Math.round((sale.hours_in_queue / sale.limit_hours) * 100)) : 0;
   const hint = sale.urgency === "issue" ? "Incidencia" : sale.limit_hours ? `de ${duration(sale.limit_hours)}` : "";
   return `<span class="clock" data-urgency="${esc(sale.urgency)}" title="En el área desde ${esc(dateTime(sale.queue_entered_at))}"><span class="clock-ring" style="--pct:${sale.urgency === "issue" ? 100 : pct}"></span><span>${duration(sale.hours_in_queue)}<small>${esc(hint)}</small></span></span>`;
@@ -701,6 +711,8 @@ function areaActions(sale) {
   if (canAct(sale, "captura")) {
     if (sale.status === "waiting_capture") add("capture-start", "Iniciar captura", "primary");
     if (["waiting_capture", "capture_in_progress"].includes(sale.status)) {
+      add("capture-schedule", sale.capture?.scheduled?.date ? "Cambiar fecha del alta" : "Agendar alta para otro día");
+      if (sale.capture?.scheduled?.date) add("capture-resume", "Quitar fecha (iniciar ya)");
       add("capture-complete", "Completar alta", sale.status === "capture_in_progress" ? "primary" : "", sale.documents?.complete ? "" : `Faltan: ${(sale.documents?.missing || []).join(", ").toUpperCase()}`);
       add("capture-curp", "Registrar CURP");
       add("capture-name", "Corregir nombre");
@@ -819,6 +831,7 @@ function renderPanel() {
     ["Actividad", esc(c.actividad || "—")],
     ["Plan", `${esc(planLabel(sale.sale?.plan))}, ${money(sale.sale?.precio)}`],
     ["Abierto", esc(dateTime(sale.created_at))],
+    ...(sale.queue === "capture" && sale.capture?.scheduled?.date ? [["Alta agendada", `<strong>${esc(shortDay(sale.capture.scheduled.date))}</strong>${sale.capture.scheduled.note ? ` · ${esc(sale.capture.scheduled.note)}` : ""}<br><small class="muted">Sin contar tiempo hasta ese día${sale.capture.scheduled.by ? ` · la agendó ${esc(sale.capture.scheduled.by)}` : ""}</small>`]] : []),
     ["Conversación", state.saleLinks?.chatwoot ? `<a href="${esc(state.saleLinks.chatwoot)}" target="_blank" rel="noopener">Abrir en Chatwoot</a>` : (sale.conversation_id ? `<a href="#sale-chat" data-act="goto-chat">Ver abajo</a>` : "—")],
   ];
   const html = `
@@ -917,6 +930,22 @@ async function saleAction(action) {
     case "sup-name": {
       const data = await ask({ title: "Corregir nombre del cliente", text: "Escribe el nombre completo del titular como aparece en su INE o CURP.", fields: [{ name: "nombre", label: "Nombre completo", required: true, value: sale.customer?.nombre || "" }], confirm: "Guardar nombre", area: action === "sup-name" ? "supervision" : area });
       if (data) done = await post(action === "sup-name" ? "supervision/name" : "capture/name", { nombre: data.nombre }, "Nombre corregido");
+      break;
+    }
+    case "capture-schedule": {
+      const current = sale.capture?.scheduled?.date || "";
+      const tomorrow = new Date(Date.now() - 6 * 3600 * 1000 + 24 * 3600 * 1000).toISOString().slice(0, 10);
+      const data = await ask({ title: "Agendar alta para otro día", text: "El expediente <strong>se queda en Captura</strong> y no cuenta tiempo ni se marca atrasado hasta ese día. Mia le avisa al cliente que su trámite queda en espera y deja de pedirle documentos mientras tanto. El día agendado te llega un aviso para iniciarla.", fields: [
+        { name: "date", label: "¿Qué día quiere su alta el cliente?", type: "date", required: true, value: current || tomorrow },
+        { name: "note", label: "Nota (opcional)", placeholder: "Ej. le pagan en la quincena", value: sale.capture?.scheduled?.note || "" },
+        { name: "notify", label: "Aviso al cliente", type: "select", options: [["si", "Sí, que Mia le avise por WhatsApp"], ["no", "No avisar (ya se lo dije yo)"]], value: "si" },
+      ], confirm: "Agendar", area: "captura" });
+      if (data) done = await post("capture/schedule", { date: data.date, note: data.note, notify_customer: data.notify !== "no" }, "Alta agendada");
+      break;
+    }
+    case "capture-resume": {
+      const data = await ask({ title: "Quitar la fecha agendada", text: `El alta estaba agendada para el ${esc(shortDay(sale.capture?.scheduled?.date))}. Al quitarla, el tiempo de Captura empieza a contar desde ahora.`, confirm: "Quitar fecha", area: "captura" });
+      if (data) done = await post("capture/resume", {}, "Fecha quitada: el tiempo ya cuenta");
       break;
     }
     case "capture-curp": {

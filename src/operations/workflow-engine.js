@@ -127,13 +127,45 @@ export class SaleWorkflowEngine {
     });
   }
 
+  // Alta agendada para otro día (pedido 11-nov): el cliente pidió iniciar en una fecha. El expediente se queda
+  // en Captura, no cuenta tiempo hasta ese día y Mia le avisa al cliente que su trámite queda en espera.
+  scheduleCapture(id, payload = {}, now = new Date()) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Agendar alta");
+    const date = String(payload.date || "").trim();
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00-06:00`) : NaN;
+    if (!Number.isFinite(start)) throw new Error("Elige la fecha en que el cliente quiere su alta");
+    const today = new Date(now.getTime() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    if (date <= today) throw new Error("La fecha del alta agendada debe ser después de hoy");
+    if (start - now.getTime() > 92 * 24 * 3600 * 1000) throw new Error("La fecha del alta agendada no puede pasar de 3 meses");
+    const note = String(payload.note || "").trim().slice(0, 300) || null;
+    const notify = payload.notify_customer !== false;
+    return this.store.update(id, {
+      capture: { ...sale.capture, scheduled: { date, note, by: payload.by || null, at: now.toISOString() } },
+    }, "capture.scheduled", { date, date_label: scheduledDateLabel(date), note, by: payload.by || null, notify_customer: notify, changed: Boolean(sale.capture?.scheduled?.date) });
+  }
+
+  // Quita la fecha agendada (el cliente quiso iniciar antes): el tiempo de Captura empieza a contar ahora.
+  resumeCapture(id, payload = {}) {
+    const sale = this.mustGet(id);
+    requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE, SALE_STATUSES.CAPTURE_IN_PROGRESS], "Reanudar alta");
+    if (!sale.capture?.scheduled?.date) throw new Error("Este expediente no tiene alta agendada");
+    return this.store.update(id, {
+      capture: { ...sale.capture, scheduled: null },
+      queue_entered_at: new Date().toISOString(),
+    }, "capture.schedule_resumed", { date: sale.capture.scheduled.date, by: payload.by || null });
+  }
+
   startCapture(id, operator = {}) {
     const sale = this.mustGet(id);
     requireStatus(sale, [SALE_STATUSES.WAITING_CAPTURE], "Iniciar captura");
+    // Si tenía alta agendada y la inician, la fecha se quita y el tiempo cuenta desde ahora.
+    const wasScheduled = Boolean(sale.capture?.scheduled?.date);
     return this.store.update(id, {
       status: SALE_STATUSES.CAPTURE_IN_PROGRESS,
       queue: "capture",
-      capture: { ...sale.capture, assigned_to: operator.id || null, assigned_name: operator.name || null, started_at: new Date().toISOString() },
+      ...(wasScheduled ? { queue_entered_at: new Date().toISOString() } : {}),
+      capture: { ...sale.capture, scheduled: null, assigned_to: operator.id || null, assigned_name: operator.name || null, started_at: new Date().toISOString() },
       ...(operator.id ? { assignee: { username: operator.id, name: operator.name || operator.id, assigned_at: new Date().toISOString() } } : {}),
     }, "capture.started", operator);
   }
@@ -553,4 +585,11 @@ export class SaleWorkflowEngine {
     if (!sale) throw new Error("Expediente no encontrado");
     return sale;
   }
+}
+
+// "lunes 16 de noviembre" a partir de AAAA-MM-DD.
+export function scheduledDateLabel(date) {
+  const d = new Date(`${date}T12:00:00-06:00`);
+  if (Number.isNaN(d.getTime())) return String(date || "");
+  return new Intl.DateTimeFormat("es-MX", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Mexico_City" }).format(d).replace(",", "");
 }

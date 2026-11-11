@@ -15,8 +15,19 @@ export const PERFORMANCE_EVENTS = Object.freeze({
 });
 
 // Desde cuándo está el expediente en su área actual.
+// Alta agendada para otro día (pedido 11-nov): Captura marca la fecha que pidió el cliente. Mientras llega,
+// el expediente se queda en Captura sin contar tiempo; el reloj empieza el día agendado.
+export function scheduledAltaStart(sale) {
+  const date = sale?.queue === "capture" ? sale?.capture?.scheduled?.date : null;
+  const start = date ? Date.parse(`${date}T00:00:00-06:00`) : NaN;
+  return Number.isFinite(start) ? start : null;
+}
+
 export function queueEnteredAt(sale) {
-  return sale?.queue_entered_at || sale?.updated_at || sale?.created_at || null;
+  const entered = sale?.queue_entered_at || sale?.updated_at || sale?.created_at || null;
+  const start = scheduledAltaStart(sale);
+  if (start && !(Date.parse(entered || "") > start)) return new Date(start).toISOString();
+  return entered;
 }
 
 export function hoursInQueue(sale, now = Date.now()) {
@@ -24,9 +35,11 @@ export function hoursInQueue(sale, now = Date.now()) {
   return Number.isFinite(since) ? Math.max(0, (now - since) / HOUR) : 0;
 }
 
-// "ok" | "warning" (pasó 75% del tiempo) | "overdue" | "issue"
+// "ok" | "warning" (pasó 75% del tiempo) | "overdue" | "issue" | "scheduled" (alta agendada, aún no llega el día)
 export function urgencyOf(sale, alertHours = {}, now = Date.now()) {
   if (ISSUE_STATUSES.has(sale?.status)) return "issue";
+  const start = scheduledAltaStart(sale);
+  if (start && now < start) return "scheduled";
   const limit = Number(alertHours?.[sale?.queue]);
   if (!limit) return "ok";
   const hours = hoursInQueue(sale, now);

@@ -6,6 +6,8 @@
 // Fuente: la serie de seguimientos. Mientras la conversación tenga una serie abierta, el cliente
 // no ha contestado desde el último mensaje de Mia (mia_at); al escribir, la serie se reinicia.
 
+import { altaOnHold } from "../core/follow-up.js";
+
 const HOUR = 60 * 60 * 1000;
 const SKIP_DEFERRALS = new Set(["declined", "closing", "mistake", "not_fit", "later", "no_money"]);
 
@@ -38,6 +40,7 @@ export function coldLeadSkipReason(memory = {}, entry = {}, now = new Date(), { 
   if (kind === "missing_docs") minHours = docsHours;
   if (kind === "cold_lead" && !sawPlan(memory)) return "no_plan_seen";
   if (kind === "cold_lead" && SKIP_DEFERRALS.has(String(c.deferral || ""))) return "deferred";
+  if (altaOnHold(memory, now)) return "scheduled_alta";
   if (memory.capture_intervention?.active) return "intervened";
   if (memory.service_sale?.active) return "service_sale";
   if (memory.handoff?.status) return "human";
