@@ -336,3 +336,6 @@ export function startDateOnHold(memory = {}, now = new Date()) {
   const until = resume && resume.getTime() - at > 12 * 3600 * 1000 ? resume.getTime() : at + 48 * 3600 * 1000;
   return now.getTime() < until;
 }
+
+// Versión B del primer seguimiento (A/B desde el 11-nov): quita el miedo a pagar por adelantado.
+export const FOLLOWUP_PAY_AFTER_B = "¿Te quedó alguna duda sobre el {plan}? Recuerda que para iniciar no pagas nada: tu primer pago es hasta que tú mismo compruebas en el IMSS que tu alta ya está vigente.";

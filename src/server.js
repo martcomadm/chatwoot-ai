@@ -28,8 +28,10 @@ import { TeamAnswerStore } from "./knowledge/team-answers.js";
 import { LearningInbox } from "./knowledge/learning-inbox.js";
 import { ReplyFeedbackStore } from "./knowledge/reply-feedback.js";
 import { ExperimentStore, CLOSE_CURP_B } from "./knowledge/experiments.js";
+import { AlertEscalation } from "./operations/alert-escalation.js";
 import { migrateOpenAiConfig, withModelFallback } from "./ai/model-migration.js";
 import { AD_OPENING_PENSION_B, AD_OPENING_NO_IMSS_B } from "./sales/ad-openings.js";
+import { FOLLOWUP_PAY_AFTER_B } from "./core/follow-up.js";
 import { CaseStore } from "./operations/customer-service/case-store.js";
 import { CustomerService } from "./operations/customer-service/customer-service.js";
 import { ChatwootWorkflowBridge } from "./operations/chatwoot-workflow-bridge.js";
@@ -120,6 +122,9 @@ try {
   experiments.seed({ slot: "contextual_plan_explanation", name: "Cierre: pedir la CURP vs. ¿iniciamos?", bText: CLOSE_CURP_B });
   // 11-nov: aperturas de los dos anuncios que menos contestan y menos venden (ver ad-openings.js).
   experiments.seed({ slot: "ad_opening:pension", name: "Apertura pensión: corta con una sola pregunta", bText: AD_OPENING_PENSION_B });
+  // 11-nov (confirmado por la dirección: el primer pago es hasta que el alta está vigente): se prueba en el primer
+  // seguimiento, que es lo que lee quien se quedó callado después de ver el precio.
+  experiments.seed({ slot: "followup:plan:0", name: "1er seguimiento: no pagas hasta comprobar tu alta", bText: FOLLOWUP_PAY_AFTER_B });
   experiments.seed({ slot: "ad_opening:no_imss", name: "Apertura \"no cuento con IMSS\": menú numerado", bText: AD_OPENING_NO_IMSS_B });
   const turnLock = new TurnLock(path.join(config.storage.dataDir, "turn-locks"));
   turnLock.prune();
@@ -166,6 +171,8 @@ try {
     const hotLeads = new HotLeadAlerts({ memories, notifier: opsNotifier, inspectorEvents, offDays: parseOffDays(config.team.offDays) });
     processor.onHotLead = input => hotLeads.alert(input);
     hotLeads.start();
+    // 11-nov: si un aviso lleva 15 min sin tomarse, se avisa a Supervisión.
+    new AlertEscalation({ memories, notifier: opsNotifier, inspectorEvents, isOpen: now => processor.inSchedule(now), afterMinutes: Number(process.env.ALERT_ESCALATE_MINUTES || 15) }).start();
   }
   // Rescate: cada 15 min (y al arrancar) retoma chats que se quedaron solo con el aviso
   // de horario o con un mensaje del cliente que nunca se procesó.

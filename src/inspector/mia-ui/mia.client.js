@@ -329,12 +329,36 @@ function impactDelta(after, before, good = "up") {
   const better = good === "up" ? d > 0 : d < 0;
   return `<span class="delta ${better ? "up" : "down"}">${d > 0 ? "▲" : "▼"} ${Math.abs(d)} pts</span>`;
 }
+// 11-nov: tiempo en que el equipo toma los avisos, y embudo después del "sí".
+function minTxt(m) { return m === null || m === undefined ? "—" : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; }
+function renderResponse(r) {
+  if (!r) return "";
+  const row = (name, what, k) => `<tr><th scope="row">${esc(name)}<small class="muted">${esc(what)}</small></th><td data-label="Avisos">${k.alerts}</td><td data-label="Tomados"><b>${k.taken}</b> (${pctTxt(k.taken_pct)})</td><td data-label="En 15 min o menos">${k.within_15}</td><td data-label="Tiempo típico">${minTxt(k.median_minutes)}</td><td data-label="Sin tomar"><b>${k.untaken}</b></td></tr>`;
+  const people = r.people.map(p => `<tr><th scope="row">${esc(p.name)}</th><td data-label="Avisos tomados">${p.taken}</td><td data-label="En 15 min o menos">${p.within_15}</td><td data-label="Tiempo típico">${minTxt(p.median_minutes)}</td><td data-label="Ventas salvadas"><b>${p.saved}</b></td></tr>`).join("");
+  return `<section class="card"><div class="card-head"><h2>Respuesta del equipo a los avisos</h2><small>un aviso cuenta como tomado cuando alguien interviene el chat en las 24 h siguientes</small></div><div class="card-body tscroll">
+    <table class="stable itable"><thead><tr><th scope="col">Aviso</th><th scope="col">Avisos</th><th scope="col">Tomados</th><th scope="col">En 15 min o menos</th><th scope="col">Tiempo típico</th><th scope="col">Sin tomar</th></tr></thead><tbody>
+      ${row("Cliente listo para comprar", "al momento", r.hot)}
+      ${row("Interesado sin responder", "a las 2 h", r.cold)}
+    </tbody></table>
+    ${people ? `<table class="stable itable" style="margin-top:14px"><thead><tr><th scope="col">Quién los tomó</th><th scope="col">Avisos tomados</th><th scope="col">En 15 min o menos</th><th scope="col">Tiempo típico</th><th scope="col">Ventas salvadas</th></tr></thead><tbody>${people}</tbody></table>` : `<p class="muted small">Nadie ha tomado un aviso en este periodo.</p>`}
+    <p class="muted small">Si un aviso lleva 15 minutos sin tomarse, Supervisión recibe una notificación.</p>
+  </div></section>`;
+}
+function renderAfterYes(f, before) {
+  if (!f) return "";
+  const rows = f.steps.map((s, i) => `<tr><th scope="row">${esc(s.label)}</th><td data-label="Clientes"><b>${s.count}</b></td><td data-label="% de los que aceptaron">${i ? pctTxt(s.pct) : "—"}</td><td data-label="Periodo anterior">${before?.steps?.[i]?.count ?? "—"}${i && before?.total ? ` (${pctTxt(before.steps[i].pct)})` : ""}</td></tr>`).join("");
+  const stuck = f.stuck.map(([k, n]) => `${esc(k)}: <b>${n}</b>`).join(" · ");
+  return `<section class="card"><div class="card-head"><h2>Después del "sí"</h2><small>expedientes abiertos en el periodo: hasta dónde llegó cada uno</small></div><div class="card-body tscroll">
+    ${f.total ? `<table class="stable itable"><thead><tr><th scope="col">Etapa</th><th scope="col">Clientes</th><th scope="col">% de los que aceptaron</th><th scope="col">Periodo anterior</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="muted small">${stuck ? `Dónde están hoy los que no han pagado: ${stuck}.` : "Ninguno está detenido."}${f.cancelled ? ` Cancelados o rechazados: <b>${f.cancelled}</b>.` : ""}${f.revenue ? ` Cobrado: <b>$${Number(f.revenue).toLocaleString("es-MX")} MXN</b>.` : ""}</p>` : `<div class="empty">No se abrieron expedientes en este periodo.</div>`}
+  </div></section>`;
+}
 function renderImpact() {
   const i = state.impact;
   const A = i.after, B = i.before;
   const kpi = (label, after, before, fmt = v => v, good = "up", isPct = false) => `<div class="kpi"><span>${esc(label)}</span><b>${esc(fmt(after))}</b><small>${isPct ? impactDelta(after, before, good) : ""} antes ${esc(fmt(before))}</small></div>`;
   const tool = (name, what, sent, outcome, outcomePct, extra = "") => `<tr><th scope="row">${esc(name)}<small class="muted">${esc(what)}</small></th><td data-label="Clientes">${sent}</td><td data-label="Resultado">${outcome}</td><td data-label="%"><b>${pctTxt(outcomePct)}</b></td><td data-label="Además">${extra || "—"}</td></tr>`;
-  const entries = i.entries.filter(e => e.before.nuevas + e.after.nuevas > 0).map(e => `<tr><th scope="row">${esc(e.label)}</th><td data-label="Antes: chats">${e.before.nuevas}</td><td data-label="Antes: conversión">${pctTxt(e.before.conversion)}</td><td data-label="Después: chats">${e.after.nuevas}</td><td data-label="Después: conversión"><b>${pctTxt(e.after.conversion)}</b> ${impactDelta(e.after.conversion, e.before.conversion)}</td></tr>`).join("");
+  const entries = i.entries.filter(e => e.before.nuevas + e.after.nuevas > 0).map(e => `<tr><th scope="row">${esc(e.label)}</th><td data-label="Antes: chats">${e.before.nuevas}</td><td data-label="Antes: conversión">${pctTxt(e.before.conversion)}</td><td data-label="Después: chats">${e.after.nuevas}</td><td data-label="Después: contestan a Mia">${pctTxt(e.replied_after)}</td><td data-label="Después: conversión"><b>${pctTxt(e.after.conversion)}</b> ${impactDelta(e.after.conversion, e.before.conversion)}</td></tr>`).join("");
   return `<div class="head"><div><h1>Impacto de las mejoras</h1><p>Después: ${esc(A.from)} a ${esc(A.to)}${i.partial_day ? " (hoy en curso)" : ""} · Antes: ${esc(B.from)} a ${esc(B.to)} · ${i.days} días cada uno</p></div></div>
     <section class="card controls"><div class="card-body">
       <form id="impact-form" class="sform" autocomplete="off">
@@ -353,6 +377,8 @@ function renderImpact() {
       ${kpi("Con documentos completos", A.documentos, B.documentos)}
       ${kpi("Aprobación del equipo 👍", A.ratings.approval, B.ratings.approval, pctTxt, "up", true)}
     </div>
+    ${renderResponse(A.response)}
+    ${renderAfterYes(A.funnel, B.funnel)}
     <section class="card"><div class="card-head"><h2>Cada mejora</h2><small>en las conversaciones del periodo "después"</small></div><div class="card-body tscroll">
       <table class="stable itable"><thead><tr><th scope="col">Herramienta</th><th scope="col">Clientes</th><th scope="col">Resultado</th><th scope="col">%</th><th scope="col">Además</th></tr></thead><tbody>
         ${tool("Diagnóstico del caso", "Ley 73 / 97 + plan en un mensaje", A.diagnosis.sent, `${A.diagnosis.accepted} aceptaron`, A.diagnosis.accepted_pct)}
@@ -370,7 +396,7 @@ function renderImpact() {
       </tbody></table>
     </div></section>
     <section class="card"><div class="card-head"><h2>Conversión por anuncio</h2><small>antes vs después</small></div><div class="card-body tscroll">
-      ${entries ? `<table class="stable itable"><thead><tr><th scope="col">Entrada</th><th scope="col">Antes: chats</th><th scope="col">Antes: conversión</th><th scope="col">Después: chats</th><th scope="col">Después: conversión</th></tr></thead><tbody>${entries}</tbody></table>` : `<div class="empty">Sin conversaciones en estos periodos.</div>`}
+      ${entries ? `<table class="stable itable"><thead><tr><th scope="col">Entrada</th><th scope="col">Antes: chats</th><th scope="col">Antes: conversión</th><th scope="col">Después: chats</th><th scope="col">Después: contestan a Mia</th><th scope="col">Después: conversión</th></tr></thead><tbody>${entries}</tbody></table><p class="muted small">"Contestan a Mia": clientes que escribieron algo más después de la primera respuesta. Un anuncio con muchos chats, pocas respuestas y pocas ventas conviene revisarlo con Marketing.</p>` : `<div class="empty">Sin conversaciones en estos periodos.</div>`}
     </div></section>`;
 }
 

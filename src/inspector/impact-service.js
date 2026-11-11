@@ -38,7 +38,15 @@ function facts(id, events, memory = {}) {
   const callAccepted = at(e => e.type === "handoff" && /acept[oó] que un asesor le llame/i.test(String(e.details?.reason || "")));
   const alerts = all(e => e.type === "cold_lead_alert");
   const intervention = at(e => e.type === "capture_intervention");
+  // 11-nov: ¿cuánto tarda el equipo en tomar cada aviso? Atendido = alguien intervino el chat en las 24 h siguientes.
+  const interventions = all(e => e.type === "capture_intervention");
+  const alertResponses = all(e => e.type === "hot_lead_alert" || (e.type === "cold_lead_alert" && (e.details?.kind || "cold_lead") === "cold_lead")).map(a => {
+    const taken = interventions.find(i => ms(i.timestamp) >= ms(a.timestamp) && ms(i.timestamp) - ms(a.timestamp) <= DAY);
+    return { kind: a.type === "hot_lead_alert" ? "hot" : "cold", at: a.timestamp, by: taken?.details?.by || null, minutes: taken ? Math.round((ms(taken.timestamp) - ms(a.timestamp)) / 60000) : null };
+  });
+  const customerTurns = new Set(events.filter(e => e.type === "ai_reply_sent" && e.details?.customer_text).map(e => norm(e.details.customer_text))).size;
   return {
+    alertResponses, replied: customerTurns >= 2,
     id,
     first_at: events[0]?.timestamp || memory.actualizado_en || null,
     entry: entryOf(firstCustomer),
@@ -87,10 +95,62 @@ function summarize(list) {
     hot_lead: tool("hotLead"),
     early_call: tool("earlyCall"),
     scheduled_start: { sent: list.filter(f => f.scheduledStart).length },
+    response: responseSummary(list),
   };
 }
 
-export function buildImpact({ memories = [], eventsByConv = new Map(), feedback = [], timezone = "America/Mexico_City", since = DEFAULT_CHANGE_DATE, to = null, now = new Date() } = {}) {
+const median = values => { const v = [...values].sort((a, b) => a - b); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : Math.round((v[v.length / 2 - 1] + v[v.length / 2]) / 2)) : null; };
+
+// Tiempo de respuesta del equipo a los avisos (11-nov). Del 5 al 10-nov: 65 avisos y solo 16 intervenciones.
+export function responseSummary(list) {
+  const kindSummary = kind => {
+    const alerts = list.flatMap(f => f.alertResponses.filter(a => a.kind === kind).map(a => ({ ...a, f })));
+    const taken = alerts.filter(a => a.minutes !== null);
+    return { alerts: alerts.length, taken: taken.length, taken_pct: pct(taken.length, alerts.length), within_15: taken.filter(a => a.minutes <= 15).length, median_minutes: median(taken.map(a => a.minutes)), untaken: alerts.length - taken.length };
+  };
+  const people = new Map();
+  for (const f of list) for (const a of f.alertResponses) {
+    if (a.minutes === null) continue;
+    const p = people.get(a.by || "Sin nombre") || { name: a.by || "Sin nombre", taken: 0, minutes: [], chats: new Set(), saved: new Set() };
+    p.taken++; p.minutes.push(a.minutes); p.chats.add(f.id); if (f.saved) p.saved.add(f.id);
+    people.set(p.name, p);
+  }
+  return {
+    hot: kindSummary("hot"), cold: kindSummary("cold"),
+    people: [...people.values()].map(p => ({ name: p.name, taken: p.taken, within_15: p.minutes.filter(m => m <= 15).length, median_minutes: median(p.minutes), saved: p.saved.size })).sort((a, b) => b.taken - a.taken),
+  };
+}
+
+// Embudo después del "sí" (11-nov): de los expedientes abiertos en el periodo, hasta dónde llegó cada uno.
+export function afterYesFunnel(sales = []) {
+  const n = sales.length;
+  const step = (label, pred) => { const count = sales.filter(pred).length; return { label, count, pct: pct(count, n) }; };
+  const cancelled = s => ["cancelled", "validation_rejected"].includes(s.status);
+  const stuck = {};
+  const QUEUE = { capture: "En Captura", validation: "En Validación", validity: "En Vigencia", payment: "En Cobranza" };
+  for (const s of sales) {
+    if (s.status === "completed" || cancelled(s) || s.status === "dropped_nonpayment") continue;
+    const key = s.queue === "capture" && s.capture?.scheduled?.date ? "En Captura (alta agendada)" : s.queue === "capture" && !s.documents?.complete ? "En Captura (faltan documentos)" : QUEUE[s.queue] || "Otro";
+    stuck[key] = (stuck[key] || 0) + 1;
+  }
+  const paid = s => Boolean(s.payment?.received || s.payment?.validated || s.status === "completed");
+  return {
+    total: n,
+    steps: [
+      step("Aceptaron iniciar (expediente abierto)", () => true),
+      step("Documentos completos", s => Boolean(s.documents?.complete || s.capture?.completed_at)),
+      step("Alta capturada", s => Boolean(s.capture?.completed_at)),
+      step("Vigencia confirmada", s => Boolean(s.validity?.confirmed)),
+      step("Pago solicitado", s => Boolean(s.payment?.requested)),
+      step("Pagaron", paid),
+    ],
+    cancelled: sales.filter(cancelled).length,
+    stuck: Object.entries(stuck).sort((a, b) => b[1] - a[1]),
+    revenue: sales.filter(paid).reduce((sum, s) => sum + (Number(s.payment?.amount) || 0), 0),
+  };
+}
+
+export function buildImpact({ memories = [], eventsByConv = new Map(), feedback = [], sales = [], timezone = "America/Mexico_City", since = DEFAULT_CHANGE_DATE, to = null, now = new Date() } = {}) {
   const valid = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
   const today = localDate(now.toISOString(), timezone);
   if (!valid(since)) since = DEFAULT_CHANGE_DATE;
@@ -105,7 +165,7 @@ export function buildImpact({ memories = [], eventsByConv = new Map(), feedback 
   const B = all.filter(inR(afterR));
   const entries = [...new Set([...A, ...B].map(f => f.entry))].map(key => {
     const a = A.filter(f => f.entry === key), b = B.filter(f => f.entry === key);
-    return { key, label: ENTRY_LABELS[key] || key, before: { nuevas: a.length, aceptaron: a.filter(f => f.authorized).length, conversion: pct(a.filter(f => f.authorized).length, a.length) }, after: { nuevas: b.length, aceptaron: b.filter(f => f.authorized).length, conversion: pct(b.filter(f => f.authorized).length, b.length) } };
+    return { key, label: ENTRY_LABELS[key] || key, replied_before: pct(a.filter(f => f.replied).length, a.length), replied_after: pct(b.filter(f => f.replied).length, b.length), before: { nuevas: a.length, aceptaron: a.filter(f => f.authorized).length, conversion: pct(a.filter(f => f.authorized).length, a.length) }, after: { nuevas: b.length, aceptaron: b.filter(f => f.authorized).length, conversion: pct(b.filter(f => f.authorized).length, b.length) } };
   }).sort((x, y) => (y.after.nuevas + y.before.nuevas) - (x.after.nuevas + x.before.nuevas));
   const rated = r => {
     const list = feedback.filter(item => { const d = localDate(item.at, timezone); return d >= r.from && d <= r.to; });
@@ -113,11 +173,12 @@ export function buildImpact({ memories = [], eventsByConv = new Map(), feedback 
     return { up, down, approval: pct(up, up + down) };
   };
   const partialDay = to === today;
+  const inSale = r => s => { if (!s?.created_at) return false; const d = localDate(s.created_at, timezone); return d >= r.from && d <= r.to; };
   return {
     generated_at: now.toISOString(),
     since, days: span, partial_day: partialDay,
-    before: { ...before, ...summarize(A), ratings: rated(before) },
-    after: { ...afterR, ...summarize(B), ratings: rated(afterR) },
+    before: { ...before, ...summarize(A), ratings: rated(before), funnel: afterYesFunnel(sales.filter(inSale(before))) },
+    after: { ...afterR, ...summarize(B), ratings: rated(afterR), funnel: afterYesFunnel(sales.filter(inSale(afterR))) },
     entries,
     note: span < 7 ? "Todavía hay pocos días después del cambio: la comparación se vuelve confiable con 7 días o más." : null,
   };

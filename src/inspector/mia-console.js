@@ -745,7 +745,8 @@ export class MiaConsole {
   impact({ since, to, now = new Date() } = {}) {
     const tests = this.testIds();
     const byConv = new Map([...this.eventsByConversation()].filter(([id]) => !tests.has(Number(id))));
-    return buildImpact({ memories: this.allMemories(), eventsByConv: byConv, feedback: this.replyFeedback?.items || [], timezone: this.timezone(), since, to, now });
+    const sales = (this.saleStore?.list?.() || []).filter(s => !tests.has(Number(s.conversation_id)));
+    return buildImpact({ memories: this.allMemories(), eventsByConv: byConv, feedback: this.replyFeedback?.items || [], sales, timezone: this.timezone(), since, to, now });
   }
 
   // ── Embudo y configuración ───────────────────────────────────────
