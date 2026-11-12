@@ -143,6 +143,9 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   assert.equal((await tono("/operations/api/me")).body.can.mia_phones, true);
   assert.equal((await tono("/operations/api/mia-chats?filter=all")).body.items.find(i => i.id === 10).phone, "+5215599998888", "Atención a Clientes con el permiso ve celulares");
   assert.equal((await tono("/operations/api/mia-chats/10/intervene", {})).status, 403, "el permiso no da intervenir");
+  assert.equal((await tono("/operations/api/me")).body.can.message, true, "Atención a Clientes ve 'Intervenir solo con mensaje'");
+  assert.equal((await tono("/operations/api/mia-chats/12/message", { text: "Hola, te escribe el equipo de Atención a Clientes." })).status, 200);
+  assert.equal((await rita("/operations/api/mia-chats/12/message", { text: "hola" })).status, 403, "solo el permiso de chats no manda mensajes");
   assert.ok((await rita("/operations/api/mia-chats?filter=all")).body.items.every(i => !("phone" in i)), "solo el permiso: sin celulares");
   assert.equal((await beto("/operations/api/mia-chats?filter=all")).status, 403, "Atención a Clientes sin el permiso no ve Chats de Mia");
   for (const who of [carla, olga]) {

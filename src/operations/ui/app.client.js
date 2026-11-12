@@ -1598,7 +1598,7 @@ async function openMiaChat(id) {
   const buttons = [];
   if (state.me.can.intervene && !c.intervention && !c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="intervene">Intervenir</button>`);
   // 12-nov: un solo mensaje al cliente (por ejemplo, para corregir a Mia) sin quitarle el chat.
-  if (state.me.can.intervene && !c.intervention && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="message">Intervenir solo con mensaje</button>`);
+  if (state.me.can.message && !c.intervention && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="message">Intervenir solo con mensaje</button>`);
   // Omitir (11-nov): Mia ya no le escribe ni lo mueve; sale de las listas.
   if (state.me.can.intervene && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="omit">Omitir chat</button>`);
   if (state.me.can.intervene && c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="unomit">Dejar de omitir</button>`);

@@ -65,6 +65,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   // 12-nov: permiso "Chats de Mia" para cualquier usuario; Atención a Clientes con ese permiso ve los celulares.
   const hasChatsPermission = user => (user?.areas || []).includes("chats_mia");
   const canSeeMiaChats = user => canInterveneMia(user) || isCobranza(user) || (user?.areas || []).includes("observador") || isQuality(user) || hasChatsPermission(user);
+  // 12-nov: "Intervenir solo con mensaje" también para Atención a Clientes con acceso a Chats de Mia.
+  const canMessageMia = user => canInterveneMia(user) || (hasArea(user, "atencion") && canSeeMiaChats(user));
   const canSeeMiaPhones = user => hasArea(user, "supervision") || isCobranza(user) || (hasArea(user, "atencion") && canSeeMiaChats(user));
 
   function fail(res, error, status = 400) { return res.status(status).json({ error: error?.message || String(error) }); }
@@ -161,6 +163,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       can: {
         supervise: hasArea(user, "supervision"),
         intervene: canInterveneMia(user),
+        message: canMessageMia(user),
         mia_phones: canSeeMiaPhones(user),
         admin: hasArea(user, "admin"),
         lab: hasArea(user, "admin") && String(config.appEnv || "").toLowerCase() === "next",
@@ -360,7 +363,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   // para corregir algo que Mia dijo mal) sin quitarle el chat. Mia sigue atendiendo y toma el mensaje como su
   // última respuesta, así que el siguiente turno tiene el contexto correcto.
   router.post("/operations/api/mia-chats/:id/message", async (req, res) => {
-    if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden mandar mensajes", code: "forbidden" });
+    if (!canMessageMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Atención a Clientes, Supervisión o Admin pueden mandar mensajes", code: "forbidden" });
     const id = Number(req.params.id);
     const text = String(req.body?.text || "").replace(/\r\n/g, "\n").trim();
     if (!id || !memories.get(id)) return res.status(404).json({ error: "Esta conversación no la atiende Mia" });

@@ -1,3 +1,3 @@
 // Versión visible en Operations (debajo de "Operations NEXT") para confirmar qué quedó desplegado.
 // Se actualiza con cada entrega.
-export const BUILD_LABEL = "12-nov · Intervenir solo con mensaje";
+export const BUILD_LABEL = "12-nov · Mensaje desde Atención a Clientes";
