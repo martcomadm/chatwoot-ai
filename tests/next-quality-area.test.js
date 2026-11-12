@@ -11,3 +11,10 @@ test("área 'Calidad de Mia': existe y no da acceso a expedientes ni a otras ár
   assert.equal(seesAllQueues(u), false);
   assert.equal(hasArea({ areas: ["admin"] }, "calidad"), true);
 });
+
+test("permiso 'Chats de Mia' (12-nov): existe y no da acceso a ninguna cola ni área", () => {
+  assert.ok(AREA_KEYS.includes("chats_mia"));
+  const u = { areas: ["chats_mia"] };
+  for (const area of ["captura", "validacion", "vigencia", "cobranza", "atencion", "supervision", "admin", "calidad"]) assert.equal(hasArea(u, area), false, area);
+  assert.equal(seesAllQueues(u), false);
+});

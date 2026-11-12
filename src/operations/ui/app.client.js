@@ -10,7 +10,7 @@ const QUEUE_AREA = { capture: "captura", validation: "validacion", validity: "vi
 const QUEUE_LABEL_TEXT = { capture: "Captura", validation: "Validación", validity: "Vigencia", payment: "Cobranza" };
 const AREA_QUEUE = { captura: "capture", validacion: "validation", vigencia: "validity", cobranza: "payment" };
 const WORK_AREAS = ["captura", "validacion", "vigencia", "cobranza"];
-const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", atencion: "Atención a Clientes", calidad: "Calidad de Mia", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
+const AREA_LABELS = { captura: "Captura", validacion: "Validación", vigencia: "Vigencia", cobranza: "Cobranza", atencion: "Atención a Clientes", calidad: "Calidad de Mia", chats_mia: "Chats de Mia", observador: "Observador", supervision: "Supervisión", admin: "Admin" };
 const STAGES = [["capture", "Captura"], ["validation", "Validación"], ["validity", "Vigencia"], ["payment", "Cobranza"], ["completed", "Completado"]];
 
 const AREA_INTRO = {

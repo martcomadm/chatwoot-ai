@@ -62,8 +62,10 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   // Celulares de los clientes: solo Supervisión y Admin (pedido 4-nov).
   // Cobranza también (4-nov): ve Chats de Mia (sin intervenir) con los celulares.
   const isCobranza = user => (user?.areas || []).includes("cobranza");
-  const canSeeMiaPhones = user => hasArea(user, "supervision") || isCobranza(user);
-  const canSeeMiaChats = user => canInterveneMia(user) || isCobranza(user) || (user?.areas || []).includes("observador") || isQuality(user);
+  // 12-nov: permiso "Chats de Mia" para cualquier usuario; Atención a Clientes con ese permiso ve los celulares.
+  const hasChatsPermission = user => (user?.areas || []).includes("chats_mia");
+  const canSeeMiaChats = user => canInterveneMia(user) || isCobranza(user) || (user?.areas || []).includes("observador") || isQuality(user) || hasChatsPermission(user);
+  const canSeeMiaPhones = user => hasArea(user, "supervision") || isCobranza(user) || (hasArea(user, "atencion") && canSeeMiaChats(user));
 
   function fail(res, error, status = 400) { return res.status(status).json({ error: error?.message || String(error) }); }
 
@@ -153,7 +155,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     res.json({
       user,
       unread_notifications: notifier?.inbox?.unread?.(user.username) || 0,
-      areas: [...AREAS.filter(area => area.key !== "calidad" && hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : [])],
+      areas: [...AREAS.filter(area => !["calidad", "chats_mia"].includes(area.key) && hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : [])],
       visible_queues: visibleQueues(user),
       queue_labels: QUEUE_LABELS,
       can: {

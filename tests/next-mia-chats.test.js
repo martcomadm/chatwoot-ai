@@ -24,6 +24,10 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   users.create({ username: "sofi.super", name: "Sofi", areas: ["supervision"], password: "clave-segura-123" });
   users.create({ username: "cris.cobranza", name: "Cris", areas: ["cobranza"], password: "clave-segura-123" });
   users.create({ username: "ana.admin", name: "Ana", areas: ["admin"], password: "clave-segura-123" });
+  // 12-nov: permiso "Chats de Mia"; con Atención a Clientes ve celulares, sin ella no.
+  users.create({ username: "tono.atencion", name: "Toño", areas: ["atencion", "chats_mia"], password: "clave-segura-123" });
+  users.create({ username: "rita.chats", name: "Rita", areas: ["chats_mia"], password: "clave-segura-123" });
+  users.create({ username: "beto.atencion", name: "Beto", areas: ["atencion"], password: "clave-segura-123" });
   const memories = new MemoryStore(path.join(dir, "m.json"));
   const events = new InspectorEventStore(path.join(dir, "e.json"));
   const now = Date.now();
@@ -124,6 +128,14 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   assert.equal((await cris("/operations/api/me")).body.can.intervene, false);
   assert.equal((await cris("/operations/api/mia-chats?filter=all")).body.items.find(i => i.id === 10).phone, "+5215599998888", "Cobranza ve celulares");
   assert.equal((await cris("/operations/api/mia-chats/10/intervene", {})).status, 403, "Cobranza no interviene");
+  const tono = await as("tono.atencion"), rita = await as("rita.chats"), beto = await as("beto.atencion");
+  assert.ok((await tono("/operations/api/me")).body.areas.some(a => a.key === "chats"), "con el permiso ve Chats de Mia");
+  assert.ok(!(await tono("/operations/api/me")).body.areas.some(a => a.key === "chats_mia"), "el permiso no es una pestaña aparte");
+  assert.equal((await tono("/operations/api/me")).body.can.mia_phones, true);
+  assert.equal((await tono("/operations/api/mia-chats?filter=all")).body.items.find(i => i.id === 10).phone, "+5215599998888", "Atención a Clientes con el permiso ve celulares");
+  assert.equal((await tono("/operations/api/mia-chats/10/intervene", {})).status, 403, "el permiso no da intervenir");
+  assert.ok((await rita("/operations/api/mia-chats?filter=all")).body.items.every(i => !("phone" in i)), "solo el permiso: sin celulares");
+  assert.equal((await beto("/operations/api/mia-chats?filter=all")).status, 403, "Atención a Clientes sin el permiso no ve Chats de Mia");
   for (const who of [carla, olga]) {
     const list = await who("/operations/api/mia-chats?filter=all");
     assert.ok(list.body.items.every(i => !("phone" in i)), "Captura y Observador no ven celulares");
