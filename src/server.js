@@ -149,6 +149,9 @@ try {
   processor.onOperationsCustomerMessage = (sale, text) => opsNotifier.customerMessage(sale, text);
   // Atención a Clientes: casos con responsable por rotación (también asignados en Chatwoot).
   const caseStore = new CaseStore(path.join(config.storage.dataDir, "customer-service-cases.json"));
+  // Cada pestaña abierta de Operations escucha estos tres (y se quita al cerrar): con 22 usuarios es normal
+  // pasar de 10, que es el límite por defecto de Node y solo generaba avisos falsos de "memory leak" en los logs.
+  for (const emitter of [saleStore, opsNotifier, caseStore]) emitter?.setMaxListeners?.(500);
   const customerService = new CustomerService({ store: caseStore, users: opsUsers, chatwoot, notifier: opsNotifier, isOpen: () => processor.inSchedule() });
   customerService.start();
   // Lo que ya está con Atención en Chatwoot (equipo, personas del área o rotación de atención humana) también se ve en Operations.
