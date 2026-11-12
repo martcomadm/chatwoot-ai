@@ -243,6 +243,8 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   async function conversationItems(conversationId, customerName) {
     const raw = chatwoot.getAllMessages ? await chatwoot.getAllMessages(conversationId) : await chatwoot.getMessages(conversationId);
     const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
+    // Mensajes que el equipo mandó desde la cuenta de Mia ("Intervenir solo con mensaje", 12-nov).
+    const teamTexts = new Map((memories.get(Number(conversationId))?.team_messages || []).map(t => [String(t.text).trim(), t.by]));
     return list
       .filter(m => m && [0, 1, "incoming", "outgoing"].includes(m.message_type))
       // Notas privadas no, salvo la transcripción de notas de voz (útil para Captura).
@@ -255,7 +257,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
         return {
           id: String(m.id),
           who: m.private ? "nota" : incoming ? "cliente" : own ? "mia" : "persona",
-          name: incoming ? (customerName || "Cliente") : own ? "Mia" : (m.sender?.name || "Equipo"),
+          name: incoming ? (customerName || "Cliente") : own ? (teamTexts.has(String(m.content || "").trim()) ? `${teamTexts.get(String(m.content || "").trim())} (desde Mia)` : "Mia") : (m.sender?.name || "Equipo"),
           text: String(m.content || ""),
           at: new Date(Number(m.created_at || 0) * 1000).toISOString(),
           attachments: (m.attachments || []).map(a => ({ type: String(a.file_type || "").toLowerCase(), url: a.data_url || a.file_url || null, thumb: a.thumb_url || null, name: a.file_name || a.fallback_title || null })).filter(a => a.url),
@@ -352,6 +354,29 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       await unomitConversation({ memories, conversationId: req.params.id, user: req.opsUser, audit, inspectorEvents });
       res.json({ ok: true });
     } catch (error) { fail(res, error); }
+  });
+
+  // Intervenir solo con mensaje (12-nov): Captura manda un mensaje al cliente desde la cuenta de Mia (por ejemplo,
+  // para corregir algo que Mia dijo mal) sin quitarle el chat. Mia sigue atendiendo y toma el mensaje como su
+  // última respuesta, así que el siguiente turno tiene el contexto correcto.
+  router.post("/operations/api/mia-chats/:id/message", async (req, res) => {
+    if (!canInterveneMia(req.opsUser)) return res.status(403).json({ error: "Solo Captura, Supervisión o Admin pueden mandar mensajes", code: "forbidden" });
+    const id = Number(req.params.id);
+    const text = String(req.body?.text || "").replace(/\r\n/g, "\n").trim();
+    if (!id || !memories.get(id)) return res.status(404).json({ error: "Esta conversación no la atiende Mia" });
+    if (!text) return res.status(400).json({ error: "Escribe el mensaje para el cliente" });
+    if (text.length > 1500) return res.status(400).json({ error: "El mensaje es muy largo (máximo 1,500 caracteres)" });
+    if (!chatwoot?.sendMessage) return res.status(503).json({ error: "Chatwoot no está disponible" });
+    try {
+      await chatwoot.sendMessage(id, text);
+      const user = req.opsUser;
+      const at = new Date().toISOString();
+      const memory = memories.get(id) || {};
+      await memories.merge(id, { ultima_respuesta_agente: text, team_messages: [...(memory.team_messages || []), { text, by: user.name || user.username, username: user.username, at }].slice(-20) });
+      try { await inspectorEvents?.record?.(id, "team_message_sent", { text, by: user.name || user.username }); } catch {}
+      audit?.record?.("mia.team_message", { username: user.username, name: user.name }, { conversation_id: id, chars: text.length });
+      res.json({ ok: true, at });
+    } catch (error) { fail(res, error, 502); }
   });
 
   // ── Respuestas de Mia (4-nov): el equipo enseña a Mia sin redespliegue ──

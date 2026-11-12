@@ -42,7 +42,7 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   const cw = { assigned: [], notes: [] };
   const chatwoot = {
     async assignConversation(id, agent) { cw.assigned.push([id, agent]); },
-    async sendMessage(id, text, priv) { if (priv) cw.notes.push([id, text]); },
+    async sendMessage(id, text, priv) { if (priv) cw.notes.push([id, text]); else (cw.sent ||= []).push([id, text]); },
     async getConversation(id) { return { id, meta: { sender: { phone_number: id === 12 ? "+5215511112222" : null } } }; },
     async getAllMessages() { return { payload: [{ id: 1, message_type: 0, content: "Está muy caro", created_at: Math.floor(now / 1000) }] }; },
     async getMessages() { return { payload: [] }; },
@@ -128,6 +128,15 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   assert.equal((await cris("/operations/api/me")).body.can.intervene, false);
   assert.equal((await cris("/operations/api/mia-chats?filter=all")).body.items.find(i => i.id === 10).phone, "+5215599998888", "Cobranza ve celulares");
   assert.equal((await cris("/operations/api/mia-chats/10/intervene", {})).status, 403, "Cobranza no interviene");
+  // 12-nov: "Intervenir solo con mensaje": llega al cliente, Mia se queda con el chat y lo toma como su última respuesta.
+  const fix = "Una disculpa, te corrijo: el Plan 1 sí incluye a tus hijos menores de 16 años.";
+  assert.equal((await carla("/operations/api/mia-chats/12/message", { text: fix })).status, 200);
+  assert.deepEqual(cw.sent.at(-1), [12, fix]);
+  assert.equal(memories.get(12).ultima_respuesta_agente, fix);
+  assert.equal(memories.get(12).team_messages.at(-1).by, "Carla Captura");
+  assert.ok(!memories.get(12).capture_intervention?.active, "no le quita el chat a Mia");
+  assert.equal((await carla("/operations/api/mia-chats/12/message", { text: "  " })).status, 400);
+  assert.equal((await olga("/operations/api/mia-chats/12/message", { text: fix })).status, 403, "Observador no manda mensajes");
   const tono = await as("tono.atencion"), rita = await as("rita.chats"), beto = await as("beto.atencion");
   assert.ok((await tono("/operations/api/me")).body.areas.some(a => a.key === "chats"), "con el permiso ve Chats de Mia");
   assert.ok(!(await tono("/operations/api/me")).body.areas.some(a => a.key === "chats_mia"), "el permiso no es una pestaña aparte");

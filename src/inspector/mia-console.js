@@ -109,6 +109,7 @@ export const EVENT_LABELS = {
   scheduled_start: "Aceptó con fecha: alta programada (aviso a Captura)",
   hot_lead_alert: "Aviso inmediato a Captura: cliente listo para comprar",
   capture_intervention_released: "Captura regresó el chat a Mia",
+  team_message_sent: "El equipo mandó un mensaje desde la cuenta de Mia",
   mia_omitted: "Chat omitido: Mia ya no le escribe ni lo mueve",
   mia_unomitted: "El chat dejó de estar omitido",
 };

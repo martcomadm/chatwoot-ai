@@ -1597,6 +1597,8 @@ async function openMiaChat(id) {
   const mine = c.intervention && c.intervention.username === state.me.user.username;
   const buttons = [];
   if (state.me.can.intervene && !c.intervention && !c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="intervene">Intervenir</button>`);
+  // 12-nov: un solo mensaje al cliente (por ejemplo, para corregir a Mia) sin quitarle el chat.
+  if (state.me.can.intervene && !c.intervention && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="message">Intervenir solo con mensaje</button>`);
   // Omitir (11-nov): Mia ya no le escribe ni lo mueve; sale de las listas.
   if (state.me.can.intervene && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="omit">Omitir chat</button>`);
   if (state.me.can.intervene && c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="unomit">Dejar de omitir</button>`);
@@ -1644,6 +1646,11 @@ async function miaChatAction(action) {
     const data = await ask({ title: "Regresar a Mia", text: "Mia vuelve a contestar a este cliente con el proceso normal de venta.", fields: [{ name: "note", label: "Nota (opcional)", type: "textarea", placeholder: "Ej. ya resolví su duda, quiere continuar" }], confirm: "Regresar a Mia", area: "captura" });
     if (!data) return;
     done = await run(() => api(`/operations/api/mia-chats/${id}/release`, { method: "POST", body: { note: data.note || "" } }), "El chat regresó con Mia");
+  }
+  if (action === "message") {
+    const data = await ask({ title: "Intervenir solo con mensaje", text: "El mensaje le llega al cliente por WhatsApp desde la cuenta de Mia, como si lo escribiera ella. <strong>Mia sigue atendiendo el chat</strong> y toma tu mensaje en cuenta para lo que conteste después. Úsalo para corregir algo que Mia dijo mal o completar una respuesta.", fields: [{ name: "text", label: "Mensaje para el cliente", type: "textarea", required: true, placeholder: "Ej. Una disculpa, te corrijo: el Plan 1 sí incluye a tus hijos menores de 16 años como beneficiarios." }], confirm: "Enviar mensaje", area: "chats" });
+    if (!data || !String(data.text || "").trim()) return;
+    done = await run(() => api(`/operations/api/mia-chats/${id}/message`, { method: "POST", body: { text: data.text } }), "Mensaje enviado; Mia sigue con el chat");
   }
   if (action === "omit") {
     const data = await ask({ title: "Omitir este chat", text: "Mia deja de contestarle, no le manda seguimientos ni plantillas de reactivación y no genera avisos por este cliente. El chat sale de las listas (queda en <strong>Omitidos</strong>). En Chatwoot no cambia nada: la asignación y las etiquetas se quedan igual.", fields: [{ name: "note", label: "Motivo (opcional)", type: "textarea", placeholder: "Ej. lo atiende Carlos por llamada; ya agendó su alta" }], confirm: "Omitir chat", area: "chats" });
