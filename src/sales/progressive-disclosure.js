@@ -1,5 +1,6 @@
 function norm(value) {
-  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+  // "Seguir cotisando" (12-nov: recibió dos veces la misma pregunta de necesidad).
+  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().replace(/\bcotis/g, "cotiz").replace(/\bafil(?:ar|arme|arla|arlo)\b/g, m => m.replace("afil", "afili"));
 }
 
 const PRICE_RE = /(?:\$\s*1[,.]?100|\$\s*1[,.]?500|1[,.]?100\s*(?:mxn|pesos)?|1[,.]?500\s*(?:mxn|pesos)?)/i;

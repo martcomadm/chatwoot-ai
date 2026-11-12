@@ -46,11 +46,12 @@ export function explicitHumanRequest(text) {
 export function acceptsAdvisorOffer(text, lastReply = "") {
   // "¿…o prefieres que un asesor revise tu caso primero?" → "Sí, revisarlo por favor" (caso real 27-oct).
   if (/prefieres que un asesor revise tu caso/.test(norm(lastReply)) && /\b(?:asesor|r?revis\w*|que lo revise|que lo vea|revision)\b/.test(norm(text)) && !/\b(?:iniciemos|iniciar|no)\b/.test(norm(text))) return true;
-  if (!/quieres que te comunique con un asesor/.test(norm(lastReply))) return false;
+  // "Puedo comunicarte con un asesor para que revise tu caso" → "Si me interesa la asesoría" (12-nov, #11645).
+  if (!/(?:quieres que te comunique|puedo comunicarte|te puedo comunicar|te comunico|deseas que te comunique|te gustaria que te comunique) con un asesor/.test(norm(lastReply))) return false;
   const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
   // "Ok, voy a buscar la hoja rosa y te envío foto" (caso real 21-oct) no es aceptar al asesor.
   const short = value.split(" ").length <= 5 || /\b(?:asesor|asesora|persona|comuni\w*|pasame|pasenme)\b/.test(value);
-  return short && /^(?:si|claro|por favor|porfavor|ok|okay|va|sale|de acuerdo|me parece|esta bien|bueno)\b/.test(value) && !/\bno\b/.test(value) && !/\b(?:voy a|luego|despues|manana|te envio|te mando)\b/.test(value);
+  return short && /^(?:si|claro|por favor|porfavor|ok|okay|va|sale|de acuerdo|me parece|esta bien|bueno|me interesa)\b/.test(value) && !/\bno\b/.test(value) && !/\b(?:voy a|luego|despues|manana|te envio|te mando)\b/.test(value);
 }
 
 // Pide platicarlo por teléfono ("Le puedo marcar xfa", "me gustaría platicarlo bien x teléfono",
@@ -71,6 +72,8 @@ const CALL_PATTERNS = [
   // "¿Algún teléfono para poder marcar?", "comunicación vía telefónica", "no puedo hablar con nadie" (caso real 27-oct).
   /\b(?:algun|un|su|otro)\s+(?:numero|telefono|tel)\s+(?:para|donde|al que|a donde)\s+(?:pode\w*\s+|pueda\s+|les\s+)?(?:marcar|llamar|hablar|comunicarme)\b/,
   /\b(?:comunicacion|hablar|platicar)\s+(?:via|por)\s+(?:telefonica|telefono|llamada)\b|\bno puedo hablar con nadie\b/,
+  // "¿me las podrían aclarar por medio de una llamada?" (12-nov, #11633: recibió la lista de precios).
+  /\b(?:por medio de|mediante|con)\s+una\s+llamada\b|\b(?:aclarar|resolver|explicar|platicar|ver)\w*\b.{0,40}\b(?:en|por|x)\s+(?:una\s+)?(?:llamada|telefono)\b/,
 ];
 
 export function callRequest(text) {
@@ -84,19 +87,31 @@ export const CALL_HANDOFF_TEXT = "Este número de WhatsApp no recibe llamadas, p
 // Último seguimiento (4-nov): "¿Prefieres que un asesor te llame…? Dime sí y a qué hora…".
 // "Sí", "a las 5", "mañana en la tarde", "después de las 6" aceptan la llamada.
 export const CALL_OFFER_MARK = "prefieres que un asesor te llame";
+// 12-nov: también cuentan las ofertas de llamada de las respuestas del equipo y de la IA ("podemos agendar una
+// llamada el día de mañana a partir de las 10:00 am… ¿Estás de acuerdo?"). Tres clientes dijeron "sí, de acuerdo"
+// y nadie registró la llamada (#11638, #11649).
+const CALL_OFFER_RE = /prefieres que un asesor te llame|(?:agendar|agendemos|programar|programemos|fijar|fijemos)\s+(?:una|tu|la)\s+llamada|(?:que|si)\s+(?:un asesor|una asesora|alguien del equipo)\s+te\s+(?:llame|marque)|te\s+(?:llame|marque)\s+un\s+asesor|(?:realizarle|hacerte|hacerle)\s+una\s+llamada/;
+// Hora que Mia ya propuso en la oferta ("mañana a partir de las 10:00 am").
+function offeredTime(lastReply = "") {
+  const m = norm(lastReply).match(/\b(?:(?:el dia de )?(?:hoy|manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo))\s+)?(?:a partir de las|despues de las|a las)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|a m|p m|hrs?)?/);
+  return m ? m[0].replace(/^el dia de /, "").trim() : null;
+}
 const TIME_RE = /\b(?:a las|alas|despues de las|antes de las|entre las|de las)\s*\d{1,2}(?::\d{2})?|\b\d{1,2}(?::\d{2})?\s*(?:am|pm|hrs?|horas)\b|\b(?:en la|por la)\s+(?:manana|tarde|noche)\b|\b(?:ahorita|ahora|ya|cuando gusten|cuando quieran|a cualquier hora|cualquier hora|hoy|manana)\b/;
 export function acceptsCallOffer(text, lastReply = "") {
-  if (!norm(lastReply).includes(CALL_OFFER_MARK)) return null;
+  if (!CALL_OFFER_RE.test(norm(lastReply))) return null;
   const value = norm(text).replace(/[^a-z0-9n: ]+/g, " ").replace(/\s+/g, " ").trim();
   if (!value || /^(?:no|nop|nel)\b|\bno (?:gracias|me llamen|me marquen|puedo|quiero|me interesa)\b|\bya no\b|\bpor mensaje\b|\bpor (?:aqui|escrito|whats)\b/.test(value)) return null;
+  // "Ok checo las recomendaciones" (12-nov, #11617) no acepta la llamada: lo va a revisar por su cuenta.
+  if (/\b(?:checo|chequo|reviso|reviso|analizo|lo pienso|lo voy a pensar|lo veo|lo checo|lo reviso|recomendaciones|resenas|facebook|luego le|luego te|yo le (?:marco|aviso|escribo)|yo me comunico|yo les? (?:marco|aviso|escribo))\b/.test(value)) return null;
+  const proposed = offeredTime(lastReply);
   const yes = /^(?:si+|sip|claro|ok|okay|va|vale|sale|por favor|porfavor|de acuerdo|me parece|esta bien|bueno|perfecto|adelante|orale)\b/.test(value);
   const time = TIME_RE.test(value);
   if (!yes && !time) return null;
   if (!time && value.split(" ").length > 6) return null;
-  return { time: time ? String(text || "").trim().slice(0, 120) : null };
+  return time ? { time: String(text || "").trim().slice(0, 120) } : proposed ? { time: proposed, proposed: true } : { time: null };
 }
 export function callOfferReply(accepted) {
   return accepted?.time
-    ? "¡Perfecto! Le dejo tu horario a un asesor para que te marque a este número, y también el contexto de lo que platicamos para que no tengas que repetirlo."
+    ? `¡Perfecto! Le dejo tu horario${accepted.proposed ? ` (${accepted.time})` : ""} a un asesor para que te marque a este número, y también el contexto de lo que platicamos para que no tengas que repetirlo.`
     : "¡Perfecto! Un asesor te va a llamar a este número y ya le dejo el contexto de lo que platicamos. ¿En qué horario te queda mejor que te marque?";
 }

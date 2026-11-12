@@ -1,10 +1,10 @@
 import { CALL_OFFER_MARK } from "../core/human-request.js";
 import { SCHEDULE_OFFER_MARK } from "../sales/scheduled-start.js";
-import { INFONAVIT_CREDIT_PRICE_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT } from '../sales/infonavit-credit.js';
+import { INFONAVIT_CREDIT_PRICE_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT, INFONAVIT_CREDIT_PAYMENT_TEXT } from '../sales/infonavit-credit.js';
 import { effectivePlan } from '../sales/progressive-disclosure.js';
 import { FACT_LOCKED_TYPES } from '../core/deterministic-decision-policy.js';
 
-function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
+function norm(v){return String(v??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\bcotis/g,'cotiz').replace(/\bafil(?:ar|arme|arla|arlo)\b/g,m=>m.replace('afil','afili'));}
 
 function isRequirementsQuestion(v){
   if(/\b(?:cumplo|ya cumplo|tengo|ya tengo) (?:con )?(?:los |todos los |los demas )?requisitos\b|\brequisitos los cumplo\b/.test(v)) return false;
@@ -41,6 +41,14 @@ export function detectDirectRequest(text){
   // "Si, pero necesito enviarle mis semanas" (recibió "¿Tienes alguna duda sobre el Plan 1…?").
   if(/\b(?:enviar|enviarle|mandar|mandarle|compartir|compartirle)(?:le|te)?\s+(?:mis|el|la|mi)\s+(?:semanas|reporte de semanas|constancia de semanas|historial)\b/.test(v) && !/\bissste\b/.test(v)) return {type:'send_weeks',priority:'high',answerKey:'send_weeks'};
   // "Debo actualizar datos primero / mi nombre y mi fecha de nacimiento, todo estuvo mal" (tres respuestas genéricas).
+  // 12-nov: "Costo de la asesoría" (#11645 recibió la lista de precios): la asesoría es gratis.
+  if(/\b(?:costo|cuesta|cobran|cobra|precio|pagar|pago)\b.{0,25}\b(?:asesoria|asesorias|orientacion|revision de mi caso|revisar mi caso)\b|\b(?:asesoria|orientacion|revision)\b.{0,20}\b(?:tiene (?:algun )?costo|cuesta|cobran|es gratis|es gratuita|tiene precio)\b/.test(v)) return {type:'advice_cost',priority:'high',answerKey:'advice_cost'};
+  // "Quiero retirar mi afore", "retiro por desempleo" (12-nov, #11671: se le vendió el Plan 2).
+  if(/\b(?:retirar|sacar|cobrar|retiro de|retiro del?)\s+(?:mi\s+|el\s+|la\s+|lo de\s+|dinero de\s+(?:mi\s+|la\s+)?)?afore\b|\bretiro\s+(?:parcial\s+)?(?:por|de)\s+desempleo\b|\b(?:dinero|ahorro|ahorros)\s+de\s+(?:mi|la)\s+afore\b/.test(v)) return {type:'afore_withdrawal',priority:'high',answerKey:'afore_withdrawal'};
+  // "Pagando este plan ya no pagaría el Infonavit aparte, ¿cierto?" (12-nov, #11630).
+  if(/\b(?:ya no|no)\s+(?:pagaria|pagare|tendria que pagar|pago|pagariamos)\s+(?:el\s+|mi\s+|lo del\s+)?(?:credito\s+(?:de(?:l)?\s+)?)?infonavit\b|\binfonavit\b.{0,25}\b(?:a parte|aparte|por separado)\b|\b(?:con este plan|el plan (?:1|uno))\b.{0,40}\b(?:pag\w*)\b.{0,20}\binfonavit\b/.test(v)) return {type:'credit_payment',priority:'high',answerKey:'credit_payment'};
+  // "En mi número había un error" (12-nov, #11534: recibió "¿tienes alta activa?").
+  if(/\b(?:error|herror|equivocacion)\b.{0,25}\b(?:numero|nss|curp|nombre|datos|registro)\b|\b(?:mi\s+)?(?:numero de seguro|numero|nss|curp)\b.{0,25}\b(?:error|herror|esta mal|viene mal|tiene un error)\b/.test(v.replace(/\ba?via\b/g,'habia'))) return {type:'data_correction',priority:'high',answerKey:'data_correction'};
   if(/\b(?:actualizar|corregir|correccion|cambiar|arreglar|modificar)\s+(?:mis\s+|los\s+|mi\s+)?(?:datos|nombre|fecha de nac\w*|curp)\b|\b(?:datos|nombre|fecha de nac\w*)\b.{0,30}\b(?:estan? mal|estuvo mal|estubo mal|esta incorrect\w*|equivocad\w*)\b/.test(v.replace(/[.,;:]+/g,' ').replace(/\s+/g,' '))) return {type:'data_correction',priority:'high',answerKey:'data_correction'};
   // 6-nov (export 5 y 6-nov):
   // "Cómo los contacto / Para afiliarme con ustedes" recibió "Cuando puedas, escríbeme…".
@@ -277,7 +285,7 @@ export function detectDirectRequest(text){
   // "¿Y lo del Infonavit dónde queda?" (caso real 21-oct: recibió la ubicación de la oficina).
   if(/\b(?:lo del|y el|y la|el|la)\s+(?:infonavit|afore)\b.{0,25}\b(?:donde queda|donde entra|como queda|que pasa|no viene|no incluye|no entra|tambien)\b/.test(v)) return {type:'services',priority:'high',answerKey:'services',plan:'plan_2'};
   // "¿Dónde pagaría?" / "¿cómo se paga?" antes de iniciar (caso real 21-oct, sin respuesta).
-  if(/\b(?:donde|como|en donde|por donde|de que forma|en que forma)\s+(?:se\s+)?(?:pagaria|pago|paga|pagaria yo|tengo que pagar|hago el pago|deposito|pagar)\b|\b(?:formas?|metodos?|medios?)\s+de\s+pago\b/.test(v)) return {type:'payment_method',priority:'high',answerKey:'payment_method'};
+  if(!/\b(?:pago|pagar|pagaria)\s+menos\b/.test(v)&&/\b(?:donde|como|en donde|por donde|de que forma|en que forma)\s+(?:se\s+)?(?:pagaria|pago|paga|pagaria yo|tengo que pagar|hago el pago|deposito|pagar)\b|\b(?:formas?|metodos?|medios?)\s+de\s+pago\b/.test(v)) return {type:'payment_method',priority:'high',answerKey:'payment_method'};
   // "Me va a cotizar con muy poco" (salario registrado de $480, caso real 21-oct).
   if(/\bcotizar?\w*\s+con\s+(?:muy\s+)?poco\b|\b(?:salario|sueldo)\s+(?:muy\s+)?(?:bajo|poquito|poco)\b|\bcotiza\w*\s+(?:muy\s+)?bajo\b/.test(v)) return {type:'salary_pension',priority:'high',answerKey:'salary_pension'};
   if(/\bbeneficios?\s+(?:del|de el|de|que (?:tiene|da|incluye) el)\s+plan\s*(?:2|dos)\b|\bplan\s*(?:2|dos)\b.{0,15}\bbeneficios?\b/.test(v)) return {type:'services',priority:'high',answerKey:'services',plan:'plan_2'};
@@ -376,6 +384,9 @@ export function directAnswerText(request){
   if(request.answerKey==='rights_recovery') return 'Para recuperar tu vigencia de derechos con la Ley 73 necesitas mantener tu afiliación al menos 13 meses antes de tramitar tu pensión. Con nosotros quedas dado de alta ante el IMSS, sigues sumando semanas y además tienes servicio médico; el Plan 1 cuesta $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?';
   if(request.answerKey==='credit_price') return INFONAVIT_CREDIT_PRICE_TEXT;
   if(request.answerKey==='credit_plan2') return INFONAVIT_CREDIT_PLAN2_TEXT;
+  if(request.answerKey==='credit_payment') return INFONAVIT_CREDIT_PAYMENT_TEXT;
+  if(request.answerKey==='advice_cost') return 'La asesoría no tiene costo: revisar tu caso y resolver tus dudas es gratis. Solo pagas la mensualidad del plan que elijas (Plan 1 de $1,100 MXN o Plan 2 de $1,500 MXN), y el primer pago es hasta que tu alta ya aparece vigente ante el IMSS. ¿Me cuentas tu caso para orientarte?';
+  if(request.answerKey==='afore_withdrawal') return 'Nosotros no hacemos retiros de AFORE: ese trámite lo haces directamente con tu AFORE. Lo que hacemos es darte de alta ante el IMSS como trabajador, para que tengas servicio médico y sigas sumando semanas. Ojo: el retiro parcial por desempleo normalmente pide que no estés dado de alta como trabajador, así que si piensas hacerlo, conviene hacerlo antes de afiliarte. ¿Quieres que te explique cómo funciona la afiliación?';
   if(request.answerKey==='payment_method') return 'El pago es mensual y se hace hasta que tu alta esté vigente: primero iniciamos tu trámite con tu CURP, NSS e INE, te enviamos tu documento de vigencia para que lo compruebes y después nuestra área de Cobranza te comparte por aquí los datos para pagar por transferencia, depósito u OXXO. Así no pagas nada antes de ver tu alta. ¿Quieres que iniciemos tu trámite?';
   if(request.answerKey==='min_weeks') return `Para pensionarte se necesitan como mínimo 500 semanas cotizadas si eres Ley 73 (empezaste a cotizar antes del 1 de julio de 1997) y 800 semanas si eres Ley 97.${request.pre1997?' Como empezaste a cotizar antes de 1997, tu caso es Ley 73: además necesitas al menos 13 meses de afiliación antes de tramitar tu pensión.':''} Con nosotros sigues sumando semanas y tienes servicio médico del IMSS; el Plan 1 cuesta $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?`;
   if(request.answerKey==='retroactive') return 'No manejamos altas con fecha retroactiva: tu alta cuenta a partir de que se realiza. Lo que sí hacemos es darte de alta ante el IMSS para que tengas servicio médico y sigas sumando semanas desde ahora; el Plan 1 cuesta $1,100 MXN mensuales. ¿Quieres que te explique cómo funciona?';

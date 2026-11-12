@@ -1,3 +1,4 @@
+import { confirmsStart } from "./start-confirmation.js";
 import { SCHEDULE_OFFER_MARK } from "./scheduled-start.js";
 import { plausibleName } from "../semantic/name-validator.js";
 // Cuando el cliente pospone ("ahorita no tengo dinero", "yo le aviso") o cierra la
@@ -105,6 +106,10 @@ export function detectDeferral(text) {
   // "Soy ley 73, en qué año no me acuerdo, necesito checar mis papeles" (caso real 27-oct) responde la pregunta.
   if (/\b(?:no me acuerdo|no recuerdo)\b/.test(value)) return null;
   if (LATER_RE.some(re => re.test(value))) return "later";
+  // "Ok checo las recomendaciones" (12-nov, #11617): lo va a revisar por su cuenta.
+  if (/\b(?:checo|chequo|reviso|veo|leo)\s+(?:las\s+|sus\s+)?(?:recomendaciones|resenas|opiniones|comentarios|pagina|facebook)\b/.test(value)) return "later";
+  // 12-nov: "yo ya luego me contacto con usted", "no lo tengo ahorita, estoy en el trabajo", "me comunico más tarde".
+  if (/\b(?:luego|despues|mas tarde|al rato|en la tarde|manana)\s+(?:me|nos|le|les)\s+(?:contacto|comunico|marco|escribo|reporto)\b|\b(?:me|nos)\s+(?:contacto|comunico)\s+(?:mas tarde|luego|despues|al rato|manana)\b|\bno\s+(?:lo|los|la|las)\s+tengo\s+(?:ahorita|orita|aqui|a la mano|en este momento)\b|\b(?:estoy|ando)\s+(?:en el|en mi)\s+(?:trabajo|chamba)\b|\bestoy\s+(?:entrando|por entrar)\s+(?:a|q|al)\s+trabaj\w*\b/.test(value)) return "later";
   // "Gracias / Pero ahorita no / Estoy en proceso de pensión" (caso real 10-nov: recibió los planes otra vez).
   if (String(text).split(/\n+/).some(line => /^(?:(?:pero|pues|gracias|no|ok|mmm|ay)\s+)*(?:ahorita|orita|por ahorita|por ahora|ahora)\s+no(?:\s+gracias)?$/.test(norm(line).replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim()))) return "later";
   return null;
@@ -175,6 +180,9 @@ export function isCourtesy(text) {
 }
 
 export function deferralDecision(memory = {}, combinedText = "", { resumedAfterHours = false, teamOff = null } = {}) {
+  // "Ok muy bien… puedo mandarte la documentación mañana" a "¿Quieres que iniciemos?" (12-nov, #11649) es aceptar:
+  // lo atiende el flujo de compromiso, que abre el expediente.
+  if (!memory.sales_cycle?.authorized && confirmsStart(combinedText, memory)) return null;
   // Cliente con trámite iniciado: "Muchas gracias" no es despedida de venta ("cuando quieras
   // continuar…" no aplica). Lo atiende el seguimiento del expediente.
   if (memory.sales_cycle?.authorized) return null;
@@ -186,6 +194,12 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   const closedBefore = lastReply.includes(CLOSING_MARK) || (!/[?¿]/.test(lastReply) && /que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que te vaya (?:muy )?bien|escr[ií]beme y con gusto|quedo al pendiente|cuando quieras retomar/i.test(lastReply));
   if (closedBefore && isCourtesy(combinedText)) {
     return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: detectDeferral(combinedText) || "closing" };
+  }
+  // Ya consiguió trabajo (12-nov: "Ya empecé a laborar…", "Disculpe ya me dieron de alta"): su patrón le da el IMSS.
+  // Se despide con gusto y no se le insiste más.
+  if (gotJob(combinedText)) {
+    const name = firstName(memory);
+    return { reply: `¡Qué gusto${name}, felicidades por tu trabajo! Mientras tu patrón te tenga dado de alta ya cuentas con IMSS. Si más adelante lo vuelves a necesitar, ${CLOSING_MARK} y con gusto te ayudo.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: "not_fit" };
   }
   // "No de momento, ando en la calle, pero en dos horas te lo mando" (caso real 22-oct) no es rechazo.
   if (MISTAKE_RE.test(norm(combinedText).replace(/[,.!]+/g, " ").replace(/\s+/g, " ").replace(/\b(?:perdon|disculpa|disculpe|una disculpa)\b/g, " ").trim()) && !/[?¿]/.test(String(combinedText))) {
@@ -220,7 +234,7 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   let reply;
   // Quiere iniciar pero después ("Podemos iniciar el trámite el lunes, voy a buscar mis papeles",
   // "mañana le envío papeles"; casos reales 21 y 22-oct): se le dice qué tener listo.
-  const startLater = kind === "later" && /\b(?:papeles|documentos|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
+  const startLater = kind === "later" && /\bno\s+(?:lo|los|la|las)\s+tengo\b|\b(?:papeles|documentos|documentacion|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
   if (startLater) reply = String(memory.ultima_respuesta_agente || "").includes(START_LATER_MARK) ? "" : `Perfecto${name}. Cuando tengas a la mano tu CURP, NSS e INE, ${START_LATER_MARK}${plan ? ` con ${plan}` : ""}.`;
   // Sin dinero por ahora (5-nov: la objeción más común, y siempre terminaba en despedida): una vez se le dice que
   // hoy no paga nada y se le ofrece programar el alta para cuando tenga el pago.
@@ -250,4 +264,12 @@ export function isClosingReply(reply = "") {
   if (!value.trim()) return false;
   if (value.includes(CLOSING_MARK)) return true;
   return !/[?¿]/.test(value) && /que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que te vaya (?:muy )?bien|escr[ií]be(?:me|ame)? (?:por aqu[ií] )?y (?:con gusto|retomamos)|quedo al pendiente|cuando quieras retomar|cuando (?:puedas|pueda) (?:avisar|escr[ií]be)/i.test(value);
+}
+
+// "Ya empecé a laborar", "ya entré a trabajar", "ya conseguí trabajo", "ya me dieron de alta (en mi trabajo)".
+// No cuenta "estoy por entrar a trabajar pero no sé si me van a dar de alta" (11-nov, #11620).
+export function gotJob(text = "") {
+  const v = norm(text).replace(/[.,;:!¡]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!v || /[?¿]/.test(String(text)) || /\b(?:no se si|todavia no|aun no|estoy por|voy a entrar|por entrar)\b/.test(v)) return false;
+  return /\bya\s+(?:empece|entre|comence|inicie|estoy)\s+(?:a\s+)?(?:laborar|trabajar|trabajando|laborando)\b|\bya\s+(?:consegui|encontre|tengo)\s+(?:un\s+)?(?:trabajo|empleo|chamba)\b|\bya\s+me\s+(?:dieron|dio|dan)\s+de\s+alta\b(?!.{0,30}\b(?:ustedes|martcom|con ustedes)\b)|\bya\s+(?:me\s+)?(?:contrataron|aseguraron)\b/.test(v);
 }

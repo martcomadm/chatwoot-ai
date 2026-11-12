@@ -9,6 +9,7 @@ import { progressiveOpeningDecision, compactPlanRecommendation, priceObjectionDe
 import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, deriveCommercialNeed, hasCommercialNeed } from "../sales/need-before-recommendation.js";
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
+import { affirmsWithDocuments } from "../sales/start-confirmation.js";
 import { deferralDecision, detectDeferral, detectClosing, isClosingReply } from "../sales/customer-deferral.js";
 import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
@@ -45,7 +46,7 @@ import { resolveAnswer } from "../semantic/answer-resolver.js";
 import { ensureAuthorizedSale } from "../operations/sale-factory.js";
 import { discussedPlan } from "../sales/progressive-disclosure.js";
 import { featureRejectionDecision } from "../sales/feature-rejection.js";
-import { hasInfonavitCredit, INFONAVIT_CREDIT_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT } from "../sales/infonavit-credit.js";
+import { hasInfonavitCredit, INFONAVIT_CREDIT_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT, INFONAVIT_CREDIT_SHORT_TEXT } from "../sales/infonavit-credit.js";
 import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT, ONBOARDING_DECLINED_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
@@ -898,7 +899,10 @@ export class ConversationProcessor {
     const teamRaw = mediaDecision || adOpening || containsCurp(combinedText) || containsNss(combinedText) ? null : this.teamAnswers?.match?.(combinedText);
     const teamWeak = teamRaw && String(teamRaw.matched_phrase || "").trim().split(/\s+/).length <= 2;
     const teamRepeated = teamRaw && (base.team_answers_sent || []).includes(teamRaw.id);
-    const teamYields = teamWeak && Boolean(directRequest || featureRejection || deferral || caseDiagnosis || creditDecision || base.sales_cycle?.authorized);
+    // 12-nov: también cede cuando el cliente pospone, acepta con documentos después o acepta/pide una llamada
+    // (la respuesta del equipo con la palabra "mañana" contestó "puedo mandarte la documentación mañana", #11649).
+    const teamYields = teamWeak && Boolean(directRequest || featureRejection || deferral || caseDiagnosis || creditDecision || base.sales_cycle?.authorized
+      || detectDeferral(combinedText) || affirmsWithDocuments(combinedText) || acceptsCallOffer(combinedText, base.ultima_respuesta_agente) || callRequest(combinedText));
     const teamMatch = teamRaw && !teamRepeated && !teamYields ? teamRaw : null;
     if (teamRaw && !teamMatch) await this.record(conversationId, "team_answer_skipped", { id: teamRaw.id, phrase: teamRaw.matched_phrase, reason: teamRepeated ? "ya_enviada" : "hay_respuesta_mas_especifica" });
     const teamDecision = teamMatch ? { reply: teamMatch.answer, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", team_answer: teamMatch.id } : null;
@@ -998,7 +1002,9 @@ export class ConversationProcessor {
     // Con crédito INFONAVIT activo, cualquier respuesta que ofrezca el Plan 2 (IA o regla) se cambia por la explicación.
     if (hasInfonavitCredit(memory) && !memory.sales_cycle?.authorized && /\bplan\s*2\b/i.test(String(decision?.reply || "")) && !/no aplica/i.test(String(decision?.reply || ""))) {
       if (decision?.__source === "llm" || decision?.__source === "llm_repair") replacedReasons.push("ofrecia_plan2_con_credito_infonavit");
-      decision = protectDeterministicDecision({ reply: INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "infonavit_credit");
+      // 12-nov (#11630): el mismo párrafo salió tres veces seguidas; la segunda vez se cierra con el Plan 1.
+      const said = String(base.ultima_respuesta_agente || "").trim() === INFONAVIT_CREDIT_PLAN2_TEXT;
+      decision = protectDeterministicDecision({ reply: said ? INFONAVIT_CREDIT_SHORT_TEXT : INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "infonavit_credit");
     }
     const decisionSource = decision?.__source || "unknown";
     // Cliente listo para comprar (9-nov): aviso inmediato a Captura, sin esperar las 2 h del aviso de "se enfría".

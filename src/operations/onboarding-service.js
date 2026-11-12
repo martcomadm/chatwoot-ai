@@ -1,3 +1,4 @@
+import { detectDeferral } from "../sales/customer-deferral.js";
 const LABELS = Object.freeze({
   curp: "CURP",
   nss: "NSS",
@@ -249,7 +250,7 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
     && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|en otro momento|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso)|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|(?:proxima|otra|siguiente) semana|voy (?:hoy )?a buscar|hoy (?:voy a )?busco|tengo que buscar)\b/.test(text)
     // "Más tarde, voy en el transporte", "en otro momento, gracias" (casos reales 27 y 28-oct) también: mensajes cortos.
-    && (/\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos)\b/.test(text) || text.length <= 60)
+    && (/\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos)\b/.test(text) || text.length <= 60 || Boolean(detectDeferral(combinedText)))
     && String(memory.ultima_respuesta_agente || "").trim() !== DOCS_LATER_TEXT) {
     return { reply: DOCS_LATER_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
   }

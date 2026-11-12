@@ -10,7 +10,7 @@ function norm(value) {
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+    .replace(/[\u0300-\u036f]/g, "").replace(/\bcotis/g, "cotiz").replace(/\bafil(?:ar|arme|arla|arlo)\b/g, m => m.replace("afil", "afili"));
 }
 
 function hasAny(text, patterns) {

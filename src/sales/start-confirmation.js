@@ -57,12 +57,13 @@ export function confirmsStart(text, memory = {}) {
 // habla de mandar sus documentos también es aceptar.
 export function affirmsWithDocuments(text) {
   const raw = String(text || "");
-  const value = norm(raw);
-  if (!value || /[?¿]/.test(raw) || negatesCommitment(value) || value.length > 90) return false;
+  // "Ok muy bien...ahorita estoy en mi trabajo...puedo mandarte la documentacion mañana" (12-nov, #11649).
+  const value = norm(raw).replace(/\.{2,}|[.,;]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!value || /[?¿]/.test(raw) || negatesCommitment(value) || value.length > 110) return false;
   return /^(?:(?:a|ah|pues|bueno)\s+)?(?:si+|claro|ok|okay|va|sale|de acuerdo|esta bien|bueno|listo|perfecto)\b/.test(value)
-    && /\b(?:curp|nss|ine|documentos?|papeles|credencial|fotos?|mis datos|todos mis datos)\b/.test(value)
+    && /\b(?:curp|nss|ine|documentos?|documentacion|papeles|credencial|fotos?|mis datos|todos mis datos)\b/.test(value)
     // "Si solo que estoy trabajando puedo enviarle papeles mañana" (caso real 21-oct) también acepta:
     // los documentos llegan después, pero quiere iniciar.
     && !/\b(?:no tengo|no cuento|lo pienso|lo voy a pensar|todavia no se)\b/.test(value)
-    && (!/\b(?:despues|luego|manana|mas tarde)\b/.test(value) || /\b(?:envi\w*|mand\w*|pas\w*|comparto)\b.{0,20}\b(?:papeles|documentos?|curp|ine|nss)\b|\b(?:papeles|documentos?)\b.{0,20}\b(?:envi\w*|mand\w*)\b/.test(value));
+    && (!/\b(?:despues|luego|manana|mas tarde)\b/.test(value) || /\b(?:envi\w*|mand\w*|pas\w*|comparto)\b.{0,20}\b(?:papeles|documentos?|documentacion|curp|ine|nss)\b|\b(?:papeles|documentos?|documentacion)\b.{0,20}\b(?:envi\w*|mand\w*)\b/.test(value));
 }

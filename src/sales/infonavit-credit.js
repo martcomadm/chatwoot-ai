@@ -37,3 +37,8 @@ export function hasInfonavitCredit(memory = {}) {
 export const INFONAVIT_CREDIT_TEXT = "Gracias por comentarlo. Como tienes un crédito INFONAVIT activo, el Plan 2 no aplica en tu caso. Lo que te conviene es el Plan 1, de $1,100 MXN mensuales: servicio médico del IMSS y semanas cotizadas, con un salario diario registrado de $480 MXN. ¿Quieres que te explique cómo funciona?";
 export const INFONAVIT_CREDIT_PLAN2_TEXT = "Como tienes un crédito INFONAVIT activo, el Plan 2 no aplica en tu caso. La opción para ti es el Plan 1, de $1,100 MXN mensuales, con servicio médico del IMSS y semanas cotizadas. ¿Quieres que iniciemos tu trámite con el Plan 1?";
 export const INFONAVIT_CREDIT_PRICE_TEXT = "En tu caso, como tienes un crédito INFONAVIT activo, la opción es el Plan 1: $1,100 MXN mensuales, con servicio médico del IMSS y semanas cotizadas (salario diario registrado de $480 MXN).";
+
+// Segunda vez que hay que aclarar el Plan 2 (12-nov): sin repetir el párrafo completo.
+export const INFONAVIT_CREDIT_SHORT_TEXT = "Como te comenté, en tu caso la opción es el Plan 1, de $1,100 MXN mensuales, con servicio médico del IMSS y semanas cotizadas. ¿Quieres que iniciemos tu trámite?";
+// "Con este plan ya no pagaría el INFONAVIT aparte, ¿cierto?" (12-nov, #11630).
+export const INFONAVIT_CREDIT_PAYMENT_TEXT = "No, el Plan 1 no paga ni sustituye tu crédito INFONAVIT: es tu alta ante el IMSS con servicio médico y semanas cotizadas, por $1,100 MXN mensuales. Cómo queda el pago de tu crédito te lo confirma un asesor. ¿Quieres que te comunique con un asesor?";

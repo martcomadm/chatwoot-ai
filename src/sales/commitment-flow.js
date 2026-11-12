@@ -31,7 +31,7 @@ export function commitmentDecision(memory = {}, combinedText = "") {
   // "Plan 2. Empezamos con el trámite" (caso real 28-oct): vale el plan que nombra.
   const textPlans = [...new Set([...text.matchAll(/\bplan\s*(1|uno|2|dos)\b/g)].map(m => /1|uno/.test(m[1]) ? "plan_1" : "plan_2"))];
   const plan = (textPlans.length === 1 ? textPlans[0] : null) || cycle.selected_plan || cycle.recommended_plan || null;
-  if (!text || cycle.authorized || negatesCommitment(text) || detectDeferral(combinedText)) return null;
+  if (!text || cycle.authorized || negatesCommitment(text) || (detectDeferral(combinedText) && !confirmsStart(combinedText, memory))) return null;
   // Pide el Plan 2 teniendo crédito INFONAVIT activo: no aplica (22-oct).
   if (cycle.infonavit_credit && /\bplan\s*(?:2|dos)\b|\bpaquete\s*(?:2|dos)\b/.test(text)) {
     return { reply: INFONAVIT_CREDIT_PLAN2_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", commitment: "plan2_blocked" };
