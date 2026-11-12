@@ -286,12 +286,18 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const result = miaConsole.rescueList({ search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7), page: Number(req.query.page || 1), searchPhones: showPhones, sort: req.query.sort === "score" ? "score" : "recent" });
     if (!showPhones) return res.json({ ...result, items: result.items.map(({ phone, ...item }) => item) });
     // Chats anteriores a que Mia guardara el celular: se busca en Chatwoot (hasta 40 por carga) y se guarda.
-    const missing = result.items.filter(item => !item.phone).slice(0, 40);
-    for (let i = 0; i < missing.length && chatwoot?.getConversation; i += 5) {
+    // 12-nov: mientras se escribe en el buscador no se consulta Chatwoot (hacía lenta cada letra), y un chat que
+    // ya se buscó sin encontrar celular no se vuelve a buscar en 24 h.
+    const DAY = 24 * 3600 * 1000;
+    const searching = String(req.query.q || "").trim().length > 0;
+    const missing = searching ? [] : result.items.filter(item => !item.phone && !(Date.now() - Date.parse(memories.get(item.id)?.phone_checked_at || "") < DAY)).slice(0, 40);
+    const deadline = Date.now() + 4000;
+    for (let i = 0; i < missing.length && chatwoot?.getConversation && Date.now() < deadline; i += 5) {
       await Promise.all(missing.slice(i, i + 5).map(async item => {
         try {
           const phone = extractContactPhone(await chatwoot.getConversation(item.id));
-          if (phone) { item.phone = phone; await memories.merge(item.id, { contact_phone: phone }); }
+          if (phone) item.phone = phone;
+          await memories.merge(item.id, { ...(phone ? { contact_phone: phone } : {}), phone_checked_at: new Date().toISOString() });
         } catch {}
       }));
     }

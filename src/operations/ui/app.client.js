@@ -536,7 +536,7 @@ function renderObserver(view) {
   const list = state.sales.filter(sale => (state.filter.queue === "active" ? !["completed", "cancelled", "dropped"].includes(sale.queue) : sale.queue === state.filter.queue))
     .filter(sale => !search || [sale.sale_id, sale.customer?.nombre, sale.customer?.telefono, sale.customer?.curp, sale.customer?.nss, sale.conversation_id].some(value => String(value || "").toLowerCase().includes(search)))
     .sort(["completed", "cancelled", "dropped"].includes(state.filter.queue) ? (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) : byUrgency);
-  view.innerHTML = `
+  setViewHtml(view, `
     ${pageHead("observador", "Seguimiento de ventas", AREA_INTRO.observador, `<p class="muted" style="margin:0">${plural(active.length, "venta en proceso", "ventas en proceso")}</p>`)}
     <div class="flow">${flow}</div>
     <div class="section-gap">
@@ -545,7 +545,7 @@ function renderObserver(view) {
         <input class="input" type="search" placeholder="Buscar nombre, folio, CURP, NSS, teléfono" value="${esc(state.filter.search)}" data-search aria-label="Buscar expedientes">
       </div>
       <div class="queue" role="table" aria-label="Todas las ventas">${list.length ? saleRows(list, { showArea: true }) : `<div class="empty"><strong>Sin expedientes</strong>No hay expedientes con estos filtros.</div>`}</div>
-    </div>`;
+    </div>`);
 }
 
 function pageHead(area, title, subtitle, extra = "") {
@@ -636,7 +636,7 @@ function renderWorkArea(view) {
   const limit = state.me.alert_hours?.[AREA_QUEUE[area]];
   const summary = [`${all.length} en la cola`, mine ? `${plural(mine, "asignado", "asignados")} a ti` : null, late ? plural(late, "atrasado", "atrasados") : null, issues ? `${issues} con incidencia` : null].filter(Boolean).join(", ");
   view.style.setProperty("--area", areaVar(area));
-  view.innerHTML = `
+  setViewHtml(view, `
     ${pageHead(area, state.me.areas.find(item => item.key === area)?.label || area, `${AREA_INTRO[area]} ${limit ? `Tiempo objetivo: ${duration(limit)}.` : ""}`, `<p class="muted" style="margin:0">${esc(summary)}</p>`)}
     <div class="toolbar">
       ${segmented("assignee", state.filter.assignee, [["all", "Todos"], ["me", "Míos"], ["none", "Sin asignar"]])}
@@ -644,7 +644,7 @@ function renderWorkArea(view) {
       ${area === "cobranza" ? segmented("cobranza", state.filter.cobranza, [["queue", "Por cobrar"], ["completed", "Completados"], ["dropped", "Bajas por falta de pago"], ["cancelled", "Cancelados"]]) : ""}
       <input class="input" type="search" placeholder="Buscar nombre, folio, CURP, NSS, teléfono" value="${esc(state.filter.search)}" data-search aria-label="Buscar expedientes">
     </div>
-    <div class="queue" role="table" aria-label="Expedientes de ${esc(area)}">${items.length ? saleRows(items) : emptyQueue(area)}</div>`;
+    <div class="queue" role="table" aria-label="Expedientes de ${esc(area)}">${items.length ? saleRows(items) : emptyQueue(area)}</div>`);
 }
 
 // ── Panel del expediente ───────────────────────────────────────────────
@@ -1191,7 +1191,7 @@ function drawSupervision(view) {
     .filter(sale => !search || [sale.sale_id, sale.customer?.nombre, sale.customer?.telefono, sale.customer?.curp, sale.customer?.nss, sale.conversation_id].some(value => String(value || "").toLowerCase().includes(search)))
     .sort(["completed", "cancelled", "dropped"].includes(state.filter.queue) ? (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) : byUrgency);
 
-  view.innerHTML = `
+  setViewHtml(view, `
     ${pageHead("supervision", "Supervisión", AREA_INTRO.supervision, `<form class="range" id="range-form">
       <label class="field"><span>Desde</span><input class="input" type="date" name="from" value="${esc(state.range.from)}"></label>
       <label class="field"><span>Hasta</span><input class="input" type="date" name="to" value="${esc(state.range.to)}"></label>
@@ -1209,7 +1209,7 @@ function drawSupervision(view) {
         <input class="input" type="search" placeholder="Buscar nombre, folio, CURP, NSS" value="${esc(state.filter.search)}" data-search aria-label="Buscar expedientes">
       </div>
       <div class="queue" role="table" aria-label="Todos los expedientes">${list.length ? saleRows(list, { showArea: true }) : `<div class="empty"><strong>Sin expedientes</strong>No hay expedientes con estos filtros.</div>`}</div>
-    </div>`;
+    </div>`);
   document.getElementById("range-form").addEventListener("submit", async event => {
     event.preventDefault();
     state.range = { from: event.target.from.value, to: event.target.to.value };
@@ -1561,7 +1561,7 @@ async function renderMiaChats(view) {
       <span class="mia-flags">${c.omitted ? `<span class="tag">Omitido · ${esc(c.omitted.by || "")}</span>` : ""}${c.intervention ? `<span class="tag area" style="--area:${areaVar("chats")}">Intervenido · ${esc(c.intervention.by || "")}</span>` : ""}${c.risks.map(r => `<span class="tag ${RISK_TONE[r.key] || ""}">${esc(r.label)}</span>`).join("")}${!c.risks.length && !c.intervention ? '<span class="muted">—</span>' : ""}</span>
       <span>${esc(sinceLabel(c.last_at))}</span>
     </button>`).join("") : `<div class="empty"><strong>Sin chats</strong>No hay conversaciones con este filtro.</div>`;
-  view.innerHTML = `
+  setViewHtml(view, `
     ${pageHead("chats", "Chats de Mia", AREA_INTRO.chats, `<p class="muted" style="margin:0">${plural(counts.all || 0, "conversación", "conversaciones")} en ${state.miaDays} días</p>`)}
     <div class="toolbar">
       <div class="segmented" role="group">${MIA_FILTERS.map(([k, l]) => `<button data-mia-filter="${k}" aria-pressed="${state.miaFilter === k}">${esc(l)}${counts[k] != null ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
@@ -1571,7 +1571,7 @@ async function renderMiaChats(view) {
     </div>
     ${pager}
     <div class="queue" role="table" aria-label="Chats de Mia">${rows}</div>
-    ${pager}`;
+    ${pager}`);
 }
 
 // La lista se actualiza sola cada minuto mientras nadie tenga un diálogo abierto.
@@ -2300,18 +2300,49 @@ document.addEventListener("change", event => {
   if (pick) { state.weeklyId = pick.value || null; renderView(); }
 });
 
-const onSearch = debounce(value => {
+// Redibuja una vista sin quitar el buscador que se está usando (12-nov): el mismo <input> se queda en su lugar,
+// con lo escrito, el cursor y el foco, aunque la lista llegue mientras la persona sigue tecleando.
+function setViewHtml(view, html) {
+  const live = view.querySelector("[data-search]");
+  const hadFocus = live && document.activeElement === live;
+  const caret = hadFocus ? [live.selectionStart, live.selectionEnd] : null;
+  view.innerHTML = html;
+  const fresh = view.querySelector("[data-search]");
+  if (live && fresh && fresh.placeholder === live.placeholder) {
+    fresh.replaceWith(live);
+    if (hadFocus) { live.focus({ preventScroll: true }); try { live.setSelectionRange(caret[0], caret[1]); } catch {} }
+  }
+}
+
+// Buscador (12-nov): la búsqueda va al servidor y la vista se redibuja al llegar la respuesta. Antes, lo que se
+// escribía mientras tanto se perdía y el cursor saltaba ("se traba y no deja poner otro número"). Ahora se guarda
+// lo último escrito, se respeta al redibujar y, si cambió, se busca otra vez; una respuesta vieja no pisa a una nueva.
+let typedSearch = null;
+let searchSeq = 0;
+function restoreSearchInput() {
+  const next = document.querySelector("[data-search]");
+  if (!next || typedSearch === null) return;
+  if (next.value !== typedSearch) next.value = typedSearch;
+  if (document.activeElement !== next) {
+    next.focus({ preventScroll: true });
+    const end = next.value.length;
+    try { next.setSelectionRange(end, end); } catch {}
+  }
+}
+const onSearch = debounce(async value => {
   state.filter.search = value;
   state.miaPage = 1;
-  const input = document.querySelector("[data-search]");
-  const caret = input?.selectionStart;
+  const seq = ++searchSeq;
   if (state.view === "supervision") drawSupervision(document.getElementById("view"));
-  else renderView();
-  const next = document.querySelector("[data-search]");
-  if (next) { next.focus(); next.setSelectionRange(caret, caret); }
-}, 200);
+  else await renderView();
+  if (seq !== searchSeq) return;
+  restoreSearchInput();
+  if (typedSearch !== null && typedSearch !== value) onSearch(typedSearch);
+}, 350);
 document.addEventListener("input", event => {
-  if (event.target.matches("[data-search]")) onSearch(event.target.value);
+  if (!event.target.matches("[data-search]")) return;
+  typedSearch = event.target.value;
+  onSearch(event.target.value);
 });
 
 document.addEventListener("keydown", event => {
