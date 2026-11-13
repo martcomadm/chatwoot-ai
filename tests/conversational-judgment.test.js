@@ -11,7 +11,8 @@ test('human preference stops questionnaire',()=>{
   assert.equal(j.shouldHandoff,true);
 });
 
-test('third explicit price request escalates to human',()=>{
+// NEXT da precios oficiales: insistir en el costo ya no transfiere a un humano.
+test('repeated price requests never escalate to human in NEXT',()=>{
   const first=analyzeJudgment('Quiero saber el costo',{});
   assert.equal(first.patch.judgment.price_requests,1);
   assert.equal(first.shouldHandoff,false);
@@ -22,7 +23,8 @@ test('third explicit price request escalates to human',()=>{
 
   const third=analyzeJudgment('Necesito el costo por favor',{judgment:second.patch.judgment});
   assert.equal(third.patch.judgment.price_requests,3);
-  assert.equal(third.shouldHandoff,true);
+  assert.equal(third.shouldHandoff,false);
+  assert.match(third.directAnswer,/\$1,100 MXN mensuales/);
 });
 
 test('clarification question is detected before slots',()=>{
