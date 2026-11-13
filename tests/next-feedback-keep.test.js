@@ -20,3 +20,18 @@ test("las correcciones que se quedan siempre entran a las instrucciones de Mia, 
   assert.throws(() => store.unkeep(first.id, "Sofi"), /no está marcada/);
   assert.throws(() => store.keep("no-existe", "Sofi"), /No existe/);
 });
+
+test("editar una corrección cambia lo que Mia aprende y conserva la etiqueta Se queda", () => {
+  const store = new ReplyFeedbackStore(null);
+  const item = store.rate({ conversationId: 2, messageId: "b", rating: "down", correction: "Texto viejo de la corrección", miaText: "x", customerText: "y", user: { name: "Carla" } });
+  store.keep(item.id, "Sofi");
+  const edited = store.edit(item.id, { correction: "Texto nuevo y corregido", note: "ajuste" }, "Sofi");
+  assert.equal(edited.status, "kept");
+  assert.equal(edited.edited_by, "Sofi");
+  assert.equal(edited.note, "ajuste");
+  const block = store.promptBlock();
+  assert.match(block, /Debió decir: Texto nuevo y corregido/);
+  assert.doesNotMatch(block, /Texto viejo/);
+  assert.throws(() => store.edit(item.id, { correction: "corto" }, "Sofi"), /debió contestar/);
+  assert.throws(() => store.edit("no-existe", { correction: "Texto suficiente aquí" }, "Sofi"), /No existe/);
+});

@@ -534,6 +534,10 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!teachGuard(req, res)) return;
     try { const item = replyFeedback.unkeep(req.params.id, who(req.opsUser)); audit.record("mia.feedback.unkeep", actorOf(req.opsUser), { id: item.id, conversation_id: item.conversation_id }); res.json({ ok: true }); } catch (error) { fail(res, error); }
   });
+  router.post("/operations/api/mia-feedback/:id/edit", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try { const item = replyFeedback.edit(req.params.id, { correction: req.body?.correction, note: req.body?.note }, who(req.opsUser)); audit.record("mia.feedback.edit", actorOf(req.opsUser), { id: item.id, conversation_id: item.conversation_id }); res.json({ ok: true, item }); } catch (error) { fail(res, error); }
+  });
   router.post("/operations/api/mia-feedback/:id/archive", (req, res) => {
     if (!teachGuard(req, res)) return;
     try { replyFeedback.resolve(req.params.id, "archived", who(req.opsUser)); res.json({ ok: true }); } catch (error) { fail(res, error); }

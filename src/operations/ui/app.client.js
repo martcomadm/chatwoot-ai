@@ -1868,12 +1868,12 @@ async function renderMiaAnswers(view) {
     const filterBar = `<div class="toolbar"><div class="segmented" role="group"><button data-feedback-filter="open" aria-pressed="${!keptView}">Pendientes (${st.open || 0})</button><button data-feedback-filter="kept" aria-pressed="${keptView}">✓ Se quedan (${st.kept || 0})</button></div></div>`;
     body = filterBar + `<p class="muted">Últimos 30 días: 👍 ${st.up || 0} · 👎 ${st.down || 0}${st.approval != null ? ` · <strong>${st.approval}% de aprobación</strong>` : ""}. ${keptView ? "Estas correcciones se quedan: Mia las aplica siempre en casos parecidos, aunque lleguen correcciones nuevas." : "Las 25 correcciones más recientes funcionan como ejemplos para Mia. Márcala con <strong>Se queda</strong> si así se debe contestar siempre, o conviértela en respuesta del equipo si debe salir con el texto exacto."}</p>` + (items.length ? `<div class="answer-list">${items.map(i => `
       <article class="answer-card">
-        <header><strong>Conversación #${i.conversation_id}</strong>${i.status === "kept" ? `<span class="mia-flags"><span class="tag ok">✓ Se queda</span></span>` : ""}<small class="muted">${esc(i.by || "")} · ${esc(dateTime(i.at))}${i.status === "kept" && i.kept_by ? ` · la dejó ${esc(i.kept_by)}` : ""}</small></header>
+        <header><strong>Conversación #${i.conversation_id}</strong>${i.status === "kept" ? `<span class="mia-flags"><span class="tag ok">✓ Se queda</span></span>` : ""}<small class="muted">${esc(i.by || "")} · ${esc(dateTime(i.at))}${i.status === "kept" && i.kept_by ? ` · la dejó ${esc(i.kept_by)}` : ""}${i.edited_by ? ` · editada por ${esc(i.edited_by)}` : ""}</small></header>
         ${i.customer_text ? `<p class="learn-q"><span class="muted small">Cliente</span><br>${esc(i.customer_text)}</p>` : ""}
         <p><span class="muted small">Mia dijo</span><br>${esc(i.mia_text)}</p>
         <p class="learn-a"><span class="muted small">Debió decir</span><br>${esc(i.correction)}</p>
         ${i.note ? `<p class="muted small">Nota: ${esc(i.note)}</p>` : ""}
-        <footer><span></span><span class="actions">${i.status === "kept" ? `<button class="btn small" data-answer-act="fb-unkeep" data-fb-id="${esc(i.id)}">Quitar "Se queda"</button>` : `<button class="btn small primary" data-answer-act="fb-keep" data-fb-id="${esc(i.id)}">✓ Se queda</button>`}<button class="btn small" data-answer-act="fb-convert" data-fb-id="${esc(i.id)}">Convertir en respuesta del equipo</button>${slotForText(state.miaExperiments?.slots || [], i.mia_text) ? `<button class="btn small" data-answer-act="fb-ab" data-fb-id="${esc(i.id)}">Probar en A/B</button>` : ""}<button class="btn small quiet" data-answer-act="fb-archive" data-fb-id="${esc(i.id)}">Archivar</button></span></footer>
+        <footer><span></span><span class="actions">${i.status === "kept" ? `<button class="btn small" data-answer-act="fb-unkeep" data-fb-id="${esc(i.id)}">Quitar "Se queda"</button>` : `<button class="btn small primary" data-answer-act="fb-keep" data-fb-id="${esc(i.id)}">✓ Se queda</button>`}<button class="btn small" data-answer-act="fb-edit" data-fb-id="${esc(i.id)}">✎ Editar</button><button class="btn small" data-answer-act="fb-convert" data-fb-id="${esc(i.id)}">Convertir en respuesta del equipo</button>${slotForText(state.miaExperiments?.slots || [], i.mia_text) ? `<button class="btn small" data-answer-act="fb-ab" data-fb-id="${esc(i.id)}">Probar en A/B</button>` : ""}<button class="btn small quiet" data-answer-act="fb-archive" data-fb-id="${esc(i.id)}">Archivar</button></span></footer>
       </article>`).join("")}</div>` : `<div class="empty"><strong>Sin correcciones pendientes</strong>En "Chats de Mia", abre un chat y usa 👍 / 👎 en los mensajes de Mia.</div>`);
   } else {
     body = `<p class="muted">Estas reglas ya vienen en Mia (confirmadas con ustedes). Para cambiar una, agrega una respuesta del equipo sobre el mismo tema: la del equipo manda.</p><ul class="fixed-rules">${(answers.fixed || []).map(r => `<li>${esc(r)}</li>`).join("")}</ul>`;
@@ -1915,6 +1915,14 @@ async function miaAnswerAction(target) {
     const item = (state.miaFeedback?.items || []).find(i => i.id === target.dataset.fbId);
     const data = item && await ask({ title: "Convertir corrección en respuesta del equipo", text: "Ajusta el texto para que sirva a cualquier cliente.", fields: answerFields({ topic: (item.customer_text || "").split("\n").pop().slice(0, 200), answer: item.correction }), confirm: "Guardar respuesta", area: "respuestas" });
     if (data && await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(item.id)}/convert`, { method: "POST", body: answerBody(data) }), "Listo: Mia ya sabe contestar esto")) renderView();
+  }
+  if (act === "fb-edit") {
+    const item = (state.miaFeedback?.items || []).find(i => i.id === target.dataset.fbId);
+    const data = item && await ask({ title: "Editar corrección", text: `<span class="muted small">Mia dijo</span><br>${esc(item.mia_text)}`, fields: [
+      { name: "correction", label: "Debió decir", type: "textarea", required: true, value: item.correction || "" },
+      { name: "note", label: "Nota (opcional)", value: item.note || "" },
+    ], confirm: "Guardar", area: "respuestas" });
+    if (data && await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(item.id)}/edit`, { method: "POST", body: { correction: data.correction, note: data.note } }), item.status === "kept" ? "Corrección actualizada: Mia ya usa el texto nuevo" : "Corrección actualizada")) renderView();
   }
   if (act === "fb-keep") {
     if (await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(target.dataset.fbId)}/keep`, { method: "POST", body: {} }), "Listo: esta corrección se queda y Mia la aplica siempre")) renderView();

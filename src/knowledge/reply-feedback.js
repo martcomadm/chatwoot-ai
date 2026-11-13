@@ -71,6 +71,18 @@ export class ReplyFeedbackStore {
     return { ...item };
   }
 
+  // Editar una corrección (13-nov): ajustar "Debió decir" y la nota sin perder la etiqueta "Se queda".
+  edit(id, { correction, note } = {}, by) {
+    const item = this.items.find(i => i.id === id && i.rating === "down");
+    if (!item) throw new Error("No existe esa corrección");
+    const fix = String(correction ?? item.correction ?? "").trim();
+    if (fix.length < 10) throw new Error("Escribe cómo debió contestar Mia");
+    if (fix.length > 900) throw new Error("La corrección es muy larga (máximo 900 caracteres)");
+    Object.assign(item, { correction: fix, note: note === undefined ? item.note : (String(note || "").trim().slice(0, 300) || null), edited_by: by, edited_at: new Date().toISOString() });
+    this.persist();
+    return { ...item };
+  }
+
   stats({ days = 30, now = new Date() } = {}) {
     const since = now.getTime() - days * 24 * 3600 * 1000;
     const recent = this.items.filter(item => Date.parse(item.at) >= since);
