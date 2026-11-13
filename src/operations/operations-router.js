@@ -239,7 +239,10 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     if (!sale) return;
     // "Abrir en Chatwoot" solo para Supervisión y Cobranza; los demás ven la conversación en el expediente.
     const canOpenChatwoot = hasArea(req.opsUser, "supervision") || hasArea(req.opsUser, "cobranza");
-    res.json({ sale: saleView(sale, alertHours()), links: { chatwoot: canOpenChatwoot ? chatwootConversationUrl(sale) : null } });
+    // 13-nov: si el chat del cliente está intervenido, el expediente lo muestra y ofrece "Regresar a Mia".
+    const ci = sale.conversation_id ? memories.get(Number(sale.conversation_id))?.capture_intervention : null;
+    const intervention = ci?.active ? { by: ci.by || null, username: ci.username || null, at: ci.at || null } : null;
+    res.json({ sale: saleView(sale, alertHours()), links: { chatwoot: canOpenChatwoot ? chatwootConversationUrl(sale) : null }, mia: { intervention } });
   });
 
   // Conversación de WhatsApp (solo lectura) para verla sin entrar a Chatwoot.

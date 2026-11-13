@@ -656,6 +656,7 @@ async function openSale(id, { push = true } = {}) {
     const result = await api(`/operations/api/sales/${encodeURIComponent(id)}`);
     state.sale = result.sale;
     state.saleLinks = result.links || {};
+    state.saleMia = result.mia || {};
     renderPanel();
   } catch (error) {
     if (error.message !== "Sesión terminada") toast(error.message, "bad");
@@ -726,7 +727,7 @@ const ACT_META = {
   "capture-name": ["data", "pencil", "Como viene en su CURP"], "documents-sync": ["data", "refresh", "Trae lo que mandó por WhatsApp"],
   "capture-call": ["client", "phone", "Mia le pide un horario"], "capture-schedule": ["client", "calendar", "No cuenta tiempo hasta ese día"],
   "capture-resume": ["client", "play", "El tiempo cuenta desde ahora"], "send-service": ["client", "help", "Dudas que no son del trámite"],
-  "sale-intervene": ["client", "user", "Te asigna el chat; Mia deja de contestar"], "sale-message": ["client", "pencil", "Un mensaje; Mia sigue con el chat"],
+  "sale-intervene": ["client", "user", "Te asigna el chat; Mia deja de contestar"], "sale-release": ["client", "back", "Mia vuelve a contestar"], "sale-message": ["client", "pencil", "Un mensaje; Mia sigue con el chat"],
   "validation-correction-capture": ["issue", "back", "Regresa a Captura"], "validation-correction-customer": ["issue", "pencil", "Mia se lo pide al cliente"],
   "validation-reject": ["issue", "x"], "validity-issue": ["issue", "alert"], "payment-issue": ["issue", "alert"],
   "sup-reactivate": ["main", "check"], "sup-drop": ["issue", "alert", "Guarda su adeudo"], "sup-cancel": ["issue", "x"],
@@ -773,8 +774,11 @@ function areaActions(sale) {
     if (["waiting_capture", "capture_in_progress"].includes(sale.status)) {
       add("capture-schedule", sale.capture?.scheduled?.date ? "Cambiar fecha del alta" : "Agendar alta para otro día");
       // 13-nov: intervenir el chat del cliente desde el expediente de Captura (sin ir a Chats de Mia).
-      if (sale.conversation_id && state.me.can.intervene) add("sale-intervene", "Intervenir chat");
-      if (sale.conversation_id && (state.me.can.message || state.me.can.intervene)) add("sale-message", "Intervenir solo con mensaje");
+      const intervened = state.saleMia?.intervention;
+      const mine = intervened && intervened.username === state.me.user?.username;
+      if (sale.conversation_id && state.me.can.intervene && !intervened) add("sale-intervene", "Intervenir chat");
+      if (sale.conversation_id && state.me.can.intervene && intervened) add("sale-release", "Regresar a Mia", "", mine || state.me.can.supervise ? "" : `Lo tiene ${intervened.by || "otra persona"}; solo esa persona o Supervisión lo regresan`);
+      if (sale.conversation_id && (state.me.can.message || state.me.can.intervene) && !intervened) add("sale-message", "Intervenir solo con mensaje");
       if (sale.capture?.scheduled?.date) add("capture-resume", "Quitar fecha (iniciar ya)");
       add("capture-complete", "Completar alta", sale.status === "capture_in_progress" ? "primary" : "", sale.documents?.complete ? "" : `Faltan: ${(sale.documents?.missing || []).join(", ").toUpperCase()}`);
       add("capture-curp", "Registrar CURP");
@@ -836,6 +840,7 @@ function stageInfo(sale) {
   const parts = [];
   if (sale.service?.open) parts.push(`<div class="notice warn"><strong>En Atención a Clientes</strong> desde ${esc(dateTime(sale.service.sent_at))}${sale.service.sent_by ? ` (lo envió ${esc(sale.service.sent_by)})` : ""}: ${esc(sale.service.reason)}<br><span class="muted">El expediente sigue en ${esc(QUEUE_LABEL_TEXT[sale.queue] || sale.queue)}; vuelve a moverse cuando Atención a Clientes lo regrese.</span></div>`);
   else if (sale.service?.returned_at) parts.push(`<div class="notice"><strong>Regresado por Atención a Clientes</strong> el ${esc(dateTime(sale.service.returned_at))}${sale.service.returned_by ? ` (${esc(sale.service.returned_by)})` : ""}: ${esc(sale.service.return_note || "")}</div>`);
+  if (state.saleMia?.intervention) { const iv = state.saleMia.intervention; parts.push(`<div class="notice"><strong>Chat intervenido por ${esc(iv.by || "el equipo")}${iv.at ? ` (${esc(dateTime(iv.at))})` : ""}.</strong> Mia no le contesta a este cliente mientras tanto. Cuando termines, usa <strong>Regresar a Mia</strong> en "Con el cliente".</div>`); }
   if (sale.validation?.correction?.open) parts.push(`<div class="notice warn"><strong>Corrección solicitada ${sale.validation.correction.target === "customer" ? "al cliente" : "a Captura"}:</strong> ${esc(sale.validation.correction.reason)}</div>`);
   if (sale.validation?.rejected) parts.push(`<div class="notice bad"><strong>Rechazado en validación:</strong> ${esc(sale.validation.notes || "")}</div>`);
   if (sale.validity?.issue?.open) parts.push(`<div class="notice bad"><strong>Incidencia de vigencia:</strong> ${esc(sale.validity.issue.reason)}</div>`);
@@ -1002,13 +1007,19 @@ async function saleAction(action) {
       if (!data) break;
       const r = await run(() => api(`/operations/api/mia-chats/${sale.conversation_id}/intervene`, { method: "POST", body: { note: data.note || "" } }), "Chat intervenido: ya está asignado a ti en Chatwoot");
       if (r?.chatwoot_url) window.open(r.chatwoot_url, "_blank", "noopener");
-      done = Boolean(r);
+      done = r ? { sale } : null;
+      break;
+    }
+    case "sale-release": {
+      const data = await ask({ title: "Regresar a Mia", text: "Mia vuelve a contestar a este cliente con el proceso normal y el chat se le asigna otra vez en Chatwoot.", fields: [{ name: "note", label: "Nota (opcional)", type: "textarea", placeholder: "Ej. ya resolví su duda, quiere continuar" }], confirm: "Regresar a Mia", area: "captura" });
+      if (!data) break;
+      done = (await run(() => api(`/operations/api/mia-chats/${sale.conversation_id}/release`, { method: "POST", body: { note: data.note || "" } }), "Listo: Mia vuelve a atender este chat")) ? { sale } : null;
       break;
     }
     case "sale-message": {
       const data = await ask({ title: "Intervenir solo con mensaje", text: "El mensaje le llega al cliente por WhatsApp desde la cuenta de Mia. <strong>Mia sigue atendiendo el chat</strong> y toma tu mensaje en cuenta para lo que conteste después.", fields: [{ name: "text", label: "Mensaje para el cliente", type: "textarea", required: true, placeholder: "Ej. Hola, soy de Captura: ya recibí tu CURP, solo me falta tu NSS." }], confirm: "Enviar mensaje", area: "captura" });
       if (!data || !String(data.text || "").trim()) break;
-      done = Boolean(await run(() => api(`/operations/api/mia-chats/${sale.conversation_id}/message`, { method: "POST", body: { text: data.text } }), "Mensaje enviado; Mia sigue con el chat"));
+      done = (await run(() => api(`/operations/api/mia-chats/${sale.conversation_id}/message`, { method: "POST", body: { text: data.text } }), "Mensaje enviado; Mia sigue con el chat")) ? { sale } : null;
       break;
     }
     case "capture-schedule": {

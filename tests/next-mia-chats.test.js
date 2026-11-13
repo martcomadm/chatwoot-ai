@@ -107,9 +107,13 @@ test("Chats de Mia: lista con señales de riesgo; Captura interviene (asigna, no
   assert.deepEqual(intervened.body.items.map(i => i.id), [10]);
   assert.equal(intervened.body.items[0].intervention.username, "carla.captura");
 
+  // 13-nov: el expediente de Captura sabe que el chat está intervenido (para mostrar "Regresar a Mia").
+  const sale10 = new SaleWorkflowEngine(saleStore).openAuthorizedSale({ conversation_id: 10, customer: { nombre: "Lucía" }, sale: { plan: "plan_1", authorized: true } });
+  assert.equal((await carla(`/operations/api/sales/${sale10.sale_id}`)).body.mia.intervention.username, "carla.captura");
   // Solo quien intervino (o Supervisión) lo regresa a Mia.
   assert.equal((await pepe("/operations/api/mia-chats/10/release", {})).status, 400);
   const back = await carla("/operations/api/mia-chats/10/release", { note: "Ya quiere seguir" });
+  assert.equal((await carla(`/operations/api/sales/${sale10.sale_id}`)).body.mia.intervention, null);
   assert.equal(back.status, 200);
   assert.deepEqual(cw.assigned.at(-1), [10, 53]);
   assert.match(cw.notes.at(-1)[1], /^CAPTURA REGRESÓ EL CHAT A MIA/);
