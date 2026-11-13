@@ -522,6 +522,15 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
       res.json({ ok: true, item: answer });
     } catch (error) { fail(res, error); }
   });
+  // "Se queda" (13-nov): corrección fija que Mia aplica siempre.
+  router.post("/operations/api/mia-feedback/:id/keep", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try { const item = replyFeedback.keep(req.params.id, who(req.opsUser)); audit.record("mia.feedback.keep", actorOf(req.opsUser), { id: item.id, conversation_id: item.conversation_id }); res.json({ ok: true }); } catch (error) { fail(res, error); }
+  });
+  router.post("/operations/api/mia-feedback/:id/unkeep", (req, res) => {
+    if (!teachGuard(req, res)) return;
+    try { const item = replyFeedback.unkeep(req.params.id, who(req.opsUser)); audit.record("mia.feedback.unkeep", actorOf(req.opsUser), { id: item.id, conversation_id: item.conversation_id }); res.json({ ok: true }); } catch (error) { fail(res, error); }
+  });
   router.post("/operations/api/mia-feedback/:id/archive", (req, res) => {
     if (!teachGuard(req, res)) return;
     try { replyFeedback.resolve(req.params.id, "archived", who(req.opsUser)); res.json({ ok: true }); } catch (error) { fail(res, error); }

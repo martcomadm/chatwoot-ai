@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const MAX_EXAMPLES = 25;
+const MAX_KEPT = 40;
 
 export class ReplyFeedbackStore {
   constructor(file) {
@@ -52,12 +53,30 @@ export class ReplyFeedbackStore {
     return this.items.filter(item => item.rating === "down" && (status === "all" || item.status === status)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   }
 
+  // Correcciones que "se quedan" (13-nov): el equipo las marca y Mia las aplica siempre, sin importar cuántas
+  // correcciones nuevas lleguen después (las demás solo cuentan las 25 más recientes).
+  keep(id, by) {
+    const item = this.items.find(i => i.id === id && i.rating === "down");
+    if (!item) throw new Error("No existe esa corrección");
+    Object.assign(item, { status: "kept", kept_by: by, kept_at: new Date().toISOString() });
+    this.persist();
+    return { ...item };
+  }
+
+  unkeep(id, by) {
+    const item = this.items.find(i => i.id === id && i.status === "kept");
+    if (!item) throw new Error("Esa corrección no está marcada como \"Se queda\"");
+    Object.assign(item, { status: "open", kept_by: null, kept_at: null, unkept_by: by, unkept_at: new Date().toISOString() });
+    this.persist();
+    return { ...item };
+  }
+
   stats({ days = 30, now = new Date() } = {}) {
     const since = now.getTime() - days * 24 * 3600 * 1000;
     const recent = this.items.filter(item => Date.parse(item.at) >= since);
     const up = recent.filter(item => item.rating === "up").length;
     const down = recent.filter(item => item.rating === "down").length;
-    return { up, down, total: up + down, approval: up + down ? Math.round((up / (up + down)) * 100) : null, open: this.list().length };
+    return { up, down, total: up + down, approval: up + down ? Math.round((up / (up + down)) * 100) : null, open: this.list().length, kept: this.list({ status: "kept" }).length };
   }
 
   resolve(id, status, by, answerId = null) {
@@ -70,11 +89,12 @@ export class ReplyFeedbackStore {
 
   // Correcciones recientes (no archivadas) como ejemplos para la IA.
   promptBlock() {
-    const examples = this.items.filter(item => item.rating === "down" && item.correction && item.status !== "archived").slice(-MAX_EXAMPLES);
-    if (!examples.length) return "";
-    return [
-      "CORRECCIONES DEL EQUIPO A RESPUESTAS ANTERIORES DE MIA (aprende de estos ejemplos: en casos parecidos responde como indica \"Debió decir\", adaptado al cliente, sin copiar datos personales):",
-      ...examples.map(item => `- Cliente: ${item.customer_text.replace(/\s+/g, " ").slice(0, 200) || "(sin texto)"}\n  Mia dijo: ${item.mia_text.replace(/\s+/g, " ").slice(0, 200)}\n  Debió decir: ${item.correction.replace(/\s+/g, " ")}`),
-    ].join("\n");
+    const line = item => `- Cliente: ${String(item.customer_text || "").replace(/\s+/g, " ").slice(0, 200) || "(sin texto)"}\n  Mia dijo: ${String(item.mia_text || "").replace(/\s+/g, " ").slice(0, 200)}\n  Debió decir: ${item.correction.replace(/\s+/g, " ")}`;
+    const kept = this.items.filter(item => item.rating === "down" && item.correction && item.status === "kept").slice(-MAX_KEPT);
+    const examples = this.items.filter(item => item.rating === "down" && item.correction && !["archived", "kept"].includes(item.status)).slice(-MAX_EXAMPLES);
+    const blocks = [];
+    if (kept.length) blocks.push(["CORRECCIONES FIJAS DEL EQUIPO (el equipo confirmó que así se contesta: aplícalas SIEMPRE en casos parecidos, adaptadas al cliente, sin copiar datos personales):", ...kept.map(line)].join("\n"));
+    if (examples.length) blocks.push(["CORRECCIONES DEL EQUIPO A RESPUESTAS ANTERIORES DE MIA (aprende de estos ejemplos: en casos parecidos responde como indica \"Debió decir\", adaptado al cliente, sin copiar datos personales):", ...examples.map(line)].join("\n"));
+    return blocks.join("\n\n");
   }
 }

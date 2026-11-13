@@ -110,6 +110,17 @@ test("Respuestas de Mia: permisos, alta/edición/borrado y convertir lo que cont
   assert.equal(fbList.body.items.length, 1);
   assert.equal(fbList.body.stats.down, 1);
   assert.equal((await carla("/operations/api/mia-feedback")).status, 403);
+  // 13-nov: "Se queda" la pasa a su propia lista y vuelve a Pendientes al quitar la etiqueta.
+  const fbId = encodeURIComponent(fbList.body.items[0].id);
+  assert.equal((await carla(`/operations/api/mia-feedback/${fbId}/keep`, {})).status, 403);
+  assert.equal((await sofi(`/operations/api/mia-feedback/${fbId}/keep`, {})).status, 200);
+  assert.equal((await sofi("/operations/api/mia-feedback")).body.items.length, 0);
+  const keptList = await sofi("/operations/api/mia-feedback?status=kept");
+  assert.equal(keptList.body.items[0].kept_by, "Sofi");
+  assert.equal(keptList.body.stats.kept, 1);
+  assert.ok(audit.list().some(e => e.type === "mia.feedback.keep"));
+  assert.equal((await sofi(`/operations/api/mia-feedback/${fbId}/unkeep`, {})).status, 200);
+  assert.equal((await sofi("/operations/api/mia-feedback")).body.items.length, 1);
   const fbConv = await sofi(`/operations/api/mia-feedback/${encodeURIComponent(fbList.body.items[0].id)}/convert`, { topic: "Beneficiarios: mamá", answer: "Sí, tu mamá puede quedar como beneficiaria conforme a las reglas del IMSS." });
   assert.equal(fbConv.body.item.learned_from.kind, "correction");
   assert.equal((await sofi("/operations/api/mia-feedback")).body.items.length, 0);

@@ -726,6 +726,7 @@ const ACT_META = {
   "capture-name": ["data", "pencil", "Como viene en su CURP"], "documents-sync": ["data", "refresh", "Trae lo que mandó por WhatsApp"],
   "capture-call": ["client", "phone", "Mia le pide un horario"], "capture-schedule": ["client", "calendar", "No cuenta tiempo hasta ese día"],
   "capture-resume": ["client", "play", "El tiempo cuenta desde ahora"], "send-service": ["client", "help", "Dudas que no son del trámite"],
+  "sale-intervene": ["client", "user", "Te asigna el chat; Mia deja de contestar"], "sale-message": ["client", "pencil", "Un mensaje; Mia sigue con el chat"],
   "validation-correction-capture": ["issue", "back", "Regresa a Captura"], "validation-correction-customer": ["issue", "pencil", "Mia se lo pide al cliente"],
   "validation-reject": ["issue", "x"], "validity-issue": ["issue", "alert"], "payment-issue": ["issue", "alert"],
   "sup-reactivate": ["main", "check"], "sup-drop": ["issue", "alert", "Guarda su adeudo"], "sup-cancel": ["issue", "x"],
@@ -771,6 +772,9 @@ function areaActions(sale) {
     if (sale.status === "waiting_capture") add("capture-start", "Iniciar captura", "primary");
     if (["waiting_capture", "capture_in_progress"].includes(sale.status)) {
       add("capture-schedule", sale.capture?.scheduled?.date ? "Cambiar fecha del alta" : "Agendar alta para otro día");
+      // 13-nov: intervenir el chat del cliente desde el expediente de Captura (sin ir a Chats de Mia).
+      if (sale.conversation_id && state.me.can.intervene) add("sale-intervene", "Intervenir chat");
+      if (sale.conversation_id && (state.me.can.message || state.me.can.intervene)) add("sale-message", "Intervenir solo con mensaje");
       if (sale.capture?.scheduled?.date) add("capture-resume", "Quitar fecha (iniciar ya)");
       add("capture-complete", "Completar alta", sale.status === "capture_in_progress" ? "primary" : "", sale.documents?.complete ? "" : `Faltan: ${(sale.documents?.missing || []).join(", ").toUpperCase()}`);
       add("capture-curp", "Registrar CURP");
@@ -991,6 +995,20 @@ async function saleAction(action) {
     case "sup-name": {
       const data = await ask({ title: "Corregir nombre del cliente", text: "Escribe el nombre completo del titular como aparece en su INE o CURP.", fields: [{ name: "nombre", label: "Nombre completo", required: true, value: sale.customer?.nombre || "" }], confirm: "Guardar nombre", area: action === "sup-name" ? "supervision" : area });
       if (data) done = await post(action === "sup-name" ? "supervision/name" : "capture/name", { nombre: data.nombre }, "Nombre corregido");
+      break;
+    }
+    case "sale-intervene": {
+      const data = await ask({ title: "Intervenir el chat del cliente", text: "La conversación se te asigna en Chatwoot y Mia deja de contestarle al cliente. Escríbele tú desde Chatwoot. Cuando termines, regrésala a Mia desde Chats de Mia si debe seguir el proceso normal.", fields: [{ name: "note", label: "Nota (opcional)", type: "textarea", placeholder: "Ej. le marco para confirmar su NSS" }], confirm: "Intervenir", area: "captura" });
+      if (!data) break;
+      const r = await run(() => api(`/operations/api/mia-chats/${sale.conversation_id}/intervene`, { method: "POST", body: { note: data.note || "" } }), "Chat intervenido: ya está asignado a ti en Chatwoot");
+      if (r?.chatwoot_url) window.open(r.chatwoot_url, "_blank", "noopener");
+      done = Boolean(r);
+      break;
+    }
+    case "sale-message": {
+      const data = await ask({ title: "Intervenir solo con mensaje", text: "El mensaje le llega al cliente por WhatsApp desde la cuenta de Mia. <strong>Mia sigue atendiendo el chat</strong> y toma tu mensaje en cuenta para lo que conteste después.", fields: [{ name: "text", label: "Mensaje para el cliente", type: "textarea", required: true, placeholder: "Ej. Hola, soy de Captura: ya recibí tu CURP, solo me falta tu NSS." }], confirm: "Enviar mensaje", area: "captura" });
+      if (!data || !String(data.text || "").trim()) break;
+      done = Boolean(await run(() => api(`/operations/api/mia-chats/${sale.conversation_id}/message`, { method: "POST", body: { text: data.text } }), "Mensaje enviado; Mia sigue con el chat"));
       break;
     }
     case "capture-schedule": {
@@ -1756,7 +1774,7 @@ async function renderMiaAnswers(view) {
   state.answersTab = state.answersTab || "team";
   let answers, learning;
   try {
-    [answers, learning, state.miaFeedback] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null), state.answersTab === "rated" ? api("/operations/api/mia-feedback") : Promise.resolve(null)]);
+    [answers, learning, state.miaFeedback] = await Promise.all([api("/operations/api/mia-answers"), state.answersTab === "learn" ? api("/operations/api/mia-learning") : Promise.resolve(null), state.answersTab === "rated" ? api(`/operations/api/mia-feedback?status=${state.feedbackFilter === "kept" ? "kept" : "open"}`) : Promise.resolve(null)]);
     state.miaExperiments = ["ab", "rated"].includes(state.answersTab) ? await api("/operations/api/mia-experiments") : null;
     state.miaReactivation = state.answersTab === "react" ? await api("/operations/api/reactivation") : null;
     state.miaWeekly = state.answersTab === "weekly" ? await api(`/operations/api/mia-weekly${state.weeklyId ? `?id=${encodeURIComponent(state.weeklyId)}` : ""}`) : null;
@@ -1834,14 +1852,17 @@ async function renderMiaAnswers(view) {
     const fb = state.miaFeedback || {};
     const st = fb.stats || {};
     const items = fb.items || [];
-    body = `<p class="muted">Últimos 30 días: 👍 ${st.up || 0} · 👎 ${st.down || 0}${st.approval != null ? ` · <strong>${st.approval}% de aprobación</strong>` : ""}. Las correcciones ya funcionan como ejemplos para Mia; conviértelas en respuesta del equipo si deben contestarse siempre igual.</p>` + (items.length ? `<div class="answer-list">${items.map(i => `
+    const keptView = state.feedbackFilter === "kept";
+    // 13-nov: etiqueta "Se queda" para las correcciones que el equipo confirma; Mia las aplica siempre.
+    const filterBar = `<div class="toolbar"><div class="segmented" role="group"><button data-feedback-filter="open" aria-pressed="${!keptView}">Pendientes (${st.open || 0})</button><button data-feedback-filter="kept" aria-pressed="${keptView}">✓ Se quedan (${st.kept || 0})</button></div></div>`;
+    body = filterBar + `<p class="muted">Últimos 30 días: 👍 ${st.up || 0} · 👎 ${st.down || 0}${st.approval != null ? ` · <strong>${st.approval}% de aprobación</strong>` : ""}. ${keptView ? "Estas correcciones se quedan: Mia las aplica siempre en casos parecidos, aunque lleguen correcciones nuevas." : "Las 25 correcciones más recientes funcionan como ejemplos para Mia. Márcala con <strong>Se queda</strong> si así se debe contestar siempre, o conviértela en respuesta del equipo si debe salir con el texto exacto."}</p>` + (items.length ? `<div class="answer-list">${items.map(i => `
       <article class="answer-card">
-        <header><strong>Conversación #${i.conversation_id}</strong><small class="muted">${esc(i.by || "")} · ${esc(dateTime(i.at))}</small></header>
+        <header><strong>Conversación #${i.conversation_id}</strong>${i.status === "kept" ? `<span class="mia-flags"><span class="tag ok">✓ Se queda</span></span>` : ""}<small class="muted">${esc(i.by || "")} · ${esc(dateTime(i.at))}${i.status === "kept" && i.kept_by ? ` · la dejó ${esc(i.kept_by)}` : ""}</small></header>
         ${i.customer_text ? `<p class="learn-q"><span class="muted small">Cliente</span><br>${esc(i.customer_text)}</p>` : ""}
         <p><span class="muted small">Mia dijo</span><br>${esc(i.mia_text)}</p>
         <p class="learn-a"><span class="muted small">Debió decir</span><br>${esc(i.correction)}</p>
         ${i.note ? `<p class="muted small">Nota: ${esc(i.note)}</p>` : ""}
-        <footer><span></span><span class="actions"><button class="btn small primary" data-answer-act="fb-convert" data-fb-id="${esc(i.id)}">Convertir en respuesta del equipo</button>${slotForText(state.miaExperiments?.slots || [], i.mia_text) ? `<button class="btn small" data-answer-act="fb-ab" data-fb-id="${esc(i.id)}">Probar en A/B</button>` : ""}<button class="btn small quiet" data-answer-act="fb-archive" data-fb-id="${esc(i.id)}">Archivar</button></span></footer>
+        <footer><span></span><span class="actions">${i.status === "kept" ? `<button class="btn small" data-answer-act="fb-unkeep" data-fb-id="${esc(i.id)}">Quitar "Se queda"</button>` : `<button class="btn small primary" data-answer-act="fb-keep" data-fb-id="${esc(i.id)}">✓ Se queda</button>`}<button class="btn small" data-answer-act="fb-convert" data-fb-id="${esc(i.id)}">Convertir en respuesta del equipo</button>${slotForText(state.miaExperiments?.slots || [], i.mia_text) ? `<button class="btn small" data-answer-act="fb-ab" data-fb-id="${esc(i.id)}">Probar en A/B</button>` : ""}<button class="btn small quiet" data-answer-act="fb-archive" data-fb-id="${esc(i.id)}">Archivar</button></span></footer>
       </article>`).join("")}</div>` : `<div class="empty"><strong>Sin correcciones pendientes</strong>En "Chats de Mia", abre un chat y usa 👍 / 👎 en los mensajes de Mia.</div>`);
   } else {
     body = `<p class="muted">Estas reglas ya vienen en Mia (confirmadas con ustedes). Para cambiar una, agrega una respuesta del equipo sobre el mismo tema: la del equipo manda.</p><ul class="fixed-rules">${(answers.fixed || []).map(r => `<li>${esc(r)}</li>`).join("")}</ul>`;
@@ -1883,6 +1904,12 @@ async function miaAnswerAction(target) {
     const item = (state.miaFeedback?.items || []).find(i => i.id === target.dataset.fbId);
     const data = item && await ask({ title: "Convertir corrección en respuesta del equipo", text: "Ajusta el texto para que sirva a cualquier cliente.", fields: answerFields({ topic: (item.customer_text || "").split("\n").pop().slice(0, 200), answer: item.correction }), confirm: "Guardar respuesta", area: "respuestas" });
     if (data && await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(item.id)}/convert`, { method: "POST", body: answerBody(data) }), "Listo: Mia ya sabe contestar esto")) renderView();
+  }
+  if (act === "fb-keep") {
+    if (await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(target.dataset.fbId)}/keep`, { method: "POST", body: {} }), "Listo: esta corrección se queda y Mia la aplica siempre")) renderView();
+  }
+  if (act === "fb-unkeep") {
+    if (await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(target.dataset.fbId)}/unkeep`, { method: "POST", body: {} }), "Se quitó la etiqueta: vuelve a Pendientes")) renderView();
   }
   if (act === "fb-archive") {
     if (await run(() => api(`/operations/api/mia-feedback/${encodeURIComponent(target.dataset.fbId)}/archive`, { method: "POST", body: {} }), "Archivada: ya no se usa como ejemplo")) renderView();
@@ -2253,7 +2280,7 @@ function handleNotify(n) {
 
 // ── Eventos de la interfaz ─────────────────────────────────────────────
 document.addEventListener("click", async event => {
-  const target = event.target.closest("[data-go], [data-note], [data-note-filter], [data-note-act], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-sort], [data-mia-page], [data-answer-act], [data-answers-tab], [data-rate]");
+  const target = event.target.closest("[data-feedback-filter], [data-go], [data-note], [data-note-filter], [data-note-act], [data-act], [data-sale], [data-sale-act], [data-filter], [data-flow], [data-sale-link], [data-admin-tab], [data-user-act], [data-settings-act], [data-case], [data-case-act], [data-case-filter], [data-open-sale], [data-mia-chat], [data-mia-act], [data-mia-filter], [data-mia-days], [data-mia-sort], [data-mia-page], [data-answer-act], [data-answers-tab], [data-rate]");
   if (!target) return;
   if (target.dataset.go) return go(target.dataset.go);
   if (target.dataset.noteFilter) { state.noteFilter = target.dataset.noteFilter; return renderView(); }
@@ -2270,6 +2297,7 @@ document.addEventListener("click", async event => {
   if (target.dataset.act === "reload-chat") return state.caseId ? loadChat(`/operations/api/cases/${encodeURIComponent(state.caseId)}/conversation`, state.caseId) : state.saleId && loadSaleChat(state.saleId);
   if (target.dataset.rate) { target.disabled = true; try { await rateMiaReply(target); } finally { target.disabled = false; } return; }
   if (target.dataset.answersTab) { state.answersTab = target.dataset.answersTab; return renderView(); }
+  if (target.dataset.feedbackFilter) { state.feedbackFilter = target.dataset.feedbackFilter; return renderView(); }
   if (target.dataset.answerAct) { target.disabled = true; try { await miaAnswerAction(target); } finally { target.disabled = false; } return; }
   if (target.dataset.miaChat) return openMiaChat(target.dataset.miaChat);
   if (target.dataset.miaAct) { target.disabled = true; try { await miaChatAction(target.dataset.miaAct); } finally { target.disabled = false; } return; }
