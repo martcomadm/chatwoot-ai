@@ -81,7 +81,7 @@ test("calificaciones: 👎 exige corrección, se puede cambiar, entra como ejemp
   const down = fb.rate({ conversationId: 5, messageId: "9", rating: "down", correction: "Sí, también puedes registrar a tu mamá como beneficiaria si depende de ti.", miaText: "¿Me compartes tu nombre?", customerText: "¿Puedo meter a mi mamá?", user: { name: "Carla", username: "carla" } });
   assert.equal(down.status, "open");
   assert.deepEqual(Object.keys(fb.forConversation(5)).sort(), ["8", "9"]);
-  assert.deepEqual(fb.stats(), { up: 1, down: 1, total: 2, approval: 50, open: 1 });
+  assert.deepEqual(fb.stats(), { up: 1, down: 1, total: 2, approval: 50, open: 1, kept: 0 });
   const block = fb.promptBlock();
   assert.match(block, /Cliente: ¿Puedo meter a mi mamá\?\n  Mia dijo: ¿Me compartes tu nombre\?\n  Debió decir: Sí, también puedes registrar a tu mamá/);
   const ai = new AiServices(null, {});
