@@ -66,6 +66,13 @@ export function needGuardDecision(memory = {}, combinedText = "") {
   // pregunta de necesidad encima de su pregunta (caso real: se repitió 3 veces).
   if (/[?¿]/.test(String(combinedText)) || /^(?:que|cual|cuales|como|cuanto|cuando|donde|por que|tu dime|dime|me puedes|explicame)\b/.test(norm(combinedText))) return null;
   if (/para orientarte mejor, ¿que es lo mas importante para ti/.test(norm(memory?.ultima_respuesta_agente || ""))) return null;
+  // 13-nov (#11719): la misma pregunta salió 5 veces. A la tercera se le presentan los dos planes para que elija.
+  if ((memory?.need_discovery_asks || 0) >= 2) {
+    return {
+      reply: "Te lo resumo para que elijas: el Plan 1 ($1,100 MXN mensuales) incluye servicio médico del IMSS y sigues sumando semanas cotizadas; el Plan 2 ($1,500 MXN mensuales) incluye lo mismo y además aportaciones a tu AFORE y puntos INFONAVIT. ¿Cuál te interesa más, el Plan 1 o el Plan 2?",
+      question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", plans_overview: true,
+    };
+  }
   // "Quisiera información del plan 2": pide un plan o información concreta; se le responde, no se le pregunta qué busca.
   if (/\bplan\s*(?:1|2|uno|dos)\b|\b(?:informacion|info|precio|costo|cuanto)\b/.test(norm(combinedText))) return null;
 

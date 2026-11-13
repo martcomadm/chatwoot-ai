@@ -698,7 +698,10 @@ export class ConversationProcessor {
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }
-    if (patience.shouldPause) {
+    // 13-nov: "Deme un momento y le marco" y "si me permites, que sea personal, mejor con un contacto" (#11708,
+    // #11719) recibían "Claro, aquí te espero": quieren hablar con alguien.
+    const wantsToTalk = callRequest(combinedText) || /\b(?:le|les|te)\s+(?:marco|llamo)\b/.test(String(combinedText).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+    if (patience.shouldPause && !wantsToTalk) {
       await this.record(conversationId, "conversation_patience_pause", { sensitive_state: patience.state || null, reply: patience.reply });
       await this.chatwoot.sendMessage(conversationId, patience.reply);
       await this.memories.markProcessedMany(conversationId, messageIds);
@@ -898,11 +901,16 @@ export class ConversationProcessor {
     // cliente, "no me interesa…", cliente que ya aceptó) y ninguna respuesta del equipo se manda dos veces al mismo chat.
     const teamRaw = mediaDecision || adOpening || containsCurp(combinedText) || containsNss(combinedText) ? null : this.teamAnswers?.match?.(combinedText);
     const teamWeak = teamRaw && String(teamRaw.matched_phrase || "").trim().split(/\s+/).length <= 2;
+    // 13-nov: con frase corta solo responde a preguntas. "Servicio médico y pensión afore" (contestaba qué busca) y
+    // "soy jubilado… mi pensión salió muy baja, justicia" (#11717) recibieron la respuesta de "pensión".
+    const teamText = String(combinedText || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const asksQuestion = /[?¿]/.test(teamText) || /^(?:y\s+)?(?:como|cuanto|cuanta|que|cual|cuales|puedo|se puede|donde|cuando|me puede|me pueden|podria|podrian|quisiera saber|quiero saber|tienen|hay|es posible|necesito saber)\b/.test(teamText);
     const teamRepeated = teamRaw && (base.team_answers_sent || []).includes(teamRaw.id);
     // 12-nov: también cede cuando el cliente pospone, acepta con documentos después o acepta/pide una llamada
     // (la respuesta del equipo con la palabra "mañana" contestó "puedo mandarte la documentación mañana", #11649).
     const teamYields = teamWeak && Boolean(directRequest || featureRejection || deferral || caseDiagnosis || creditDecision || base.sales_cycle?.authorized
-      || detectDeferral(combinedText) || affirmsWithDocuments(combinedText) || acceptsCallOffer(combinedText, base.ultima_respuesta_agente) || callRequest(combinedText));
+      || detectDeferral(combinedText) || affirmsWithDocuments(combinedText) || acceptsCallOffer(combinedText, base.ultima_respuesta_agente) || callRequest(combinedText)
+      || !asksQuestion);
     const teamMatch = teamRaw && !teamRepeated && !teamYields ? teamRaw : null;
     if (teamRaw && !teamMatch) await this.record(conversationId, "team_answer_skipped", { id: teamRaw.id, phrase: teamRaw.matched_phrase, reason: teamRepeated ? "ya_enviada" : "hay_respuesta_mas_especifica" });
     const teamDecision = teamMatch ? { reply: teamMatch.answer, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", team_answer: teamMatch.id } : null;
@@ -935,7 +943,10 @@ export class ConversationProcessor {
     else if (commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
     else if (memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
     else if (openingDecision && !advisoryTurn) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
-    else if (needDecision && !advisoryTurn) decision = protectDeterministicDecision(needDecision, "need_discovery");
+    else if (needDecision && !advisoryTurn) {
+      decision = protectDeterministicDecision(needDecision, needDecision.plans_overview ? "need_plans_overview" : "need_discovery");
+      if (!needDecision.plans_overview) memory = { ...memory, need_discovery_asks: (memory.need_discovery_asks || 0) + 1 };
+    }
     else if (compactRecommendation && !advisoryTurn) decision = protectDeterministicDecision(compactRecommendation, "compact_plan_recommendation");
     else {
       // Modelo avanzado (9-nov) solo para los mensajes difíciles; sin OPENAI_MODEL_STRONG todo va con el normal.

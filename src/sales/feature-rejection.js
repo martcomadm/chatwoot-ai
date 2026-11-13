@@ -41,8 +41,23 @@ function rejectsFeatureLine(text = "") {
   return "infonavit";
 }
 
+// El Plan 2 no le alcanza ("el de $1,500 rebasa mi presupuesto, ¿qué contiene el plan uno?"; 13-nov, #11699: la IA
+// le siguió recomendando el Plan 2 tres veces). Se le ofrece el Plan 1 y desde ahí se habla de ese.
+export function plan2OverBudget(memory = {}, text = "") {
+  const v = norm(text);
+  const cycle = memory.sales_cycle || {};
+  const onPlan2 = (cycle.selected_plan || cycle.recommended_plan) === "plan_2" || /\bplan (?:2|dos)\b|\b1 ?500\b/.test(v);
+  if (!onPlan2) return false;
+  const budget = /\b(?:rebasa|excede|se sale de|sale de|se pasa de|fuera de|se eleva)\b.{0,25}\bpresupuesto\b|\bno (?:me )?alcanz\w*\b|\bno (?:lo |la )?(?:puedo|podria) pagar\b|\bes (?:mucho|muy caro|demasiado)\b|\bse eleva\b/.test(v);
+  const other = /\b(?:el otro|la otra|otro paquete|otra opcion|el de 1 ?100|plan (?:1|uno)|el (?:1|uno)|mas economico|mas barato)\b/.test(v);
+  return budget || (other && /\b(?:caro|presupuesto|alcanz\w*|economico|barato)\b/.test(v));
+}
+
 export function featureRejectionDecision(memory = {}, combinedText = "") {
   if (memory.sales_cycle?.authorized) return null;
+  if (plan2OverBudget(memory, combinedText)) {
+    return { reply: "Entiendo, no hay problema. Entonces te conviene el Plan 1, de $1,100 MXN mensuales: incluye servicio médico del IMSS y sigues sumando semanas cotizadas para tu pensión. La diferencia con el Plan 2 es que no incluye aportaciones a AFORE ni puntos INFONAVIT. Y recuerda que el primer pago es hasta que tu alta ya está vigente. ¿Quieres que iniciemos tu trámite con el Plan 1?", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", rejected_feature: "plan_2_budget", plan: "plan_1" };
+  }
   const kind = rejectsFeature(combinedText);
   if (!kind) return null;
   // "Servicio de IMSS / acumular semanas / aportaciones al Afore / Infonavit no" (caso real 5-nov): quiere AFORE,

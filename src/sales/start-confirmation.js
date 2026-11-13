@@ -9,7 +9,9 @@ function norm(value) {
 
 // "sí me interesa", "me interesa mucho", "suena bien", "me convence", "sí, me gusta ese plan"…
 // Solo frases de interés sin otro contenido: "me interesa AFORE" es una necesidad, no esto.
-const GENERIC_INTEREST_RE = /^(?:(?:si|claro|ok|okay|va|sale|perfecto|bueno|excelente|muy bien)[ ,.!]*)*(?:si[ ,]*)?(?:me interesa|me gusta|me late|suena bien|me sirve|me convence|me parece bien|creo que si)(?:[ ,]*(?:mucho|bastante|si|entonces|el plan|ese plan|esa opcion|esta opcion|el plan (?:1|uno|2|dos)))?[ .!]*$/;
+const GENERIC_INTEREST_RE = /^(?:(?:si|claro|ok|okay|va|sale|perfecto|bueno|excelente|muy bien)[ ,.!]*)*(?:si[ ,]*)?(?:me interesa|me gusta|me late|suena bien|me sirve|me convence|me parece bien|creo que si)(?:[ ,]*(?:mucho|bastante|si|entonces|el plan|ese plan|esa opcion|esta opcion|el plan (?:1|uno|2|dos)|(?:el|su) servicio(?: que (?:ofrecen|ofreces|manejan))?|lo que (?:ofrecen|ofreces|me ofrecen|manejan)))*[ .!]*$/;
+// "Pero definitivamente, son la mejor opción para mí" (13-nov, #11692).
+const BEST_OPTION_RE = /^(?:(?:pero|pues|y|si|definitivamente|claro)[ ,]+)*(?:ustedes\s+)?(?:son|es|seria|serian)\s+(?:la|mi)\s+mejor\s+opcion(?:\s+para\s+mi)?[ .!]*$/;
 
 // Respuesta afirmativa corta: "sí", "sí, por favor", "claro", "va", "adelante", "ok, sí"…
 // Incluye "muy bien", "bien", "bueno", "listo", "excelente": tras "¿iniciamos?" significan que sí.
@@ -27,7 +29,7 @@ export function genericInterest(text) {
   const value = norm(text)
     .replace(/\bin[yt]ere[sz][ao]\b|\binteres[o]\b/g, "interesa")
     .replace(/^(?:(?:pero|pues|y|ah|a|bueno pero|claro que)[ ,]+)+/, "");
-  return Boolean(value) && !negatesCommitment(value) && GENERIC_INTEREST_RE.test(value);
+  return Boolean(value) && !negatesCommitment(value) && (GENERIC_INTEREST_RE.test(value) || BEST_OPTION_RE.test(value.replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim()));
 }
 
 // "Ojalá me hiciera el favor", "Si me hace el favor", "Hágame el favor" (caso real 16-oct, con faltas).

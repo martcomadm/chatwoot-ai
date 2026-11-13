@@ -72,6 +72,8 @@ const CALL_PATTERNS = [
   // "¿Algún teléfono para poder marcar?", "comunicación vía telefónica", "no puedo hablar con nadie" (caso real 27-oct).
   /\b(?:algun|un|su|otro)\s+(?:numero|telefono|tel)\s+(?:para|donde|al que|a donde)\s+(?:pode\w*\s+|pueda\s+|les\s+)?(?:marcar|llamar|hablar|comunicarme)\b/,
   /\b(?:comunicacion|hablar|platicar)\s+(?:via|por)\s+(?:telefonica|telefono|llamada)\b|\bno puedo hablar con nadie\b/,
+  // "Si me permites que sea personal, mejor con un contacto" (13-nov, #11719 recibió "aquí te espero").
+  /\b(?:que sea|sea|seria|mejor)\s+(?:en\s+)?personal\b|\bmejor\s+con\s+(?:un|una)\s+(?:contacto|persona|asesor\w*)\b/,
   // "¿me las podrían aclarar por medio de una llamada?" (12-nov, #11633: recibió la lista de precios).
   /\b(?:por medio de|mediante|con)\s+una\s+llamada\b|\b(?:aclarar|resolver|explicar|platicar|ver)\w*\b.{0,40}\b(?:en|por|x)\s+(?:una\s+)?(?:llamada|telefono)\b/,
 ];

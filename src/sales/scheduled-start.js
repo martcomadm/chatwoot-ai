@@ -48,7 +48,8 @@ export const SCHEDULE_OFFER_MARK = "¿Para qué fecha te acomoda?";
 const ACCENTS = [[/\bdias\b/g, "días"], [/\bdia\b/g, "día"], [/\bproxima\b/g, "próxima"], [/\bproximo\b/g, "próximo"], [/\bmiercoles\b/g, "miércoles"], [/\bsabado\b|\bsbdo\b|\bsab\b/g, "sábado"]];
 
 export function detectScheduledStart(text = "", { offered = false } = {}) {
-  const value = norm(text).replace(/[,;:!¡¿?]+/g, " ").replace(/\.{1,}/g, " ").replace(/\basta\b/g, "hasta").replace(/\s+/g, " ").trim();
+  // "Me gustaría enpezar el la quincena" (13-nov, #11695).
+  const value = norm(text).replace(/[,;:!¡¿?]+/g, " ").replace(/\.{1,}/g, " ").replace(/\basta\b/g, "hasta").replace(/\benpez/g, "empez").replace(/\bempes/g, "empez").replace(/\bel la\b/g, "en la").replace(/\s+/g, " ").trim();
   if (!value || negatesCommitment(value)) return null;
   if (/\bno (?:me interesa|quiero|voy a|creo)\b/.test(value)) return null;
   // A la oferta también se contesta solo con la fecha, o "sí, para el 15".

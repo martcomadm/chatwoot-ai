@@ -41,11 +41,14 @@ test("respuesta del equipo con palabra clave: cede ante la pregunta concreta y n
   const a = await run("Cuánto queda la pensión?", PLAN, { teamAnswers: [PENSION] });
   assert.match(a.text, /El monto exacto de tu pensión lo calcula el IMSS/);
   assert.ok(a.events.some(([t, d]) => t === "team_answer_skipped" && d.reason === "hay_respuesta_mas_especifica"));
-  // Sin nada más específico, la respuesta del equipo sí sale… una sola vez por chat.
-  const b = await run("lo que quiero es una asesoría para pensión trabaje 31 años en una empresa", PLAN, { teamAnswers: [PENSION] });
+  // Sin nada más específico y si es pregunta, la respuesta del equipo sí sale… una sola vez por chat.
+  // 13-nov: con frase corta ya no contesta afirmaciones ("lo que quiero es una asesoría para pensión…").
+  const plain = await run("lo que quiero es una asesoría para pensión trabaje 31 años en una empresa", PLAN, { teamAnswers: [PENSION] });
+  assert.doesNotMatch(plain.text, /^Para tu pensión podemos recuperar/);
+  const b = await run("¿Qué pasa con mi pensión si me afilio?", PLAN, { teamAnswers: [PENSION] });
   assert.match(b.text, /^Para tu pensión podemos recuperar/);
   assert.deepEqual(b.memory.team_answers_sent, ["ta1"]);
-  const c = await run("y lo de la pensión entonces", { ...PLAN, team_answers_sent: ["ta1"] }, { teamAnswers: [PENSION] });
+  const c = await run("¿y lo de la pensión entonces?", { ...PLAN, team_answers_sent: ["ta1"] }, { teamAnswers: [PENSION] });
   assert.doesNotMatch(c.text, /^Para tu pensión podemos recuperar/);
   // "No me interesa para afore ni infonavit" (conv 10361) recibió una despedida: es quedarse con el Plan 1.
   const d = await run("No me interesa para afore ni infonavit", PLAN, { teamAnswers: [PENSION] });

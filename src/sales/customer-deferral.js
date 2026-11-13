@@ -11,6 +11,8 @@ function norm(value) {
 
 // "cuanto" aparece seguido como error de dedo de "cuento" ("no cuánto con dinero").
 const NO_MONEY_RE = [
+  // "Tengo algunos gastos que cubrir en esta quincena… tengo que revisar mi presupuesto" (13-nov, #11692).
+  /\btengo\s+(?:algunos|unos|varios|muchos)\s+gastos\b|\b(?:revisar|checar|acomodar|ajustar|organizar)\s+(?:mi|mis|el)\s+(?:presupuesto|gastos|finanzas)\b/,
   /\bno (?:cuento|cuanto|tengo|traigo|dispongo)(?: ahorita| ahora| por ahora)?(?: con)? (?:el |la |los )?(?:dinero|recurso|recursos|lana|varo|fondos|presupuesto|para pagar|para pagarlo|forma de pagar|forma de pago|como pagar)\b/,
   /\bno tengo (?:ahorita |ahora |por el momento )?(?:la |una )?(?:forma|manera|modo) de pagar\b/,
   /\b(?:ahorita|por el momento|por ahora|de momento|en este momento)\b.{0,40}\bno (?:puedo pagar|tengo (?:dinero|para)|cuento con|cuanto con|me alcanza)\b/,
@@ -183,6 +185,11 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   // "Ok muy bien… puedo mandarte la documentación mañana" a "¿Quieres que iniciemos?" (12-nov, #11649) es aceptar:
   // lo atiende el flujo de compromiso, que abre el expediente.
   if (!memory.sales_cycle?.authorized && confirmsStart(combinedText, memory)) return null;
+  // "Deme un momento y le marco" (13-nov, #11708): quiere llamar; lo contesta la respuesta de contacto.
+  if (/\b(?:le|les|te)\s+(?:marco|llamo)\b/.test(norm(combinedText))) return null;
+  // "No me interesa el servicio médico" (13-nov, #11637) no es despedida: el plan también es para sus semanas
+  // (lo contesta medicalNotNeededDecision).
+  if (/\bno (?:me interesa|necesito|quiero|ocupo|busco)\b.{0,25}\b(?:el |lo del )?(?:seguro medico|servicio medico|atencion medica)\b/.test(norm(combinedText))) return null;
   // Cliente con trámite iniciado: "Muchas gracias" no es despedida de venta ("cuando quieras
   // continuar…" no aplica). Lo atiende el seguimiento del expediente.
   if (memory.sales_cycle?.authorized) return null;

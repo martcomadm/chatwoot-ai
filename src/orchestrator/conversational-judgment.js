@@ -26,6 +26,8 @@ export function detectQuestion(text){
   if(/\bque incluye (?:el )?plan\s*(2|dos)\b/.test(v)) return {type:'services_plan_2',answerKey:'services_plan_2'};
   // Requiere intención interrogativa real: una mención declarativa de Plan 1/2
   // pertenece al commitment-flow.
+  // "Me interesa mucho el servicio que ofrecen" (13-nov, #11692) es interés, no pregunta por los planes.
+  if(!/[?¿]/.test(String(text))&&/^(?:(?:si|pues|pero|y)\s+)?me interesa(?:\s+(?:mucho|bastante))?\s+(?:el|su)\s+servicio(?:\s+que\s+(?:ofrecen|ofreces|manejan))?[ .!]*$/.test(v)) return null;
   if(/\b(que ofrecen|que incluye|que manejan|cuales? (?:son )?(?:los )?(?:beneficios|planes|paquetes|servicios)|que (?:beneficios|planes|paquetes|servicios) (?:tienen|manejan|ofrecen)|diferencia entre (?:el )?plan)\b/.test(v)) return {type:'services',answerKey:'services'};
   if(/\b(donde (?:estan|se encuentran|se ubican)|ubicacion|oficinas?|direccion|direcci[oó]n|razon social|confiable|estafa|fraude|son reales)\b/.test(v)) return {type:'trust',answerKey:'trust'};
   if(/cotizaci[oó]n de qu[eé]|qu[eé] cotizaci[oó]n|a qu[eé] te refieres con cotizaci[oó]n/.test(v)) return {type:'clarify_quote',answerKey:'clarify_quote'};
