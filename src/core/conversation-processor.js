@@ -661,6 +661,11 @@ export class ConversationProcessor {
       const excludes = /\b(?:menos|excepto|salvo|sin|pero no)\s+(?:el |la |lo de )?(?:infonavit|afore)\b/.test(combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
       llmPatch.commercial_need = { ...(llmPatch.commercial_need || {}), service_medical: true, weeks: true, afore_infonavit: !excludes, unknown: false };
     }
+    // 17-nov (#11819): "Las 2 primeras" a la pregunta de qué busca (servicio médico, semanas, AFORE/INFONAVIT).
+    const ordinal = combinedText.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    if (askedNeed && /^(?:(?:si|pues|bueno|me interesan?)\s+)?(?:las|los|la|el|lo)?\s*(?:2|dos)\s+primer[ao]s?\b|^(?:(?:si|pues|bueno)\s+)?(?:la|el|lo)?\s*primer[oa]?\s+y\s+(?:la|el|lo)?\s*segund[oa]\b/.test(ordinal)) {
+      llmPatch.commercial_need = { ...(llmPatch.commercial_need || {}), service_medical: true, weeks: true, unknown: false };
+    }
     // La IA a veces toma frases como nombre ("Deje", "Claro que sí"): se descartan.
     if (llmPatch.nombre && !plausibleName(llmPatch.nombre)) { delete llmPatch.nombre; delete llmPatch.primer_nombre; }
     let documentPatch = {};

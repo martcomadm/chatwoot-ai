@@ -134,6 +134,8 @@ export function detectClosing(text, { lastReply = "" } = {}) {
   const value = stripThanksTail(norm(text).replace(/[^\p{L}\p{N}\s,.!]/gu, " ").replace(/\s+/g, " ").trim());
   if (!value || asksSomething(text)) return false;
   if (/^(?:si|claro)\b/.test(value) && OFFER_RE.test(norm(lastReply))) return false;
+  // "Si gracias" a "¿qué buscas principalmente…?" (17-nov, #11771) no es despedida.
+  if (/^(?:si|claro)\b/.test(value) && /\b(?:que buscas|lo mas importante para ti|que te interesa)\b/.test(norm(lastReply))) return false;
   // "Agradezco la atención, estaremos en contacto por este medio", "Le agradezco mucho la información, que pase
   // un buen día y estamos en contacto" (casos reales 10 y 11-nov: recibieron otra pregunta de venta).
   const full = norm(text);

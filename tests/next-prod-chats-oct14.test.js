@@ -72,7 +72,7 @@ test("la pregunta de necesidad no se repite encima de una pregunta del cliente",
   const memory = { nombre: "Felipe De Jesús", edad: 57, actividad: "valet" };
   assert.ok(needGuardDecision(memory, "Trabajo de valet"));
   assert.equal(needGuardDecision(memory, "Que diferencia hay"), null);
-  assert.equal(needGuardDecision({ ...memory, ultima_respuesta_agente: "Felipe, para orientarte mejor, ¿qué es lo más importante para ti con la afiliación: tener servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?" }, "ok"), null);
+  assert.equal(needGuardDecision({ ...memory, ultima_respuesta_agente: "Felipe, para orientarte mejor, ¿qué es lo más importante para ti con la afiliación: tener servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?" }, "ok")?.plans_overview, true, "17-nov: ya no se repite; se presentan los dos planes");
   assert.match(needGuardDecision({ ...memory, nombre: "Deje Trabajar", primer_nombre: "Deje" }, "Comerciante").reply, /^Para orientarte/);
 });
 

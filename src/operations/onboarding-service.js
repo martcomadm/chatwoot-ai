@@ -99,7 +99,7 @@ function isCourtesyText(text = "") {
   const raw = String(text || "").trim();
   if (/[?¿]/.test(raw)) return false;
   const v = norm(raw).replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
-  return !v || /^(?:(?:ok|okey|okay|oki|oi|va|sale|vale|si|claro|listo|perfecto|bien|muy bien|de acuerdo|entendido|enterado|gracias|muchas gracias|mil gracias|que amable|quedo pendiente|quedo al pendiente|quedo atento|quedo atenta|pendiente|igualmente|bendiciones|buen dia|excelente|mia)\s*)+$/.test(v);
+  return !v || /^(?:(?:ok|okey|okay|oki|oi|va|sale|vale|si|claro|listo|perfecto|bien|muy bien|de acuerdo|entendido|enterado|gracias|grasias|gracia|muchas gracias|muchas grasias|mil gracias|que amable|muy amable|amable|pf|por favor|porfavor|quedo pendiente|quedo al pendiente|quedo atento|quedo atenta|pendiente|igualmente|bendiciones|buen dia|excelente|mia)\s*)+$/.test(v);
 }
 
 export const ONBOARDING_DECLINED_TEXT = "Entendido, gracias por avisarme. Le aviso al equipo para que no continúe con tu trámite. Si más adelante quieres retomarlo, escríbeme por aquí y con gusto te ayudo.";
@@ -248,9 +248,9 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   // "En dos horas te lo envío, ando fuera" (caso real 20-oct): antes se repetía la solicitud y se
   // suprimía como duplicada, y el cliente se quedaba sin respuesta.
   if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
-    && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|en otro momento|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso)|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|(?:proxima|otra|siguiente) semana|voy (?:hoy )?a buscar|hoy (?:voy a )?busco|tengo que buscar)\b/.test(text)
+    && /\b(?:en (?:un|una|dos|tres|unas?|\d+) (?:rato|ratito|hora|horas|momento|minutos)|en otro momento|al rato|mas tarde|ahorita no|ando fuera|estoy fuera|no estoy en (?:mi )?casa|llegando|cuando llegue|manana|en la noche|en la tarde|luego|despues|ahorita (?:te|se) (?:lo|la|los|las) (?:mando|envio|paso)|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|(?:proxima|otra|siguiente) semana|voy (?:hoy )?a buscar|hoy (?:voy a )?busco|tengo que buscar|dej\w* (?:lo|la|los|las) busco|(?:lo|la) busco|(?:deme|dame|denme|deja\w*me) (?:un )?(?:tiempo|chance|oportunidad)|(?:yo )?(?:le|te|les) aviso|platicarlo|pensarlo|consultarlo)\b/.test(text)
     // "Más tarde, voy en el transporte", "en otro momento, gracias" (casos reales 27 y 28-oct) también: mensajes cortos.
-    && (/\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos)\b/.test(text) || text.length <= 60 || Boolean(detectDeferral(combinedText)))
+    && (/\b(?:envio|enviar\w*|mando|mandar\w*|paso|mandare|enviare|pasare|comparto|lo|la|los|las|tengo|busco|llegue|fuera|rato|horas?|papeles|documentos|aviso|busco)\b/.test(text) || text.length <= 60 || Boolean(detectDeferral(combinedText)))
     && String(memory.ultima_respuesta_agente || "").trim() !== DOCS_LATER_TEXT) {
     return { reply: DOCS_LATER_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
   }
@@ -276,9 +276,34 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
 
   const key = memory.operations.onboarding_next || memory.operations.documents_missing?.[0] || null;
   if (!key) return null;
+  // 17-nov (#11725): CURP con 17 caracteres; se le repetía la misma solicitud sin decirle qué estaba mal.
+  const compact = String(combinedText || "").toUpperCase().replace(/[\s.\-_]+/g, "");
+  const curpLike = compact.match(/[A-Z]{4}\d{6}[A-Z0-9]{4,10}/);
+  if (!containsRequestedData && key === "curp" && curpLike && curpLike[0].length !== 18) {
+    const reply = `Gracias. A la CURP que me enviaste ${curpLike[0].length < 18 ? "le falta" : "le sobra"} al menos un carácter: debe tener 18 (4 letras, 6 números de la fecha de nacimiento y 8 letras y números más). ¿Me la confirmas? Si se te complica, mándame una foto clara de tu INE.`;
+    return { reply, question_key: "curp", add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: "curp", priority: true };
+  }
+  const digits = String(combinedText || "").replace(/\D/g, "");
+  if (!containsRequestedData && key === "nss" && digits.length >= 9 && digits.length <= 12 && !/[a-z]{3,}/i.test(String(combinedText || "").replace(/\bnss\b/gi, ""))) {
+    return { reply: `El NSS tiene 11 dígitos y el que me enviaste tiene ${digits.length}. ¿Me lo confirmas? Si no lo tienes a la mano, dime y lo localizamos con tu CURP.`, question_key: "nss", add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: "nss", priority: true };
+  }
+  // 17-nov (#11670): mandó tres archivos y a cada uno se le contestó "Ahora compárteme por favor el NSS".
+  const attachmentOnly = !String(combinedText || "").trim();
+  const otherPrompt = Object.entries(PROMPTS).some(([k, p]) => k !== key && p === lastReply);
+  if (attachmentOnly && !otherPrompt && (lastReply === onboardingPrompt(key) || norm(lastReply).includes(key) || lastReply.startsWith("Gracias, recibí tu archivo"))) {
+    const attachText = key === "nss"
+      ? "Gracias, recibí tu archivo, pero no alcanzo a leer ahí tu NSS. ¿Me lo puedes escribir por aquí? Son 11 dígitos. Si no lo tienes, dime y lo localizamos con tu CURP."
+      : key === "curp"
+        ? "Gracias, recibí tu archivo, pero no alcanzo a leer ahí tu CURP. ¿Me la puedes escribir por aquí o mandar una foto más clara de tu INE?"
+        : `Gracias, recibí tu archivo, pero no alcanzo a leer ahí tu ${onboardingLabel(key)}. ¿Me lo puedes mandar en una foto más clara?`;
+    return { reply: lastReply === attachText ? "" : attachText, question_key: key === "curp" || key === "nss" ? key : null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: key };
+  }
   // "Ok", "Permítame" a la solicitud del documento: no repetir la misma solicitud palabra por palabra.
   const samePrompt = String(memory.ultima_respuesta_agente || "").trim() === onboardingPrompt(key);
-  if (samePrompt && !containsRequestedData && isCourtesyText(combinedText)) {
+  // 17-nov (#11811, #11824): "Ok", "Ok grasias muy amable" después de "aquí la espero" o del aviso al asesor
+  // recibían otra vez la solicitud de la CURP.
+  const ackedBefore = samePrompt || lastReply === "Perfecto, aquí la espero." || lastReply === DOCS_LATER_TEXT || /^Gracias, ya le pasé tu respuesta/.test(lastReply);
+  if (ackedBefore && !containsRequestedData && isCourtesyText(combinedText)) {
     return { reply: "", question_key: key === "curp" || key === "nss" ? key : null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: key };
   }
   return {

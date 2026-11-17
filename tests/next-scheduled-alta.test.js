@@ -38,9 +38,11 @@ test("agendar el alta: se queda en Captura, sin contar tiempo, y Mia avisa al cl
   assert.equal(urgencyOf(after, HOURS, days(3)), "scheduled");
   assert.equal(hoursInQueue(after, days(3)), 0);
   const dayStart = Date.parse("2026-11-16T00:00:00-06:00");
-  assert.equal(Date.parse(queueEnteredAt(after)), dayStart);
-  assert.equal(urgencyOf(after, HOURS, dayStart + 1 * 3600 * 1000), "ok");
-  assert.equal(urgencyOf(after, HOURS, dayStart + 5 * 3600 * 1000), "overdue");
+  // El expediente entró a Captura en NOW (la tienda usa el reloj real; se fija para que la prueba no caduque).
+  const enteredNow = { ...after, queue_entered_at: NOW.toISOString(), updated_at: NOW.toISOString() };
+  assert.equal(Date.parse(queueEnteredAt(enteredNow)), dayStart);
+  assert.equal(urgencyOf(enteredNow, HOURS, dayStart + 1 * 3600 * 1000), "ok");
+  assert.equal(urgencyOf(enteredNow, HOURS, dayStart + 5 * 3600 * 1000), "overdue");
 });
 
 test("fechas inválidas y permisos", () => {

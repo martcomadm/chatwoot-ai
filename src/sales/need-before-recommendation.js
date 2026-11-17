@@ -9,7 +9,8 @@ const AFORE_INFONAVIT = /\b(afore|infonavit|credito de vivienda|credito infonavi
 const RETIREMENT = /\b(pension\w*|pensionar\w*|retiro|jubilar\w*|jubilacion)\b/;
 
 export function deriveCommercialNeed(text, previous = {}) {
-  const value = norm(text);
+  // 17-nov: "Tener cervicio medico" (#11771) no se reconocía y se le volvió a preguntar qué buscaba.
+  const value = norm(text).replace(/\b[cs]er[bv]i[cs]i?o\b/g, "servicio").replace(/\bmedic[oa]s?\b/g, "medico");
   const next = {
     service_medical: Boolean(previous.service_medical),
     weeks: Boolean(previous.weeks),
@@ -65,14 +66,12 @@ export function needGuardDecision(memory = {}, combinedText = "") {
   // Si el cliente pregunta algo, se le responde primero (la IA contesta); no se repite la
   // pregunta de necesidad encima de su pregunta (caso real: se repitió 3 veces).
   if (/[?¿]/.test(String(combinedText)) || /^(?:que|cual|cuales|como|cuanto|cuando|donde|por que|tu dime|dime|me puedes|explicame)\b/.test(norm(combinedText))) return null;
-  if (/para orientarte mejor, ¿que es lo mas importante para ti/.test(norm(memory?.ultima_respuesta_agente || ""))) return null;
+  // 17-nov (#11765, #11777, #11819): ya se le preguntó qué busca y contestó otra cosa ("Tengo 54 años"): en vez de
+  // repetir la pregunta se le presentan los dos planes para que elija.
+  const askedBefore = /lo mas importante para ti|que te interesa principalmente|que buscas principalmente|que es lo que buscas principalmente|que te interesa mas/.test(norm(memory?.ultima_respuesta_agente || ""));
+  if (askedBefore) return plansOverview();
   // 13-nov (#11719): la misma pregunta salió 5 veces. A la tercera se le presentan los dos planes para que elija.
-  if ((memory?.need_discovery_asks || 0) >= 2) {
-    return {
-      reply: "Te lo resumo para que elijas: el Plan 1 ($1,100 MXN mensuales) incluye servicio médico del IMSS y sigues sumando semanas cotizadas; el Plan 2 ($1,500 MXN mensuales) incluye lo mismo y además aportaciones a tu AFORE y puntos INFONAVIT. ¿Cuál te interesa más, el Plan 1 o el Plan 2?",
-      question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", plans_overview: true,
-    };
-  }
+  if ((memory?.need_discovery_asks || 0) >= 2) return plansOverview();
   // "Quisiera información del plan 2": pide un plan o información concreta; se le responde, no se le pregunta qué busca.
   if (/\bplan\s*(?:1|2|uno|dos)\b|\b(?:informacion|info|precio|costo|cuanto)\b/.test(norm(combinedText))) return null;
 
@@ -85,6 +84,13 @@ export function needGuardDecision(memory = {}, combinedText = "") {
     remove_labels: [],
     handoff: false,
     handoff_reason: "",
+  };
+}
+
+function plansOverview() {
+  return {
+    reply: "Te lo resumo para que elijas: el Plan 1 ($1,100 MXN mensuales) incluye servicio médico del IMSS y sigues sumando semanas cotizadas; el Plan 2 ($1,500 MXN mensuales) incluye lo mismo y además aportaciones a tu AFORE y puntos INFONAVIT. ¿Cuál te interesa más, el Plan 1 o el Plan 2?",
+    question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", plans_overview: true,
   };
 }
 
