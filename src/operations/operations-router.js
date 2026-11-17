@@ -40,7 +40,7 @@ function saleView(sale, alertHours, { withEvents = true } = {}) {
 }
 
 const PWA_DIR = new URL("./ui/pwa/", import.meta.url);
-const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json" };
+const PWA_FILES = { "icon-192.png": "image/png", "icon-512.png": "image/png", "icon-180.png": "image/png", "manifest.webmanifest": "application/manifest+json", "alerta.mp3": "audio/mpeg" };
 
 export function createOperationsRouter({ config, saleStore, workflow, memories, inspectorEvents, buffer, users, sessions, settings, audit, notifier = null, push = null, chatwoot = null, selfSenders = null, customerService = null, miaConsole = null, teamAnswers = null, learningInbox = null, replyFeedback = null, experiments = null, reactivation = null, weeklyReview = null, aiUsage = null }) {
   const router = express.Router();

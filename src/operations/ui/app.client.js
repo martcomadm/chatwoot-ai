@@ -2222,11 +2222,31 @@ function unlockSound() {
 }
 document.addEventListener("pointerdown", unlockSound, { once: true });
 
+// 17-nov: sonido de alerta elegido por Dirección (archivo /operations/pwa/alerta.mp3). Se carga una vez; si no se
+// puede (sin red o el navegador no lo decodifica), suena el tono de siempre.
+let alertBuffer = null, alertLoading = null;
+function loadAlertSound() {
+  if (alertBuffer || alertLoading || !audioCtx) return alertLoading;
+  alertLoading = fetch("/operations/pwa/alerta.mp3").then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status))))
+    .then(data => new Promise((resolve, reject) => audioCtx.decodeAudioData(data, resolve, reject)))
+    .then(buffer => { alertBuffer = buffer; return buffer; })
+    .catch(() => { alertLoading = null; return null; });
+  return alertLoading;
+}
+document.addEventListener("pointerdown", () => { unlockSound(); loadAlertSound(); }, { once: true });
+
 // Tono de aviso (28-oct: más fuerte, más largo y repetido dos veces). Problemas y atrasos llevan un tono más grave.
 function playChime(kind) {
   try {
     unlockSound();
     if (!audioCtx) return;
+    if (alertBuffer) {
+      const src = audioCtx.createBufferSource(); const gain = audioCtx.createGain();
+      src.buffer = alertBuffer; gain.gain.value = 1;
+      src.connect(gain); gain.connect(audioCtx.destination); src.start();
+      return;
+    }
+    loadAlertSound();
     const notes = kind === "issue" || kind === "overdue" || kind === "cold_lead" || kind === "hot_lead" ? [784, 659, 523] : [659, 880, 1175];
     const NOTE = 0.32, GAP = 0.05, PAUSE = 0.45;
     const round = notes.length * (NOTE + GAP) + PAUSE;
