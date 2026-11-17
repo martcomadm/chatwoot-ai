@@ -19,5 +19,5 @@ test("processor da prioridad a asesoria conversacional sobre guardas de descubri
 });
 
 test("processor conserva prioridad de preguntas directas sobre el planner",()=>{
-  assert.match(src,/if\(directDecision\)decision=directDecision/);
+  assert.match(src,/if\(!L&&directDecision\)decision=directDecision/);
 });
