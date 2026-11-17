@@ -91,3 +91,13 @@ test("Mia libre no pasa a Atención a Clientes: ni al completar ni cuando el cli
   await bridge.completeHumanHandoff(1, { sale_id: "S1", origin: "mia_libre" });
   assert.deepEqual(teams, []); assert.deepEqual(recorded, ["completed_mia_libre"]);
 });
+
+test("en Mia libre el aviso de Validación lleva solo el número de Calidad (554 883 3726)", async () => {
+  const { renderCustomerMessage } = await import("../src/operations/customer-messages.js");
+  const libre = renderCustomerMessage("capture.completed", { sale: { origin: "mia_libre" } });
+  assert.match(libre, /desde el siguiente número:\n📞 554 883 3726\n/);
+  assert.doesNotMatch(libre, /561 485 8202/);
+  assert.match(renderCustomerMessage("capture.completed", { sale: {} }), /561 485 8202[\s\S]*554 883 3726/);
+  const custom = renderCustomerMessage("capture.completed", { sale: { origin: "mia_libre" } }, { "capture.completed": "Le llamaremos desde:\n📞 111 222 3333\n📞 444 555 6666\nGracias." });
+  assert.equal(custom, "Le llamaremos desde:\n📞 554 883 3726\nGracias.");
+});

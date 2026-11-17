@@ -79,12 +79,33 @@ export function formatAmount(amount) {
 }
 
 // Devuelve el texto para un evento, o null si ese evento no notifica al cliente.
+export const MIA_LIBRE_QUALITY_PHONE = "554 883 3726";
+
+// Deja un solo renglón de teléfono (📞) con el número de Calidad y ajusta "los siguientes números".
+export function onlyQualityNumber(text) {
+  const value = String(text || "");
+  if (!/📞/.test(value)) return value;
+  let placed = false;
+  return value
+    .split("\n")
+    .flatMap(line => {
+      if (!/^\s*📞/.test(line)) return [line];
+      if (placed) return [];
+      placed = true;
+      return [`📞 ${MIA_LIBRE_QUALITY_PHONE}`];
+    })
+    .join("\n")
+    .replace(/desde los siguientes números/gi, "desde el siguiente número");
+}
+
 export function renderCustomerMessage(eventType, { sale, details } = {}, overrides = {}) {
   if (eventType === "validation.correction.requested" && details?.target !== "customer") return null;
   if (eventType === "supervision.plan_changed" && details?.notify_customer === false) return null;
   if (eventType === "capture.scheduled" && details?.notify_customer === false) return null;
   let template = String(overrides?.[eventType] || "").trim() || DEFAULT_CUSTOMER_MESSAGES[eventType];
   if (!template) return null;
+  // 17-nov: en Mia libre, el aviso de Validación lleva solo el número de Calidad.
+  if (sale?.origin === "mia_libre") template = onlyQualityNumber(template);
   // Solicitud de llamada: el motivo que escribió el área se le dice al cliente (23-oct).
   if (eventType === "capture.call_requested") {
     const motivo = String(details?.note || "").replace(/\s+/g, " ").trim().replace(/[.。]+$/, "");
