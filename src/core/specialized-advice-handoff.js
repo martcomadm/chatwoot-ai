@@ -34,7 +34,10 @@ export function specializedAdviceHandoff(text="", memory={}){
   if(pensionStrategy) return {reason:"El cliente pide asesoría sobre su estrategia de pensión (modalidades o cuándo pensionarse).",kind:"specialized_pension"};
   if(unifyNss) return {reason:"El cliente necesita localizar o unificar números de seguridad social.",kind:"specialized_nss_unification"};
   if(pensionTopic && personalCalculation) return {reason:"El cliente requiere una proyección o cálculo individual de pensión.",kind:"specialized_pension"};
-  if(recordAnalysis) return {reason:"El cliente requiere análisis individual de semanas o historial ante el IMSS.",kind:"specialized_record_review"};
+  // 17-nov (pedido de Dirección): "Quiero revisar mis semanas" (opción de las plantillas de Marketing) ya no se
+  // canaliza: Mia sigue la conversación y orienta. Solo se canaliza si pide un análisis o cálculo concreto.
+  const plainReview=v.length<=70 && !/\d/.test(v) && !/\b(?:analiz|calcul|conviene|afecta|cuanto me|historial|conservacion|regimen|promedio|reconoc)\w*/.test(v);
+  if(recordAnalysis && !plainReview) return {reason:"El cliente requiere análisis individual de semanas o historial ante el IMSS.",kind:"specialized_record_review"};
   if(imssDiscrepancy) return {reason:"El cliente reporta una inconsistencia que requiere revisión especializada.",kind:"specialized_discrepancy"};
   if(verificationNeeded) return {reason:"La consulta requiere verificar datos individuales que Mía no puede consultar directamente.",kind:"specialized_verification"};
 

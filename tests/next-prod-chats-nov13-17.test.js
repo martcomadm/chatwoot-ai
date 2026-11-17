@@ -40,3 +40,17 @@ test("expediente: CURP o NSS incompletos, archivos ilegibles, cortesías y 'deme
   assert.equal(buildOnboardingDecision(sale("curp", "Gracias, ya le pasé tu respuesta al asesor y te llamará a este número. Cualquier cosa, aquí sigo."), "Ok grasias muy amable").reply, "");
   assert.equal(buildOnboardingDecision(sale("curp", onboardingPrompt("curp")), "Ok yo le aviso pf deme un tiempo para platicarlo con m familia").reply, DOCS_LATER_TEXT);
 });
+
+import { clarifyNss } from "../src/core/nss-wording.js";
+import { specializedAdviceHandoff } from "../src/core/specialized-advice-handoff.js";
+import { adOpeningKind } from "../src/sales/ad-openings.js";
+test("17-nov: 'Quiero revisar mis semanas' se queda con Mia y el NSS se nombra completo", () => {
+  for (const t of ["Quiero revisar mis semanas.", "Quiero revisar mis semanas cotizadas.", "Quiero revisar mi situación ante el IMSS."]) {
+    assert.equal(specializedAdviceHandoff(t, {}), null, t);
+    assert.equal(adOpeningKind(t), "case_review", t);
+  }
+  assert.ok(specializedAdviceHandoff("Quiero que me calculen cuanto me queda de pensión con mis semanas", {}));
+  assert.equal(clarifyNss("Gracias. Ahora compárteme por favor el NSS del titular."), "Gracias. Ahora compárteme por favor el número de seguridad social (NSS) del titular.");
+  assert.equal(clarifyNss("El NSS es tu Número de Seguridad Social"), "El NSS es tu Número de Seguridad Social");
+  assert.equal(clarifyNss("Sin sigla"), "Sin sigla");
+});

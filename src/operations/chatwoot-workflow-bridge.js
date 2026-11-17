@@ -1,3 +1,4 @@
+import { clarifyNss } from "../core/nss-wording.js";
 import { onboardingStateFromSale, operationsMemoryFromSale } from "./onboarding-service.js";
 import { memoryAfterCancellation, SALE_STOP_LABELS } from "./cancelled-sale.js";
 import { renderCustomerMessage } from "./customer-messages.js";
@@ -161,7 +162,7 @@ export class ChatwootWorkflowBridge{
     const content = this.customerMessage({ type: "validity.confirmed", sale: fresh, details: {} });
     let delivered = false;
     if (fresh.validity?.document_base64 && !fresh.validity?.delivered_to_customer) delivered = await this.deliverAttachment(fresh, "validity", content);
-    else if (content) { await this.chatwoot.sendMessage(conversationId, content); delivered = true; }
+    else if (content) { await this.chatwoot.sendMessage(conversationId, clarifyNss(content)); delivered = true; }
     await this.record(conversationId, "validity_delivered_after_reply", { sale_id: sale.sale_id, delivered });
     return delivered;
   }
@@ -215,7 +216,7 @@ export class ChatwootWorkflowBridge{
       } else if (event.type === "payment.requested" && sale.payment?.accounts_image_base64 && !sale.payment?.accounts_image_delivery_started_at && !sale.payment?.accounts_image_delivered) {
         delivered = await this.deliverAttachment(sale, "payment", content);
       } else {
-        await this.chatwoot.sendMessage(conversationId, content);
+        await this.chatwoot.sendMessage(conversationId, clarifyNss(content));
         delivered = true;
       }
       if (delivered) await this.record(conversationId, "operations_customer_notification", { sale_id: sale.sale_id, event: event.type });

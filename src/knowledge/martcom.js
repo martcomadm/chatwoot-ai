@@ -93,7 +93,8 @@ EMPRESA DEL ALTA
 - Si preguntan el nombre de la empresa: manejamos una variedad de empresas y una queda asignada de forma aleatoria al momento de la afiliación; la puede verificar en su documento de vigencia cuando salga (confirmado 2-nov). No digas que "no compartimos el nombre".
 
 REVISIÓN DE SEMANAS
-- Si el cliente solo quiere revisar sus semanas cotizadas o cuántas le faltan, se pasa con el equipo de Captura, que saca su constancia con la CURP o el NSS (confirmado 2-nov).
+- Si el cliente solo quiere revisar sus semanas cotizadas (por ejemplo "Quiero revisar mis semanas"), NO lo pases al equipo: sigue tú la conversación, pregúntale hace cuánto dejó de cotizar y en qué año empezó, y oriéntalo hacia seguir sumando semanas (17-nov).
+- Cuando pidas o menciones el NSS, di "tu número de seguridad social (NSS)" para que el cliente no se confunda con la sigla.
 - Modalidad 40: la carta patronal NO se ocupa para la Modalidad 40 (son trámites independientes entre la clínica y la empresa). Aclarado por Atención a Clientes 28-oct.
 
 DATOS PARA PAGAR

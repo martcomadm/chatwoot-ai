@@ -50,6 +50,7 @@ import { hasInfonavitCredit, INFONAVIT_CREDIT_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT,
 import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT, ONBOARDING_DECLINED_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
+import { clarifyNss } from "./nss-wording.js";
 import { fixCommonTypos } from "../semantic/typos.js";
 import { customerResumeAt } from "./follow-up.js";
 import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT, acceptsCallOffer, callOfferReply } from "./human-request.js";
@@ -296,7 +297,7 @@ export class ConversationProcessor {
       if (reminder !== last) { reply = reminder; kind = "reminder"; }
     }
     if (note) { try { await this.chatwoot.sendMessage(conversationId, note, true); } catch {} }
-    if (reply) await this.chatwoot.sendMessage(conversationId, reply);
+    if (reply) await this.chatwoot.sendMessage(conversationId, clarifyNss(reply));
     await this.memories.set(conversationId, {
       ...memory,
       ...(reply ? { ultima_respuesta_agente: reply, presentacion_realizada: true } : {}),
@@ -708,7 +709,7 @@ export class ConversationProcessor {
     const wantsToTalk = callRequest(combinedText) || /\b(?:le|les|te)\s+(?:marco|llamo)\b/.test(String(combinedText).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
     if (patience.shouldPause && !wantsToTalk) {
       await this.record(conversationId, "conversation_patience_pause", { sensitive_state: patience.state || null, reply: patience.reply });
-      await this.chatwoot.sendMessage(conversationId, patience.reply);
+      await this.chatwoot.sendMessage(conversationId, clarifyNss(patience.reply));
       await this.memories.markProcessedMany(conversationId, messageIds);
       // Si después ya no regresa, el seguimiento normal lo retoma.
       this.followUps?.afterReply?.(conversationId, { customerAt: new Date(), reply: patience.reply });
@@ -737,7 +738,8 @@ export class ConversationProcessor {
       }
     }
     // Solo quiere revisar sus semanas (2-nov): pasa con Captura, que saca su constancia con la CURP o el NSS.
-    if (!wantsHuman && !b2b && !specialized && !memory.sales_cycle?.authorized && this.captureReview && orchestration.directRequest?.answerKey === "weeks_review"
+    // 17-nov (pedido de Dirección): "Quiero revisar mis semanas" ya no se pasa al equipo; Mia sigue la conversación.
+    if (false && !wantsHuman && !b2b && !specialized && !memory.sales_cycle?.authorized && this.captureReview && orchestration.directRequest?.answerKey === "weeks_review"
       // Nunca en el primer mensaje: Mia ya debió platicar con el cliente (diagnóstico) antes de pasarlo.
       && Boolean(base.ultima_respuesta_agente)) {
       await this.transferToCapture(conversationId, conversation, combinedText, memory);
@@ -1234,7 +1236,7 @@ export class ConversationProcessor {
     else if (memory.sales_cycle?.authorized && !base.sales_cycle?.authorized && decision.reply && isTeamOff(new Date(), this.teamOffDays)) {
       decision.reply = `${String(decision.reply).trim()} Hoy es ${todayName(new Date())} y el equipo arranca ${nextTeamDay(new Date(), this.teamOffDays)} a primera hora: si me mandas hoy tus documentos, tu trámite queda listo para ser de los primeros.`;
     }
-    await this.chatwoot.sendMessage(conversationId, decision.reply);
+    await this.chatwoot.sendMessage(conversationId, clarifyNss(decision.reply));
     if (scheduledNow) {
       try { await this.chatwoot.sendMessage(conversationId, scheduledStartNote(scheduledNow), true); } catch {}
       await this.record(conversationId, "scheduled_start", { when: scheduledNow.when, text: scheduledNow.text });

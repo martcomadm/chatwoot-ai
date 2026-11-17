@@ -1,3 +1,4 @@
+import { clarifyNss } from "./nss-wording.js";
 import { NEED_MENU_TEXT } from "../sales/need-menu.js";
 
 const DOC_TIPS = {
@@ -281,7 +282,7 @@ export class FollowUpService {
         for (let k = 0; !hit && k < 3; k++) { slot = `followup:plan:${k}`; hit = this.experiments?.apply?.(slot, id, text, { nombre: memory.primer_nombre || memory.nombre || "" }); }
         if (hit) text = hit.text;
         const experiments = hit?.experiment ? { ...(memory.experiments || {}), [hit.experiment]: memory.experiments?.[hit.experiment] || { variant: hit.variant, at: now.toISOString(), slot } } : memory.experiments;
-        await this.chatwoot.sendMessage(id, text);
+        await this.chatwoot.sendMessage(id, clarifyNss(text));
         await this.memories.set(id, { ...memory, ...(experiments ? { experiments } : {}), ultima_respuesta_agente: text, ultima_pregunta: null, followups_sent: [...new Set([...used, original, text])] });
         const { conversationId: _omit, ...stored } = entry;
         this.store.set(id, { ...stored, sent: Number(entry.sent || 0) + 1, last_sent_at: now.toISOString(), texts: [...(entry.texts || []), text.replace(/\s+/g, " ").trim()] });

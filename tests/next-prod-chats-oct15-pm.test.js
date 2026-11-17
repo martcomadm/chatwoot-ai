@@ -65,7 +65,8 @@ test("la respuesta de la IA que menciona los requisitos se envía tal cual", asy
   const reply = "Con 1,400 semanas ya tienes una base importante. Con el Plan 1 sigues sumando semanas; para iniciar necesitamos CURP, NSS e INE del titular. ¿Quieres que iniciemos tu trámite?";
   const t = processor({ memory: { presentacion_realizada: true, nombre: "Ana Lopez", edad: 56, actividad: "comerciante", commercial_need: { weeks: true }, sales_cycle: { pitched_plans: ["plan_1"], explained_plans: ["plan_1"] }, ultima_respuesta_agente: "x" }, text: "Tengo alrededor de 1400 semanas cotizadas pero hace 8 años que no cotizo constantemente", generated: { reply, question_key: null } });
   await t.run();
-  assert.deepEqual(t.sent, [reply]);
+  // 17-nov: al salir, "NSS" se acompaña de "número de seguridad social".
+  assert.deepEqual(t.sent, [reply.replace("NSS", "número de seguridad social (NSS)")]);
 });
 
 test("'Todo' a la pregunta de necesidad recomienda el Plan 2", async () => {

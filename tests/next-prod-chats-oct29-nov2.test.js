@@ -105,10 +105,10 @@ test("confirmado 2-nov: empresa asignada al afiliarse; revisión de semanas con 
     await p.process(5, { ids: ["1"], webhookMessages: new Map([["1", m]]) });
     return state;
   })();
-  assert.equal(routed.length, 1);
-  assert.match(sent.sent[0], /equipo de Captura/);
-  assert.match(sent.notes[0], /^MÍA → CAPTURA/);
-  assert.equal(sent.memory.handoff.agent_name, "Ana");
+  // 17-nov (pedido de Dirección): ya no se pasa con Captura; Mia sigue la conversación y pregunta por su caso.
+  assert.equal(routed.length, 0);
+  assert.match(sent.sent[0], /hace cuánto dejaste de cotizar/);
+  assert.equal(sent.memory.handoff?.agent_name, undefined);
   void original;
 });
 
@@ -134,5 +134,8 @@ test("no pasa a Captura en el primer mensaje ni con el botón del anuncio", asyn
   assert.equal(ad.routed.length, 0);
   assert.match(ad.sent[0], /hace cuánto dejaste de cotizar/);
   assert.equal((await run("Quiero saber cuántas semanas tengo", {})).routed.length, 0, "primer mensaje: primero diagnóstico");
-  assert.equal((await run("Quiero saber cuántas semanas tengo", { ultima_respuesta_agente: "¿Hace cuánto dejaste de cotizar?" })).routed.length, 1);
+  assert.equal((await run("Quiero saber cuántas semanas tengo", { ultima_respuesta_agente: "¿Hace cuánto dejaste de cotizar?" })).routed.length, 0, "17-nov: tampoco después");
+  const option = await run("Quiero revisar mis semanas.", {});
+  assert.equal(option.routed.length, 0);
+  assert.match(option.sent[0], /hace cuánto dejaste de cotizar/);
 });
