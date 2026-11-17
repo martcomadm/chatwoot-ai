@@ -478,16 +478,8 @@ export function buildDetail({ facts, sales, local, from, to, compareFrom, compar
     if (raw.startsWith("direct:") && inRange(e.timestamp)) { const k = raw.slice(7); directKeys.set(k, (directKeys.get(k) || 0) + 1); }
   }
 
-  // Prueba A/B del modo de Mia (17-nov): A = Mia completa, B = modo ligero; solo conversaciones nuevas.
-  const modes = [["A", "Mia completa (A)"], ["B", "Modo ligero (B)"]].map(([key, label]) => {
-    const list = cur.filter(f => f.experiments.some(e => e.slot === "mia_mode" && e.variant === key));
-    const c = funnelCounts(list, saleOf);
-    return { key, label, ...c, reply_rate: pct(c.contestaron, c.nuevas), conversion: pct(c.aceptaron, c.nuevas), close_rate: pct(c.aceptaron, c.cierre) };
-  }).filter(r => r.nuevas);
-
   return {
     funnel,
-    modes,
     ads,
     weekday: conversionList(cur, f => WEEKDAYS[local(f.first_at).weekday], null, WEEKDAYS),
     hour_block: conversionList(cur, blockOf, null, HOUR_BLOCKS.map(b => b[2])),

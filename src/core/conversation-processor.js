@@ -51,7 +51,6 @@ import { isAudioAttachment } from "../ai/audio.js";
 import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT, ONBOARDING_DECLINED_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { clarifyNss } from "./nss-wording.js";
-import { assignMiaMode, isLightMode } from "./mia-mode.js";
 import { fixCommonTypos } from "../semantic/typos.js";
 import { customerResumeAt } from "./follow-up.js";
 import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT, acceptsCallOffer, callOfferReply } from "./human-request.js";
@@ -584,11 +583,6 @@ export class ConversationProcessor {
     // Pruebas A/B: el cliente contestó después de recibir una versión.
     const pendingExperiments = Object.entries(base.experiments || {}).filter(([, e]) => e && !e.replied_at);
     if (pendingExperiments.length) base = { ...base, experiments: { ...base.experiments, ...Object.fromEntries(pendingExperiments.map(([id, e]) => [id, { ...e, replied_at: new Date().toISOString() }])) } };
-    // Prueba A/B del modo ligero (17-nov): se asigna una sola vez, al primer mensaje de una conversación nueva.
-    {
-      const assigned = assignMiaMode(base, conversationId, { share: this.miaLightShare ?? this.config?.ai?.lightShare ?? 0 });
-      if (assigned !== base) { base = assigned; await this.record(conversationId, "mia_mode_assigned", { mode: base.mia_mode }); }
-    }
     // Si la memoria aún dice "en trámite" con un expediente cancelado, se atiende como prospecto.
     if (cancelledSale && (base.sales_cycle?.authorized || base.operations?.sale_id)) {
       base = memoryAfterCancellation(base);
@@ -930,42 +924,37 @@ export class ConversationProcessor {
     // Reactivación (5-nov): "sí" a una plantilla → recordatorio del plan con cierre, o el menú si no hay plan.
     const reactivationReply = mediaDecision || adOpening ? null : reactivationReplyDecision(base, combinedText);
     const noContactDecision = asksNoContact(combinedText) && !base.sales_cycle?.authorized ? { reply: "Entendido, ya no te enviaremos mensajes. Si más adelante quieres información sobre tu afiliación al IMSS, escríbenos por aquí y con gusto te ayudamos.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" } : null;
-    // Modo ligero (prueba A/B, 17-nov): solo las protecciones esenciales; lo demás lo contesta la IA.
-    const L = isLightMode(memory) || isLightMode(base);
     if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
     else if (noContactDecision) decision = protectDeterministicDecision(noContactDecision, "no_contact");
-    else if (L && memory.sales_cycle?.authorized && onboardingDecision?.priority) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
-    else if (L && commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
-    else if (L && memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
-    else if (adOpening && !L) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
-    else if (!L && reactivationReply) decision = protectDeterministicDecision(reactivationReply, "reactivation_reply");
-    else if (!L && teamDecision) {
+    else if (adOpening) decision = protectDeterministicDecision(adOpening, `ad_opening:${adOpening.ad_opening}`);
+    else if (reactivationReply) decision = protectDeterministicDecision(reactivationReply, "reactivation_reply");
+    else if (teamDecision) {
       decision = protectDeterministicDecision(teamDecision, `team_answer:${teamMatch.id}`);
       memory = { ...memory, team_answers_sent: [...new Set([...(memory.team_answers_sent || []), teamMatch.id])].slice(-20) };
     }
-    else if (!L && creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
-    else if (!L && featureRejection) {
+    else if (creditDecision) decision = protectDeterministicDecision(creditDecision, "infonavit_credit");
+    else if (featureRejection) {
       decision = protectDeterministicDecision(featureRejection, "feature_rejection");
       // El plan que quedó tras descartar INFONAVIT/AFORE manda en los siguientes mensajes (5-nov: el respaldo
       // volvió a ofrecer el Plan 2 a quien acababa de decir "no me interesa infonavit").
       if (featureRejection.plan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), last_plan: featureRejection.plan, recommended_plan: featureRejection.plan }, commercial_need: { ...(memory.commercial_need || {}), afore_infonavit: featureRejection.plan === "plan_2" } };
     }
-    else if (!L && deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
-    else if (!L && caseDiagnosis) decision = protectDeterministicDecision(caseDiagnosis, `case_diagnosis:${caseDiagnosis.case_diagnosis}`);
-    else if (!L && priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
-    else if (!L && medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
-    else if (!L && memory.sales_cycle?.authorized && onboardingDecision?.priority) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
-    else if (!L && directDecision) decision = directDecision;
-    else if (!L && contextualExplanation) decision = protectDeterministicDecision(contextualExplanation, "contextual_plan_explanation");
-    else if (!L && coverageFollowUp) decision = protectDeterministicDecision(coverageFollowUp, "coverage_and_requirements");
-    else if (!L && commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
-    else if (!L && memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
-    else if (!L && openingDecision && !advisoryTurn) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
-    else if (!L && needDecision && !advisoryTurn) {
+    else if (deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
+    else if (caseDiagnosis) decision = protectDeterministicDecision(caseDiagnosis, `case_diagnosis:${caseDiagnosis.case_diagnosis}`);
+    else if (priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
+    else if (medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
+    else if (memory.sales_cycle?.authorized && onboardingDecision?.priority) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
+    else if (directDecision) decision = directDecision;
+    else if (contextualExplanation) decision = protectDeterministicDecision(contextualExplanation, "contextual_plan_explanation");
+    else if (coverageFollowUp) decision = protectDeterministicDecision(coverageFollowUp, "coverage_and_requirements");
+    else if (commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
+    else if (memory.sales_cycle?.authorized && onboardingDecision) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
+    else if (openingDecision && !advisoryTurn) decision = protectDeterministicDecision(openingDecision, "progressive_opening");
+    else if (needDecision && !advisoryTurn) {
       decision = protectDeterministicDecision(needDecision, needDecision.plans_overview ? "need_plans_overview" : "need_discovery");
       if (!needDecision.plans_overview) memory = { ...memory, need_discovery_asks: (memory.need_discovery_asks || 0) + 1 };
     }
-    else if (!L && compactRecommendation && !advisoryTurn) decision = protectDeterministicDecision(compactRecommendation, "compact_plan_recommendation");
+    else if (compactRecommendation && !advisoryTurn) decision = protectDeterministicDecision(compactRecommendation, "compact_plan_recommendation");
     else {
       // Modelo avanzado (9-nov) solo para los mensajes difíciles; sin OPENAI_MODEL_STRONG todo va con el normal.
       hardTurn = this.ai?.strongModel?.() ? hardTurnReason({ text: combinedText, memory: base, frustrated: Boolean(patience?.state) }) : null;
@@ -993,13 +982,13 @@ export class ConversationProcessor {
       decision = enforcePreAuthorizationDecision(decision, { memory, planner, combinedText, fallbackDecision });
       if (decision?.reply !== before) replacedReasons.push("pidio_curp_nss_antes_de_autorizar");
       const beforeNeed = decision?.reply;
-      if (!L) decision = suppressRecommendationWithoutNeed(decision, memory, combinedText);
+      decision = suppressRecommendationWithoutNeed(decision, memory, combinedText);
       if (decision?.reply !== beforeNeed) replacedReasons.push("recomendo_plan_sin_necesidad");
     };
     const applyDisclosureGuard = () => {
       if (isDeterministicDecision(decision)) return [];
       const reasons = disclosureViolations(decision?.reply, { memory, combinedText });
-      if (reasons.length && !L && openingDecision && !directDecision && !commitment) { decision = protectDeterministicDecision(openingDecision, "progressive_opening"); replacedReasons.push(...reasons); }
+      if (reasons.length && openingDecision && !directDecision && !commitment) { decision = protectDeterministicDecision(openingDecision, "progressive_opening"); replacedReasons.push(...reasons); }
       return reasons;
     };
     if (memory.sales_cycle?.authorized && decision) {
@@ -1044,7 +1033,7 @@ export class ConversationProcessor {
     }
     // Dos objeciones seguidas (precio, confianza, "lo pienso"…): se ofrece la llamada en ese momento, una vez
     // (9-nov, punto 4; antes solo en el seguimiento de 20 h).
-    const objection = !L && /^(?:price_objection|direct:(?:trust|legitimacy|other_price|drop_guarantee|not_free)|customer_deferral)$/.test(decisionSource) && !deferral?.schedule_offer && !deferral?.weekend_offer && deferral?.deferral !== "start_later";
+    const objection = /^(?:price_objection|direct:(?:trust|legitimacy|other_price|drop_guarantee|not_free)|customer_deferral)$/.test(decisionSource) && !deferral?.schedule_offer && !deferral?.weekend_offer && deferral?.deferral !== "start_later";
     const objectionStreak = objection ? (Number(memory.objection_streak) || 0) + 1 : 0;
     memory = { ...memory, objection_streak: objectionStreak };
     if (objection && objectionStreak >= 2 && !memory.early_call_offer_at && !memory.sales_cycle?.authorized && String(decision?.reply || "").trim()) {
@@ -1062,8 +1051,8 @@ export class ConversationProcessor {
     const expPlan = memory.sales_cycle?.selected_plan || memory.sales_cycle?.last_plan || memory.sales_cycle?.recommended_plan || null;
     const experimentVars = { nombre: memory.primer_nombre || memory.nombre || "", plan: expPlan === "plan_2" ? "Plan 2" : expPlan === "plan_1" ? "Plan 1" : null };
     let experimentSlot = decisionSource;
-    let experimentHit = L ? null : this.experiments?.apply?.(decisionSource, conversationId, decision?.reply, experimentVars);
-    if (!L && !experimentHit && deferral?.deferral) { experimentSlot = `${decisionSource}:${deferral.deferral}`; experimentHit = this.experiments?.apply?.(experimentSlot, conversationId, decision?.reply, experimentVars); }
+    let experimentHit = this.experiments?.apply?.(decisionSource, conversationId, decision?.reply, experimentVars);
+    if (!experimentHit && deferral?.deferral) { experimentSlot = `${decisionSource}:${deferral.deferral}`; experimentHit = this.experiments?.apply?.(experimentSlot, conversationId, decision?.reply, experimentVars); }
     if (experimentHit) {
       decision = { ...decision, reply: experimentHit.text };
       if (experimentHit.experiment) memory = { ...memory, experiments: { ...(memory.experiments || {}), [experimentHit.experiment]: memory.experiments?.[experimentHit.experiment] || { variant: experimentHit.variant, at: new Date().toISOString(), slot: experimentSlot } } };
