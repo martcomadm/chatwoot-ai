@@ -1,18 +1,20 @@
-// Prueba A/B "modo ligero" (17-nov, pedido de Dirección). Las conversaciones NUEVAS se reparten de forma estable:
+// "Mia libre" (17-nov, pedido de Dirección): una Mia con menos restricciones atiende una parte de las conversaciones
+// NUEVAS para probar si vende mejor. El reparto es estable por conversación:
 //  - "full" (versión A): Mia como está, con todas sus reglas y respuestas fijas.
-//  - "light" (versión B): la IA contesta con el conocimiento de MARTCOM y solo quedan las protecciones esenciales
+//  - "light" (versión B, Mia libre): la IA contesta con el conocimiento de MARTCOM y solo quedan las protecciones esenciales
 //    (notas de voz/archivos, "no me escriban", pases a una persona, aceptación y expediente, revisión de calidad de la
 //    IA —precios y datos inventados— y el aviso de crédito INFONAVIT con el Plan 2).
-// MIA_LIGHT_SHARE = % de conversaciones nuevas en modo ligero (0 apaga la prueba; por defecto 50).
+// MIA_LIBRE_SHARE = % de conversaciones nuevas para Mia libre (0 la apaga; por defecto 20). Sus expedientes los
+// trabajan solo quienes tienen el permiso "Mia libre" (Captura y las demás áreas no los ven).
 // Las conversaciones que ya existían siguen igual (sin modo asignado = completo).
 import crypto from "node:crypto";
 
 export const MIA_MODE_EXPERIMENT = "mia_mode_v1";
-export const MIA_MODE_LABELS = { full: "Mia completa (A)", light: "Modo ligero (B)" };
+export const MIA_MODE_LABELS = { full: "Mia normal", light: "Mia libre" };
 
 export function lightShare(env = process.env) {
-  const n = Number(env?.MIA_LIGHT_SHARE ?? 50);
-  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+  const n = Number(env?.MIA_LIBRE_SHARE ?? 20);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 20;
 }
 
 export function modeBucket(conversationId) {

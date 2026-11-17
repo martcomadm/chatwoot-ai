@@ -86,6 +86,7 @@ export class SaleStore extends EventEmitter {
     const timestamp = now();
     const sale = {
       sale_id: saleId,
+      ...(input.origin === "mia_libre" ? { origin: "mia_libre" } : {}),
       conversation_id: Number(input.conversation_id || 0) || null,
       contact_id: Number(input.contact_id || 0) || null,
       customer: { nombre: input.customer?.nombre || null, telefono: input.customer?.telefono || null, edad: input.customer?.edad ?? null, actividad: input.customer?.actividad || null, curp: input.customer?.curp || null, nss: input.customer?.nss || null },

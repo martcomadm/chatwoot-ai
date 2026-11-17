@@ -24,6 +24,7 @@
   --area-atencion: #7a4f9c;
   --area-admin: #59636f;
   --area-chats: #7a4fc4;
+  --area-mia_libre: #b5446e;
   --area-respuestas: #1f8a6d;
 
   --font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -60,6 +61,7 @@
     --area-atencion: #c3a3dc;
     --area-admin: #a9b3be;
     --area-chats: #b394ec;
+    --area-mia_libre: #ec8fb1;
     --area-respuestas: #5fcca9;
     --shadow-panel: -12px 0 32px rgba(0, 0, 0, 0.45);
     color-scheme: dark;
@@ -537,3 +539,13 @@ dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; mar
 .note-row.unread .note-main strong { font-weight: 700; }
 .note-row:not(.unread) .note-main strong { font-weight: 600; }
 @media (max-width: 640px) { .note-row { grid-template-columns: auto 1fr; } .note-row small { grid-column: 2; } }
+
+/* Mia libre (17-nov) */
+.libre-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 0 0 16px; background: var(--surface, transparent); }
+.libre-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-bottom: 10px; }
+.libre-head h2, .libre-chats-title { font-size: 16px; margin: 0; }
+.libre-chats-title { margin: 8px 0 10px; }
+.libre-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.libre-table th, .libre-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.libre-table thead th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.libre-card .tscroll { overflow-x: auto; }

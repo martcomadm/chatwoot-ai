@@ -14,8 +14,8 @@ test("solo conversaciones nuevas reciben modo; el reparto es estable y respeta e
   assert.equal(assignMiaMode({ ultima_respuesta_agente: "Hola" }, 7, { share: 100 }).mia_mode, undefined, "chat que ya existía");
   assert.equal(assignMiaMode({}, 7, { share: 0 }).mia_mode, undefined, "0 apaga la prueba");
   assert.equal(assignMiaMode({ mia_mode: "full" }, 7, { share: 100 }).mia_mode, "full", "no cambia de modo");
-  assert.equal(lightShare({ MIA_LIGHT_SHARE: "30" }), 30);
-  assert.equal(lightShare({}), 50);
+  assert.equal(lightShare({ MIA_LIBRE_SHARE: "30" }), 30);
+  assert.equal(lightShare({}), 20);
 });
 
 test("en modo ligero las reglas no contestan: responde la IA; 'no me escriban' sigue protegido", async () => {

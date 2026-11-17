@@ -414,13 +414,15 @@ export class MiaConsole {
   // ── Chats de Mia (Operations, pedido 3-nov) ──────────────────────
   // Todas las conversaciones que atiende la IA, con las señales de que se está perdiendo
   // la venta, para que Captura intervenga y trate de salvarla.
-  rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false, sort = "recent" } = {}) {
+  // libre: true = solo chats de Mia libre; false = sin ellos; null = todos (17-nov).
+  rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false, sort = "recent", libre = null } = {}) {
     const byConv = this.eventsByConversation();
     const since = now.getTime() - Math.max(1, Number(days) || 7) * DAY;
     const q = norm(search).toLowerCase();
     let items = [];
     for (const memory of this.allMemories()) {
       const id = Number(memory.id);
+      if (libre !== null && (memory.mia_mode === "light") !== Boolean(libre)) continue;
       const events = byConv.get(id) || [];
       const base = this.summarize(memory, events);
       if (ms(base.last_at) < since) continue;

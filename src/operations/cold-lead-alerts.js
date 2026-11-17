@@ -74,12 +74,12 @@ export class ColdLeadAlerts {
         const missing = (memory.operations?.documents_missing || []).map(k => DOC_LABEL[k] || k).join(", ");
         const saleId = memory.sale_id || memory.operations?.sale_id || null;
         await this.notifier?.notify?.(alertKind(memory) === "missing_docs" ? {
-          kind: "cold_lead", to, sale_id: saleId,
+          kind: "cold_lead", to, sale_id: saleId, conversation_id: id,
           title: "Aceptó iniciar pero no manda documentos",
           body: `${name} aceptó el ${label(planOf(memory))} y no contesta desde hace ${hours} h${missing ? ` · falta: ${missing}` : ""} · #${id}.`,
           url: saleId ? `/operations/sales/${encodeURIComponent(saleId)}` : `/operations?area=chats&chat=${id}`,
         } : {
-          kind: "cold_lead", to,
+          kind: "cold_lead", to, conversation_id: id,
           title: "Cliente interesado sin responder",
           body: `${name} vio el ${label(planOf(memory))} y no contesta desde hace ${hours} h · #${id}. Intervén desde Chats de Mia.`,
           url: `/operations?area=chats&chat=${id}`,

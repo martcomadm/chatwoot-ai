@@ -96,6 +96,11 @@ try {
   const opsNotifier = new OpsNotifier({ users: opsUsers, store: opsPush, settings: opsSettings, inbox: new NotificationInbox(path.join(config.storage.dataDir, "ops-notifications.json")), subject: process.env.OPS_VAPID_SUBJECT || "https://martcom-econtact.mx" });
   saleStore.on("sale", event => void opsNotifier.handleSaleEvent(event));
   opsNotifier.start(() => saleStore.list());
+  // 17-nov: Mia libre — sus avisos van solo a quienes tienen ese permiso.
+  opsNotifier.libre = {
+    saleIsLibre: id => saleStore.get(id)?.origin === "mia_libre",
+    chatIsLibre: id => memories.get(Number(id))?.mia_mode === "light",
+  };
   // Si Chatwoot no responde al arrancar (502 de EasyPanel mientras se levanta), se reintenta cada 10 min, hasta 12 veces.
   {
     let tries = 0;
@@ -159,6 +164,8 @@ try {
   workflowBridge.onCompletedSale = sale => customerService.openCase({ conversation_id: sale.conversation_id, kind: "completed_sale", reason: "Pago validado: trámite completado", sale });
   processor.onCustomerServiceCase = input => customerService.openCase(input);
   // Revisión de semanas: con los capturistas (2-nov).
+  // 17-nov: Mia libre — cuando el cliente necesita a una persona, se asigna por turnos a quienes tienen el permiso.
+  processor.libreHandoff = new CaptureReviewRouter({ users: opsUsers, chatwoot, notifier: opsNotifier, file: path.join(config.storage.dataDir, "mia-libre-rotation.json"), area: "mia_libre", title: "Mia libre: un cliente necesita a una persona", url: "/operations?area=mia_libre&chat={id}" });
   processor.captureReview = new CaptureReviewRouter({ users: opsUsers, chatwoot, notifier: opsNotifier, file: path.join(config.storage.dataDir, "capture-review-rotation.json") });
   processor.onCustomerServiceMessage = (conversationId, text, sale) => customerService.customerWrote(conversationId, text, { sale });
   // Reactivación de prospectos con plantillas aprobadas (5-nov). Apagada hasta encenderla en Operations.

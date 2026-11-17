@@ -218,6 +218,7 @@ export class ConversationProcessor {
   // call=true: el cliente pidió que le llamen → rotación de asesores. Si no, atención humana → su rotación
   // (Jaqueline, Erika y Brenda; Ricardo salió el 29-oct), si está configurada.
   async transfer(conversationId, conversation, reason, memory, { customerText = null, call = false } = {}) {
+    if (isLightMode(memory) && this.libreHandoff) return this.transferToMiaLibreTeam(conversationId, conversation, reason, memory, customerText || (call ? CALL_HANDOFF_TEXT : null));
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
     const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, summary, true);
@@ -250,8 +251,21 @@ export class ConversationProcessor {
     return routed;
   }
 
+  // Mia libre (17-nov): sus pases a una persona van a quienes tienen el permiso "Mia libre" (por turnos), no a
+  // Atención a Clientes ni a los asesores.
+  async transferToMiaLibreTeam(conversationId, conversation, reason, memory, customerText = null) {
+    await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
+    const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo: ${reason}`);
+    await this.chatwoot.sendMessage(conversationId, `MÍA LIBRE → EQUIPO MIA LIBRE\nMotivo: ${reason}\n\n${summary}`, true);
+    await this.chatwoot.sendMessage(conversationId, customerText || "Claro, le pido a una persona de nuestro equipo que continúe contigo por aquí. Ya le paso lo que platicamos para que no tengas que repetirlo; en un momento te atiende.");
+    const routed = await this.libreHandoff.route({ conversationId, reason, customer: { nombre: memory?.nombre || null } });
+    await this.record(conversationId, "mia_libre_handoff", { reason, agent: routed?.agent?.name || null, assigned: Boolean(routed?.assigned) });
+    return routed;
+  }
+
   // Handoff especializado: canaliza la conversación al equipo de Atención a Clientes.
   async transferToCustomerService(conversationId, conversation, reason, memory, specialized = {}, customerText = null) {
+    if (isLightMode(memory) && this.libreHandoff) return this.transferToMiaLibreTeam(conversationId, conversation, reason, memory, customerText);
     await this.labels.mergeSafe(conversationId, [this.config.ai.validationLabel], [], conversation);
     const summary = await this.safeAi(conversationId, "handoff_summary", () => this.ai.handoffSummary(conversation, reason, memory), `RESUMEN NO DISPONIBLE (falló la IA)\nMotivo de transferencia: ${reason}\nRevisa el historial de la conversación.`);
     await this.chatwoot.sendMessage(conversationId, `MÍA → ATENCIÓN A CLIENTES\nMotivo: ${reason}\n\n${summary}`, true);

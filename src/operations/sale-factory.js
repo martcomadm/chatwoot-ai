@@ -59,6 +59,8 @@ export function saleInputFromMemory({ conversationId, conversation = {}, memory 
       curp: memory.curp_valor || null,
       nss: memory.nss_valor || null,
     },
+    // 17-nov: la venta la cerró Mia libre → la trabajan solo quienes tienen ese permiso.
+    origin: memory.mia_mode === "light" ? "mia_libre" : null,
     sale: {
       plan,
       precio: planPrice(plan),

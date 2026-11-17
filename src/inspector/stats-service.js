@@ -479,7 +479,7 @@ export function buildDetail({ facts, sales, local, from, to, compareFrom, compar
   }
 
   // Prueba A/B del modo de Mia (17-nov): A = Mia completa, B = modo ligero; solo conversaciones nuevas.
-  const modes = [["A", "Mia completa (A)"], ["B", "Modo ligero (B)"]].map(([key, label]) => {
+  const modes = [["A", "Mia normal"], ["B", "Mia libre"]].map(([key, label]) => {
     const list = cur.filter(f => f.experiments.some(e => e.slot === "mia_mode" && e.variant === key));
     const c = funnelCounts(list, saleOf);
     return { key, label, ...c, reply_rate: pct(c.contestaron, c.nuevas), conversion: pct(c.aceptaron, c.nuevas), close_rate: pct(c.aceptaron, c.cierre) };

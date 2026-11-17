@@ -47,7 +47,8 @@ export function weekendPending(memories = [], { since, until }) {
   const inWindow = at => { const t = Date.parse(at || ""); return Number.isFinite(t) && t >= since && t < until; };
   const out = [];
   for (const m of memories) {
-    if (!m?.id || Date.parse(m.weekend_digest_at || "") >= until || m.capture_intervention?.active || m.no_contact || m.mia_omitted?.active) continue;
+    // 17-nov: los de Mia libre no van en el resumen de Captura (les llegan a quienes tienen ese permiso).
+    if (!m?.id || m.mia_mode === "light" || Date.parse(m.weekend_digest_at || "") >= until || m.capture_intervention?.active || m.no_contact || m.mia_omitted?.active) continue;
     const c = m.sales_cycle || {};
     let reason = null;
     if (c.authorized && inWindow(c.authorized_at) && !m.operations?.documents_complete) reason = c.scheduled_start ? `aceptó con fecha (${c.scheduled_start.when})` : "aceptó iniciar; faltan documentos";
@@ -97,7 +98,7 @@ export class HotLeadAlerts {
     const plan = planLabel(memory);
     const quote = String(text || "").replace(/\s+/g, " ").trim().slice(0, 140);
     await this.notifier?.notify?.({
-      kind: "hot_lead", to,
+      kind: "hot_lead", to, conversation_id: id,
       title: "Cliente listo para comprar",
       body: `${name}${plan ? ` (${plan})` : ""}: ${reason.toLowerCase()} · "${quote}" · #${id}. Escríbele o llámale ahora desde Chats de Mia.`,
       url: `/operations?area=chats&chat=${id}`,

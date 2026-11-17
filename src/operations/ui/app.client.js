@@ -15,6 +15,7 @@ const STAGES = [["capture", "Captura"], ["validation", "Validación"], ["validit
 
 const AREA_INTRO = {
   respuestas: "Enséñale a Mia sin esperar un despliegue: lo que guardes aquí lo usa desde el siguiente mensaje. Si pones frases del cliente, cuando un mensaje las contenga Mia contesta con tu texto exacto.",
+  mia_libre: "Mia con menos restricciones atiende una parte de los chats nuevos. Aquí ves cómo le va contra Mia normal, sus chats y sus expedientes: los trabajan solo quienes tienen este permiso.",
   chats: "Todas las conversaciones que atiende Mia. Si ves un chat que se está perdiendo, intervén: el chat pasa a ti en Chatwoot y Mia deja de contestar hasta que lo regreses.",
   atencion: "Clientes con su trámite completado, casos que Mia canaliza y clientes activos que vuelven a escribir. Se asignan por turnos.",
   observador: "Sigue en qué etapa va cada venta, de Captura a Cobranza. Solo lectura: puedes ver los expedientes, pero no modificarlos.",
@@ -403,7 +404,7 @@ async function start() {
   await renderView();
   if (state.saleId) await openSale(state.saleId, { push: false });
   if (params.get("case")) await openCase(params.get("case"));
-  if (params.get("chat") && state.view === "chats") await openMiaChat(params.get("chat"));
+  if (params.get("chat") && (state.view === "chats" || state.view === "mia_libre")) await openMiaChat(params.get("chat"));
   startEvents();
 }
 
@@ -513,6 +514,7 @@ async function renderView() {
   if (state.view === "observador") return renderObserver(view);
   if (state.view === "atencion") return renderCustomerService(view);
   if (state.view === "chats") return renderMiaChats(view);
+  if (state.view === "mia_libre") return renderMiaChats(view, { libre: true });
   if (state.view === "respuestas") return renderMiaAnswers(view);
   if (state.view === "notificaciones") return renderNotifications(view);
   if (state.view === "admin") return renderAdmin(view);
@@ -695,7 +697,7 @@ function readOnlyFor(sale) {
   return areas.includes("observador") && !hasArea("supervision") && !(QUEUE_AREA[sale.queue] && hasArea(QUEUE_AREA[sale.queue]));
 }
 
-function canAct(sale, area) { return sale.queue === AREA_QUEUE[area] && hasArea(area); }
+function canAct(sale, area) { return sale.queue === AREA_QUEUE[area] && (sale.origin === "mia_libre" ? Boolean(state.me.can.libre) : hasArea(area)); }
 
 // ── Acciones del expediente (rediseño 11-nov) ─────────────────────────────
 // El paso que sigue va arriba, grande; lo demás se agrupa por para qué sirve, con ícono y una línea de ayuda.
@@ -909,7 +911,7 @@ function renderPanel() {
         <div class="top">
           <div>
             <h2 id="panel-title">${esc(c.nombre || "Cliente sin nombre")}</h2>
-            <div class="folio mono">${esc(sale.sale_id)}</div>
+            <div class="folio mono">${esc(sale.sale_id)}${sale.origin === "mia_libre" ? ` <span class="tag area" style="--area:${areaVar("mia_libre")}">Mia libre</span>` : ""}</div>
           </div>
           <button class="btn quiet" data-act="close-panel" aria-label="Cerrar expediente">Cerrar</button>
         </div>
@@ -1562,14 +1564,34 @@ function scoreChip(score) {
   return `<span class="tag score ${tone}" title="${esc((score.reasons || []).join(" · "))}">${score.level === "accepted" ? "Aceptó" : `Prob. ${esc(score.label)} · ${score.score}`}</span>`;
 }
 
-async function renderMiaChats(view) {
-  view.style.setProperty("--area", areaVar("chats"));
+async function libreSummaryHtml() {
+  let summary = null, sales = [];
+  try { [summary, sales] = await Promise.all([api(`/operations/api/mia-libre/summary?days=${state.miaDays}`), api("/operations/api/sales?origin=mia_libre").then(r => r.items || [])]); }
+  catch (error) { return `<div class="empty"><strong>No se pudo cargar el resumen</strong>${esc(error.message)}</div>`; }
+  const pctv = v => (v === null || v === undefined ? "—" : `${v}%`);
+  const modes = summary.modes || [];
+  const rowsM = modes.length ? modes.map(m => `<tr><th scope="row">${esc(m.label)}</th><td data-label="Chats"><b>${m.nuevas}</b></td><td data-label="Conversión"><b>${pctv(m.conversion)}</b></td><td data-label="Aceptaron"><b>${m.aceptaron}</b></td><td data-label="Contestaron">${pctv(m.reply_rate)}</td><td data-label="Precio">${m.precio}</td><td data-label="Pregunta de cierre">${m.cierre}</td><td data-label="Documentos">${m.documentos}</td><td data-label="A persona">${m.a_persona}</td></tr>`).join("") : `<tr><td colspan="9" class="muted">Todavía no hay chats nuevos repartidos en este periodo.</td></tr>`;
+  const active = sales.filter(s => !["completed", "cancelled", "dropped"].includes(s.queue));
+  return `<section class="libre-card">
+      <div class="libre-head"><h2>Mia normal contra Mia libre</h2><span class="muted small">chats nuevos de ${esc(summary.from)} a ${esc(summary.to)} · Mia libre recibe ${summary.share}% de los chats nuevos</span></div>
+      <div class="tscroll"><table class="libre-table"><thead><tr><th scope="col">Versión</th><th scope="col">Chats</th><th scope="col">Conversión</th><th scope="col">Aceptaron</th><th scope="col">Contestaron</th><th scope="col">Precio</th><th scope="col">Pregunta de cierre</th><th scope="col">Documentos</th><th scope="col">A persona</th></tr></thead><tbody>${rowsM}</tbody></table></div>
+      <p class="muted small">Mia normal recibe más chats; compara la conversión (%), no el número. Con pocas ventas, espera al menos 100 chats de Mia libre antes de decidir.</p>
+    </section>
+    <section class="libre-card">
+      <div class="libre-head"><h2>Expedientes de Mia libre</h2><span class="muted small">${active.length} en proceso · ${sales.length} en total · solo los ve quien tiene el permiso</span></div>
+      ${sales.length ? `<div class="queue" role="table" aria-label="Expedientes de Mia libre">${saleRows(sales, { showArea: true })}</div>` : `<div class="empty"><strong>Sin expedientes todavía</strong>Cuando un cliente de Mia libre acepte iniciar, su expediente aparece aquí.</div>`}
+    </section>
+    <h2 class="libre-chats-title">Chats de Mia libre</h2>`;
+}
+
+async function renderMiaChats(view, { libre = false } = {}) {
+  view.style.setProperty("--area", areaVar(libre ? "mia_libre" : "chats"));
   state.miaFilter = state.miaFilter || "risk";
   state.miaDays = state.miaDays || 7;
   state.miaSort = state.miaSort || "score";
   let result;
   state.miaPage = state.miaPage || 1;
-  try { result = await api(`/operations/api/mia-chats?filter=${encodeURIComponent(state.miaFilter)}&days=${state.miaDays}&page=${state.miaPage}&sort=${state.miaSort}&q=${encodeURIComponent(state.filter.search || "")}`); }
+  try { result = await api(`/operations/api/mia-chats?filter=${encodeURIComponent(state.miaFilter)}&days=${state.miaDays}&page=${state.miaPage}&sort=${state.miaSort}&q=${encodeURIComponent(state.filter.search || "")}${libre ? "&libre=1" : ""}`); }
   catch (error) { view.innerHTML = `<div class="empty"><strong>No se pudieron cargar los chats</strong>${esc(error.message)}</div>`; return; }
   state.miaChats = result.items || [];
   state.miaPage = result.page || 1;
@@ -1591,12 +1613,13 @@ async function renderMiaChats(view) {
       <span>${esc(sinceLabel(c.last_at))}</span>
     </button>`).join("") : `<div class="empty"><strong>Sin chats</strong>No hay conversaciones con este filtro.</div>`;
   setViewHtml(view, `
-    ${pageHead("chats", "Chats de Mia", AREA_INTRO.chats, `<p class="muted" style="margin:0">${plural(counts.all || 0, "conversación", "conversaciones")} en ${state.miaDays} días</p>`)}
+    ${libre ? pageHead("mia_libre", "Mia libre", AREA_INTRO.mia_libre, `<p class="muted" style="margin:0">${plural(counts.all || 0, "conversación", "conversaciones")} de Mia libre en ${state.miaDays} días</p>`) : pageHead("chats", "Chats de Mia", AREA_INTRO.chats, `<p class="muted" style="margin:0">${plural(counts.all || 0, "conversación", "conversaciones")} en ${state.miaDays} días</p>`)}
+    ${libre ? await libreSummaryHtml() : ""}
     <div class="toolbar">
       <div class="segmented" role="group">${MIA_FILTERS.map(([k, l]) => `<button data-mia-filter="${k}" aria-pressed="${state.miaFilter === k}">${esc(l)}${counts[k] != null ? ` (${counts[k]})` : ""}</button>`).join("")}</div>
       <div class="segmented" role="group" aria-label="Orden">${[["score", "Más probables"], ["recent", "Más recientes"]].map(([k, l]) => `<button data-mia-sort="${k}" aria-pressed="${state.miaSort === k}">${l}</button>`).join("")}</div>
       <div class="segmented" role="group" aria-label="Periodo">${[[1, "Hoy"], [7, "7 días"], [30, "30 días"]].map(([d, l]) => `<button data-mia-days="${d}" aria-pressed="${state.miaDays === d}">${l}</button>`).join("")}</div>
-      <input class="input" type="search" data-search placeholder="${state.me.can.mia_phones ? "Buscar nombre, #, celular o texto" : "Buscar nombre, # o texto"}" value="${esc(state.filter.search || "")}" style="max-width:260px">
+      <input class="input" type="search" data-search placeholder="${state.me.can.mia_phones || libre ? "Buscar nombre, #, celular o texto" : "Buscar nombre, # o texto"}" value="${esc(state.filter.search || "")}" style="max-width:260px">
     </div>
     ${pager}
     <div class="queue" role="table" aria-label="Chats de Mia">${rows}</div>
@@ -1604,7 +1627,7 @@ async function renderMiaChats(view) {
 }
 
 // La lista se actualiza sola cada minuto mientras nadie tenga un diálogo abierto.
-setInterval(() => { if (state.view === "chats" && !document.querySelector("dialog[open]") && document.visibilityState === "visible" && document.activeElement?.matches?.("[data-search]") !== true) renderView(); }, 60000);
+setInterval(() => { if ((state.view === "chats" || state.view === "mia_libre") && !document.querySelector("dialog[open]") && document.visibilityState === "visible" && document.activeElement?.matches?.("[data-search]") !== true) renderView(); }, 60000);
 
 async function openMiaChat(id) {
   closePanel(false);
@@ -1625,13 +1648,16 @@ async function openMiaChat(id) {
   state.miaChatId = id;
   const mine = c.intervention && c.intervention.username === state.me.user.username;
   const buttons = [];
-  if (state.me.can.intervene && !c.intervention && !c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="intervene">Intervenir</button>`);
+  // 17-nov: en Mia libre, quien tiene el permiso puede intervenir y mandar mensaje.
+  const canI = state.me.can.intervene || (state.view === "mia_libre" && state.me.can.libre);
+  const canM = state.me.can.message || canI;
+  if (canI && !c.intervention && !c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="intervene">Intervenir</button>`);
   // 12-nov: un solo mensaje al cliente (por ejemplo, para corregir a Mia) sin quitarle el chat.
-  if (state.me.can.message && !c.intervention && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="message">Intervenir solo con mensaje</button>`);
+  if (canM && !c.intervention && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="message">Intervenir solo con mensaje</button>`);
   // Omitir (11-nov): Mia ya no le escribe ni lo mueve; sale de las listas.
-  if (state.me.can.intervene && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="omit">Omitir chat</button>`);
-  if (state.me.can.intervene && c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="unomit">Dejar de omitir</button>`);
-  if (state.me.can.intervene && c.intervention && (mine || state.me.can.supervise)) buttons.push(`<button class="btn small" data-mia-act="release">Regresar a Mia</button>`);
+  if (canI && !c.omitted) buttons.push(`<button class="btn small" data-mia-act="omit">Omitir chat</button>`);
+  if (canI && c.omitted) buttons.push(`<button class="btn small primary" data-mia-act="unomit">Dejar de omitir</button>`);
+  if (canI && c.intervention && (mine || state.me.can.supervise)) buttons.push(`<button class="btn small" data-mia-act="release">Regresar a Mia</button>`);
   const html = `
     <div class="scrim" id="scrim" data-act="close-case"></div>
     <aside class="panel" id="panel" style="--area:${areaVar("chats")}" role="dialog" aria-modal="false" aria-labelledby="panel-title">
@@ -2146,7 +2172,8 @@ async function initNotifications() {
     if (id) openSale(decodeURIComponent(id));
     const caseId = url?.searchParams.get("case");
     const chatId = url?.searchParams.get("chat");
-    if (chatId && state.me.areas.some(a => a.key === "chats")) { (state.view === "chats" ? openMiaChat(chatId) : go("chats").then(() => openMiaChat(chatId))); return; }
+    const chatView = url?.searchParams.get("area") === "mia_libre" ? "mia_libre" : "chats";
+    if (chatId && state.me.areas.some(a => a.key === chatView)) { (state.view === chatView ? openMiaChat(chatId) : go(chatView).then(() => openMiaChat(chatId))); return; }
     if (caseId) { if (state.view !== "atencion" && state.me.areas.some(a => a.key === "atencion")) go("atencion").then(() => openCase(caseId)); else openCase(caseId); }
   });
 }
@@ -2243,7 +2270,8 @@ async function openNotification(n) {
   const saleId = n.sale_id || url?.pathname.match(/^\/operations\/sales\/([^/]+)/)?.[1];
   if (saleId) return openSale(decodeURIComponent(saleId));
   const chatId = url?.searchParams.get("chat"), caseId = url?.searchParams.get("case"), area = url?.searchParams.get("area"), tab = url?.searchParams.get("tab");
-  if (chatId && has("chats")) { if (state.view !== "chats") await go("chats"); return openMiaChat(chatId); }
+  const chatView = area === "mia_libre" ? "mia_libre" : "chats";
+  if (chatId && has(chatView)) { if (state.view !== chatView) await go(chatView); return openMiaChat(chatId); }
   if (caseId && has("atencion")) { if (state.view !== "atencion") await go("atencion"); return openCase(caseId); }
   if (area && has(area)) { if (tab) state.answersTab = tab; if (state.view !== area) return go(area); return renderView(); }
   if (state.view === "notificaciones") renderView();
@@ -2292,7 +2320,8 @@ function handleNotify(n) {
     try {
       const note = new Notification(n.title || "MARTCOM Operations", { body: n.body || "", tag: n.sale_id ? `${n.sale_id}:${n.kind}` : undefined, icon: "/operations/pwa/icon-192.png" });
       const chatId = n.url ? new URL(n.url, location.origin).searchParams.get("chat") : null;
-      note.onclick = () => { window.focus(); if (n.sale_id) openSale(n.sale_id); else if (chatId) (state.view === "chats" ? openMiaChat(chatId) : go("chats").then(() => openMiaChat(chatId))); note.close(); };
+      const chatView = n.url && new URL(n.url, location.origin).searchParams.get("area") === "mia_libre" ? "mia_libre" : "chats";
+      note.onclick = () => { window.focus(); if (n.sale_id) openSale(n.sale_id); else if (chatId) (state.view === chatView ? openMiaChat(chatId) : go(chatView).then(() => openMiaChat(chatId))); note.close(); };
     } catch {}
   }
 }

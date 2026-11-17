@@ -6,7 +6,7 @@ const MIN = 60 * 1000;
 export function untakenAlerts(memories = [], { now = new Date(), afterMinutes = 15, maxHours = 6 } = {}) {
   const out = [];
   for (const m of memories) {
-    if (!m?.id || m.no_contact || m.mia_omitted?.active || m.capture_intervention?.active || m.service_sale?.active || m.handoff?.status) continue;
+    if (!m?.id || m.mia_mode === "light" || m.no_contact || m.mia_omitted?.active || m.capture_intervention?.active || m.service_sale?.active || m.handoff?.status) continue;
     const c = m.sales_cycle || {};
     const candidates = [
       m.hot_lead_alert?.at && !c.authorized ? { kind: "hot", at: m.hot_lead_alert.at, label: String(m.hot_lead_alert.reason || "listo para comprar").toLowerCase() } : null,
