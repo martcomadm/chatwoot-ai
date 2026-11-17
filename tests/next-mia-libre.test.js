@@ -74,3 +74,20 @@ test("en Mia libre, un pase a una persona va al equipo de Mia libre (no a Atenci
   assert.deepEqual(routed, [["libre", 5]]);
   assert.match(sent.at(-1), /persona de nuestro equipo|asesor/);
 });
+
+test("Mia libre no pasa a Atención a Clientes: ni al completar ni cuando el cliente vuelve a escribir", async () => {
+  const { CustomerService } = await import("../src/operations/customer-service/customer-service.js");
+  const handled = [];
+  const cs = Object.create(CustomerService.prototype);
+  cs.store = { openForConversation() { throw new Error("no debe abrir caso"); } };
+  cs.libre = { isLibre: (id, sale) => sale?.origin === "mia_libre" || id === 9, handle: async x => handled.push(x.kind) };
+  assert.equal(await cs.openCase({ conversation_id: 1, kind: "completed_sale", sale: { origin: "mia_libre", sale_id: "S1" } }), null);
+  assert.equal(await cs.openCase({ conversation_id: 9, kind: "returning" }), null);
+  assert.deepEqual(handled, ["completed_sale", "returning"]);
+  const { ChatwootWorkflowBridge } = await import("../src/operations/chatwoot-workflow-bridge.js");
+  const recorded = []; const teams = [];
+  const bridge = Object.create(ChatwootWorkflowBridge.prototype);
+  Object.assign(bridge, { customerServiceTeamId: 4, chatwoot: { async assignTeam(id, t) { teams.push([id, t]); } }, labels: { async finalizeForCustomerService() { teams.push("labels"); } }, record: async (id, type) => recorded.push(type) });
+  await bridge.completeHumanHandoff(1, { sale_id: "S1", origin: "mia_libre" });
+  assert.deepEqual(teams, []); assert.deepEqual(recorded, ["completed_mia_libre"]);
+});

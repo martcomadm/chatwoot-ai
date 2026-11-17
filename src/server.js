@@ -163,6 +163,15 @@ try {
   customerService.startChatwootSync({ teamId: config.operations.customerServiceTeamId, inboxId: config.chatwoot.inboxId, miaAgentId: config.chatwoot.agentId, extraAgentIds: (config.handoff.humanAgents || []).map(a => a.id) });
   workflowBridge.onCompletedSale = sale => customerService.openCase({ conversation_id: sale.conversation_id, kind: "completed_sale", reason: "Pago validado: trámite completado", sale });
   processor.onCustomerServiceCase = input => customerService.openCase(input);
+  // 17-nov: Mia libre — en lugar de Atención a Clientes, su equipo (por turnos; o solo aviso si el cliente vuelve a escribir).
+  customerService.libre = {
+    isLibre: (id, sale) => sale?.origin === "mia_libre" || memories.get(Number(id))?.mia_mode === "light",
+    handle: async ({ conversation_id, kind, reason, sale, customer }) => {
+      const nombre = sale?.customer?.nombre || customer?.nombre || memories.get(Number(conversation_id))?.nombre || "Cliente";
+      if (kind === "returning") return opsNotifier.notify({ kind: "customer", conversation_id, sale_id: sale?.sale_id || null, title: `${nombre} escribió por WhatsApp`, body: String(reason || "(adjunto)").slice(0, 160), url: `/operations?area=chats&chat=${conversation_id}` });
+      return processor.libreHandoff?.route({ conversationId: conversation_id, reason: kind === "completed_sale" ? "Pago validado: trámite completado" : reason || "", customer: { nombre } });
+    },
+  };
   // Revisión de semanas: con los capturistas (2-nov).
   // 17-nov: Mia libre — cuando el cliente necesita a una persona, se asigna por turnos a quienes tienen el permiso.
   processor.libreHandoff = new CaptureReviewRouter({ users: opsUsers, chatwoot, notifier: opsNotifier, file: path.join(config.storage.dataDir, "mia-libre-rotation.json"), area: "mia_libre", title: "Mia libre: un cliente necesita a una persona", url: "/operations?area=mia_libre&chat={id}" });

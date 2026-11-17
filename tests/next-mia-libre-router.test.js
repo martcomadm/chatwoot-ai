@@ -20,6 +20,9 @@ test("API de Mia libre: chats, expedientes, resumen y acciones solo con el permi
   users.create({ username: "axel.libre", name: "Axel", areas: ["mia_libre"], password: "clave-segura-123" });
   users.create({ username: "carla.captura", name: "Carla", areas: ["captura"], password: "clave-segura-123" });
   users.create({ username: "ana.admin", name: "Ana", areas: ["admin"], password: "clave-segura-123" });
+  users.create({ username: "vale.valida", name: "Vale", areas: ["validacion"], password: "clave-segura-123" });
+  users.create({ username: "cris.cobranza", name: "Cris", areas: ["cobranza"], password: "clave-segura-123" });
+  users.create({ username: "sofi.super", name: "Sofi", areas: ["supervision"], password: "clave-segura-123" });
   const memories = new MemoryStore(path.join(dir, "m.json"));
   const events = new InspectorEventStore(path.join(dir, "e.json"));
   await memories.merge(20, { nombre: "Libre", mia_mode: "light", sales_cycle: { stage: "explaining" } });
@@ -67,6 +70,16 @@ test("API de Mia libre: chats, expedientes, resumen y acciones solo con el permi
   assert.deepEqual((await axel("/operations/api/mia-chats?libre=1&filter=all")).body.items.map(c => c.id), [20]);
   assert.equal((await carla("/operations/api/mia-chats/20/conversation")).status, 403);
   assert.equal((await carla("/operations/api/mia-chats/20/intervene", {})).status, 403);
+
+  // Validación, Cobranza y Supervisión tampoco los ven, aunque el expediente avance a su etapa.
+  saleStore.update(libre.sale_id, { queue: "payment", status: "payment_pending" });
+  for (const u of ["vale.valida", "cris.cobranza", "sofi.super"]) {
+    const who = await as(u);
+    assert.ok(!(await who("/operations/api/sales")).body.items.some(s => s.sale_id === libre.sale_id), u);
+    assert.equal((await who(`/operations/api/sales/${libre.sale_id}`)).status, 403, u);
+  }
+  // No se manda a Atención a Clientes.
+  assert.equal((await axel(`/operations/api/sales/${libre.sale_id}/service`, { reason: "duda" })).status, 409);
 
   const summary = await axel("/operations/api/mia-libre/summary?days=7");
   assert.equal(summary.status, 200); assert.equal(summary.body.share, 20); assert.equal(summary.body.sales.total, 1);

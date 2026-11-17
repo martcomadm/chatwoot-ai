@@ -35,7 +35,7 @@ export class ChatwootWorkflowBridge{
     let failed=0;
     for(const sale of completed){
       const conversationId=Number(sale?.conversation_id||0);
-      if(!conversationId)continue;
+      if(!conversationId||sale?.origin==="mia_libre")continue;
       try{
         const conversation=await this.chatwoot.getConversation(conversationId);
         const rawLabels=conversation?.labels||conversation?.meta?.labels||[];
@@ -70,6 +70,8 @@ export class ChatwootWorkflowBridge{
     }
   }
   async completeHumanHandoff(conversationId,sale){
+    // 17-nov: Mia libre no pasa a Atención a Clientes al completar el trámite.
+    if(sale?.origin==="mia_libre"){await this.record(conversationId,"completed_mia_libre",{sale_id:sale.sale_id});return;}
     if(!this.customerServiceTeamId){await this.record(conversationId,"completed_handoff_skipped",{sale_id:sale.sale_id,reason:"customer_service_team_not_configured"});console.warn("NEXT completó expediente pero CUSTOMER_SERVICE_TEAM_ID no está configurado.");return;}
     try{
       await this.labels?.finalizeForCustomerService(conversationId);

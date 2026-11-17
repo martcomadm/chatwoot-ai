@@ -754,6 +754,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const sale = visibleSale(req, res);
     if (!sale) return;
     if (!canRequestCall(req.opsUser, sale)) return res.status(403).json({ error: "Solo el área que tiene el expediente o Supervisión pueden enviarlo a Atención a Clientes", code: "forbidden" });
+    if (isMiaLibreSale(sale)) return res.status(409).json({ error: "Los expedientes de Mia libre no pasan a Atención a Clientes", code: "mia_libre" });
     if (!customerService) return res.status(503).json({ error: "Atención a Clientes no disponible" });
     const reason = String(req.body?.reason || "").trim();
     if (!reason) return fail(res, new Error("Escribe por qué lo mandas a Atención a Clientes"));

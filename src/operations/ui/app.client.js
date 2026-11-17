@@ -810,7 +810,8 @@ function areaActions(sale) {
   // Solicitar llamada: el área que tiene el expediente o Supervisión, en cualquier etapa activa.
   if (!["completed", "cancelled", "dropped"].includes(sale.queue) && (canAct(sale, QUEUE_AREA[sale.queue]) || hasArea("supervision"))) {
     add("capture-call", "Solicitar llamada");
-    add("send-service", "Enviar a Atención a Clientes");
+    // 17-nov: los expedientes de Mia libre no pasan a Atención a Clientes.
+    if (sale.origin !== "mia_libre") add("send-service", "Enviar a Atención a Clientes");
   }
   return buttons;
 }
