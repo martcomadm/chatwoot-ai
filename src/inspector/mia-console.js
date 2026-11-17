@@ -16,6 +16,8 @@ const HOUR = 3600 * 1000;
 const NOTICE_RE = /^¡Gracias por escribir a MARTCOM! Nuestro horario de atención es/;
 const GENERIC_REPLY = "¿Me compartes un poco más sobre tu situación?";
 
+const DIRECT_LABELS = {"price": "¿Cuánto cuesta?", "payment_method": "¿Cómo / dónde se paga?", "fees": "¿Cobran algo aparte?", "requirements": "Requisitos", "process_time": "¿Cuánto tarda el alta?", "location": "¿Dónde están?", "legitimacy": "¿Es confiable?", "trust": "Confianza", "services": "¿Qué incluye?", "payment_frequency": "¿Cada cuándo se paga?", "payment_order": "¿Cuándo se paga?", "how_to_start": "¿Cómo empiezo?", "which_plan": "¿Qué plan me conviene?", "pay_to_imss": "¿Se paga al IMSS?", "preexisting": "Enfermedades previas", "min_weeks": "Semanas mínimas", "pension_general": "Pensión", "pension_amount": "¿Cuánto de pensión?", "modality_40": "Modalidad 40", "modality": "Modalidad 10", "business_hours": "Horario", "are_you_ai": "¿Eres un robot?", "identity": "¿Quién eres?", "what_is_martcom": "¿Qué es MARTCOM?", "beneficiary": "Beneficiarios", "check_weeks": "Revisar semanas", "weeks_status": "Mis semanas", "testimonials": "Testimonios", "office_visit": "Visitar oficina", "contact_channels": "Teléfono / contacto", "drop_guarantee": "Garantía si me dan de baja", "data_correction": "Corregir datos", "employed": "Ya trabajo", "nss_lookup": "Buscar mi NSS", "plan_2_contributions": "Aportaciones del Plan 2", "medical_access_scope": "Alcance del servicio médico", "invoice": "Factura", "financing": "Pagos / financiamiento", "higher_salary": "Salario más alto", "case_review": "Revisar mi caso", "daycare": "Guardería", "disability": "Incapacidad"};
+
 export const SOURCE_LABELS = {
   llm: "IA",
   llm_repair: "IA corregida",
@@ -739,7 +741,11 @@ export class MiaConsole {
   stats({ group, from, to, compareFrom, compareTo, now = new Date() } = {}) {
     const tests = this.testIds();
     const sales = (this.saleStore?.list?.() || []).filter(s => !tests.has(Number(s.conversation_id)));
-    return buildStats({ memories: this.allMemories(), eventsByConv: this.eventsByConversation(), sales, timezone: this.timezone(), group, from, to, compareFrom, compareTo, now });
+    const stats = buildStats({ memories: this.allMemories(), eventsByConv: this.eventsByConversation(), sales, timezone: this.timezone(), group, from, to, compareFrom, compareTo, now });
+    const GROUPED = { "direct:*": "Respuestas oficiales", "team_answer:*": "Respuestas del equipo", "commitment:*": "Regla · cierre de venta", "ad_opening:*": "Regla · apertura del anuncio", "case_diagnosis:*": "Regla · diagnóstico del caso" };
+    for (const r of stats.detail?.sources || []) r.label = GROUPED[r.key] || sourceLabel(r.key);
+    for (const r of stats.detail?.direct_answers || []) r.label = DIRECT_LABELS[r.key] || r.key.replace(/_/g, " ");
+    return stats;
   }
 
   // Tablero de impacto de las mejoras (5-nov).

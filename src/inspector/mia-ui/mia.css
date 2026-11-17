@@ -308,3 +308,17 @@ a { color: var(--focus); }
   .itable td { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border: 0; text-align: right; }
   .itable td::before { content: attr(data-label); color: var(--muted); text-align: left; }
 }
+
+/* Estadísticas a detalle (17-nov) */
+.addetail { border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; background: var(--surface, transparent); }
+.addetail > summary { cursor: pointer; padding: 10px 14px; font-size: 14px; list-style-position: inside; }
+.addetail[open] > summary { border-bottom: 1px solid var(--line); }
+.addetail > .cols2 { padding: 0 14px 14px; margin-top: 8px; }
+.addetail h3 { font-size: 13px; margin: 12px 0 6px; color: var(--muted); font-weight: 600; }
+.adtexts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.adtexts li { display: flex; justify-content: space-between; gap: 10px; }
+.adtexts li span { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .addetail > .cols2 { grid-template-columns: 1fr; } }
+.kpis.mini { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 12px; }
+.kpis.mini .kpi b { font-size: 22px; }
+.subh { font-size: 13px; margin: 16px 0 6px; color: var(--muted); font-weight: 600; }

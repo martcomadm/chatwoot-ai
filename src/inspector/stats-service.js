@@ -157,14 +157,31 @@ function ageGroup(age) {
 
 const planOf = m => { const p = m?.sales_cycle?.selected_plan || m?.sales_cycle?.recommended_plan; return p === "plan_2" ? "Plan 2" : p === "plan_1" ? "Plan 1" : "Sin plan"; };
 
+const PRICE_RE = /\$\s?1,?100|\$\s?1,?500/;
+const CLOSE_RE = /inici(?:emos|amos|ar) (?:con )?tu tr[aá]mite|empezamos con tu tr[aá]mite|te ayudo a iniciar/i;
+
 function conversationFacts(id, events, memory) {
   const replies = events.filter(e => e.type === "ai_reply_sent");
   const firstCustomer = events.find(e => e.details?.customer_text)?.details?.customer_text || "";
   const first = (types, extra = () => true) => events.find(e => types.includes(e.type) && extra(e))?.timestamp || null;
+  const customerTurns = replies.filter(e => e.details?.customer_text);
+  const authorizedAt = first(["authorized_sale_workflow"]);
+  const followups = events.filter(e => e.type === "followup_sent").map(e => e.timestamp);
+  const firstFollowup = followups[0] || null;
   return {
+    customer_turns: customerTurns.length,
+    turns_to_accept: authorizedAt ? customerTurns.filter(e => ms(e.timestamp) <= ms(authorizedAt)).length : null,
+    price_at: replies.find(e => PRICE_RE.test(String(e.details?.reply || "")))?.timestamp || null,
+    close_at: replies.find(e => CLOSE_RE.test(String(e.details?.reply || "")))?.timestamp || null,
+    first_text: String(firstCustomer).split(/\n+/)[0].trim().slice(0, 140),
+    tiene_imss: memory?.tiene_imss === true ? "si" : memory?.tiene_imss === false ? "no" : "sin_dato",
+    experiments: Object.values(memory?.experiments || {}).filter(e => e && e.slot && e.variant).map(e => ({ slot: String(e.slot), variant: String(e.variant) })),
+    followups,
+    replied_after_followup: Boolean(firstFollowup && customerTurns.some(e => ms(e.timestamp) > ms(firstFollowup))),
+    accepted_after_followup: Boolean(firstFollowup && authorizedAt && ms(authorizedAt) > ms(firstFollowup)),
     id,
     first_at: events[0]?.timestamp || memory?.actualizado_en || null,
-    authorized_at: first(["authorized_sale_workflow"]),
+    authorized_at: authorizedAt,
     documents_at: first(["authorized_sale_workflow", "operations_sale_ready"], e => e.details?.documents_complete === true),
     handoff_at: first(["handoff", "specialized_advice_handoff"]),
     entry: entryOf(firstCustomer),
@@ -348,9 +365,140 @@ export function buildStats({ memories = [], eventsByConv = new Map(), sales = []
       deferral: countBy(activeIn.filter(f => f.deferral), f => f.deferral, DEFERRAL_LABELS),
     },
     heatmap: { weekdays: WEEKDAYS, cells: heat },
+    detail: buildDetail({ facts, sales, local, from, to, compareFrom, compareTo, group }),
     notes: {
       response_time: total.tiempo_respuesta === null ? "El tiempo de respuesta se mide desde el 29-oct; antes no se guardaba la hora del mensaje del cliente." : null,
     },
+  };
+}
+
+// ── Desglose detallado (17-nov): embudo, anuncios a fondo, días y horas, IMSS, tiempos, seguimientos y tipos de respuesta.
+const FUNNEL_STEPS = [
+  ["nuevas", "Conversaciones nuevas"],
+  ["contestaron", "Contestaron a la primera respuesta"],
+  ["precio", "Recibieron precio de los planes"],
+  ["cierre", "Se les preguntó si iniciamos"],
+  ["aceptaron", "Aceptaron iniciar"],
+  ["documentos", "Documentos completos"],
+  ["altas", "Alta vigente"],
+  ["pagadas", "Pagaron"],
+];
+const IMSS_LABELS = { si: "Ya tiene IMSS", no: "No tiene IMSS", sin_dato: "Sin dato" };
+const HOUR_BLOCKS = [[0, 6, "Madrugada (0 a 6 h)"], [7, 11, "Mañana (7 a 11 h)"], [12, 15, "Mediodía (12 a 15 h)"], [16, 19, "Tarde (16 a 19 h)"], [20, 23, "Noche (20 a 23 h)"]];
+const VARIANT_LABELS = { A: "Versión A (actual)", B: "Versión B (prueba)" };
+
+function funnelCounts(list, saleOf) {
+  const c = { nuevas: list.length, contestaron: 0, precio: 0, cierre: 0, aceptaron: 0, documentos: 0, altas: 0, pagadas: 0, a_persona: 0, pospusieron: 0, expedientes: 0, ingreso: 0 };
+  for (const f of list) {
+    const sale = saleOf(f.id);
+    if (f.customer_turns >= 2) c.contestaron++;
+    if (f.price_at) c.precio++;
+    if (f.close_at) c.cierre++;
+    if (f.authorized_at) c.aceptaron++;
+    if (f.documents_at) c.documentos++;
+    if (f.handoff_at) c.a_persona++;
+    if (f.deferral) c.pospusieron++;
+    if (sale) c.expedientes++;
+    if (sale?.validity?.confirmed_at) c.altas++;
+    if (sale?.payment?.validated_at) { c.pagadas++; c.ingreso += PRICE[sale.sale?.plan] || 0; }
+  }
+  return c;
+}
+
+function conversionList(list, keyFn, labels = null, order = null) {
+  const rows = conversionBy(list, keyFn, labels);
+  return order ? order.map(k => rows.find(r => r.key === k) || { key: k, label: labels?.[k] || k, count: 0, aceptaron: 0, conversion: 0 }) : rows;
+}
+
+export function buildDetail({ facts, sales, local, from, to, compareFrom, compareTo, group }) {
+  const saleByConv = new Map();
+  for (const s of sales) if (s.conversation_id) { const k = Number(s.conversation_id); const prev = saleByConv.get(k); if (!prev || ms(s.created_at) > ms(prev.created_at)) saleByConv.set(k, s); }
+  const saleOf = id => saleByConv.get(Number(id)) || null;
+  const started = (a, b) => facts.filter(f => f.first_at && local(f.first_at).date >= a && local(f.first_at).date <= b);
+  const cur = started(from, to);
+  const prev = started(compareFrom, compareTo);
+
+  const fc = funnelCounts(cur, saleOf), fp = funnelCounts(prev, saleOf);
+  const funnel = FUNNEL_STEPS.map(([key, label], i) => ({
+    key, label, count: fc[key], previous: fp[key],
+    pct_total: pct(fc[key], fc.nuevas), pct_prev_step: i ? pct(fc[key], fc[FUNNEL_STEPS[i - 1][0]]) : null,
+    previous_pct_total: pct(fp[key], fp.nuevas),
+  }));
+
+  // Anuncios: cada forma de llegar con su embudo completo, lo que buscan, plan, por qué se quedan, versiones A/B y tendencia.
+  const keys = bucketKeys(from, to, group);
+  const ads = [...new Set([...cur, ...prev].map(f => f.entry))].map(key => {
+    const list = cur.filter(f => f.entry === key);
+    const before = prev.filter(f => f.entry === key);
+    const c = funnelCounts(list, saleOf), p = funnelCounts(before, saleOf);
+    const accepted = list.filter(f => f.authorized_at);
+    const variants = new Map();
+    for (const f of list) for (const e of f.experiments) {
+      if (!e.slot.startsWith(`ad_opening:${key}`)) continue;
+      if (!variants.has(e.variant)) variants.set(e.variant, { key: e.variant, label: VARIANT_LABELS[e.variant] || `Versión ${e.variant}`, count: 0, contestaron: 0, aceptaron: 0 });
+      const v = variants.get(e.variant); v.count++; if (f.customer_turns >= 2) v.contestaron++; if (f.authorized_at) v.aceptaron++;
+    }
+    const texts = key === "direct" ? [] : countBy(list.filter(f => f.first_text), f => f.first_text).slice(0, 5).map(r => ({ text: r.key, count: r.count }));
+    const trend = keys.map(k => {
+      const inBucket = list.filter(f => bucketKey(local(f.first_at).date, group) === k);
+      return { key: k, label: bucketLabel(k, group), nuevas: inBucket.length, aceptaron: inBucket.filter(f => f.authorized_at).length };
+    });
+    return {
+      key, label: ENTRY_LABELS[key] || key, ...c,
+      conversion: pct(c.aceptaron, c.nuevas), reply_rate: pct(c.contestaron, c.nuevas), close_rate: pct(c.aceptaron, c.cierre),
+      hours_to_accept: median(accepted.map(f => Math.round((ms(f.authorized_at) - ms(f.first_at)) / 360000) / 10)),
+      previous: { nuevas: p.nuevas, aceptaron: p.aceptaron, conversion: pct(p.aceptaron, p.nuevas), reply_rate: pct(p.contestaron, p.nuevas) },
+      needs: conversionList(list, f => f.need, NEED_LABELS),
+      plans: countBy(accepted, f => f.plan),
+      deferrals: countBy(list.filter(f => f.deferral), f => f.deferral, DEFERRAL_LABELS),
+      imss: conversionList(list, f => f.tiene_imss, IMSS_LABELS),
+      variants: [...variants.values()].map(v => ({ ...v, reply_rate: pct(v.contestaron, v.count), conversion: pct(v.aceptaron, v.count) })).sort((a, b) => a.key.localeCompare(b.key)),
+      texts, trend,
+    };
+  }).filter(a => a.nuevas || a.previous.nuevas).sort((a, b) => b.nuevas - a.nuevas || b.previous.nuevas - a.previous.nuevas);
+
+  const blockOf = f => HOUR_BLOCKS.find(([a, b]) => { const h = local(f.first_at).hour; return h >= a && h <= b; })?.[2];
+  const accepted = cur.filter(f => f.authorized_at);
+  const hours = accepted.map(f => (ms(f.authorized_at) - ms(f.first_at)) / 3600000);
+  const within = (a, b) => hours.filter(h => h >= a && h < b).length;
+  const inRange = iso => { const d = iso ? local(iso).date : ""; return d >= from && d <= to; };
+  const withFollowup = cur.filter(f => f.followups.length);
+  const sources = new Map();
+  let replies = 0;
+  for (const f of facts) for (const e of f.replies) {
+    if (!inRange(e.timestamp)) continue;
+    replies++;
+    const raw = String(e.details?.decision_source || "—");
+    const key = raw.startsWith("direct:") ? "direct:*" : raw.startsWith("team_answer:") ? "team_answer:*" : raw.startsWith("commitment:") ? "commitment:*" : raw.startsWith("ad_opening:") ? "ad_opening:*" : raw.startsWith("case_diagnosis:") && raw !== "case_diagnosis:reprompt" ? "case_diagnosis:*" : raw;
+    sources.set(key, (sources.get(key) || 0) + 1);
+  }
+  const directKeys = new Map();
+  for (const f of facts) for (const e of f.replies) {
+    const raw = String(e.details?.decision_source || "");
+    if (raw.startsWith("direct:") && inRange(e.timestamp)) { const k = raw.slice(7); directKeys.set(k, (directKeys.get(k) || 0) + 1); }
+  }
+
+  return {
+    funnel,
+    ads,
+    weekday: conversionList(cur, f => WEEKDAYS[local(f.first_at).weekday], null, WEEKDAYS),
+    hour_block: conversionList(cur, blockOf, null, HOUR_BLOCKS.map(b => b[2])),
+    imss: conversionList(cur, f => f.tiene_imss, IMSS_LABELS, ["no", "si", "sin_dato"]),
+    timing: {
+      accepted: accepted.length,
+      median_hours: hours.length ? Math.round(median(hours.map(h => Math.round(h * 10))) ) / 10 : null,
+      median_messages: median(accepted.map(f => f.turns_to_accept || 0)),
+      within_1h: within(0, 1), within_24h: within(1, 24), within_72h: within(24, 72), later: hours.filter(h => h >= 72).length,
+    },
+    followups: {
+      conversations: withFollowup.length,
+      replied: withFollowup.filter(f => f.replied_after_followup).length,
+      accepted: withFollowup.filter(f => f.accepted_after_followup).length,
+      reply_rate: pct(withFollowup.filter(f => f.replied_after_followup).length, withFollowup.length),
+    },
+    sources: [...sources].map(([key, count]) => ({ key, count, share: pct(count, replies) })).sort((a, b) => b.count - a.count).slice(0, 15),
+    direct_answers: [...directKeys].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count).slice(0, 12),
+    replies,
   };
 }
 

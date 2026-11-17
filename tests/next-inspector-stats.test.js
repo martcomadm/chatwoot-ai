@@ -42,6 +42,19 @@ test("cuenta nuevas, aceptaron, conversión, calidad, ventas y desgloses por sem
   assert.equal(s.compare.from, "2026-10-08");
   // 27-oct 21:30 hora de México = martes; 28-oct 03:30Z = 27-oct 21:30 local.
   assert.equal(s.heatmap.cells[1][21], 1);
+  // 17-nov: desglose detallado (embudo, anuncios a fondo, días, horas, IMSS, tiempos, seguimientos).
+  const d = s.detail;
+  assert.deepEqual(d.funnel.map(f => f.count), [2, 2, 0, 0, 1, 1, 1, 1]);
+  assert.equal(d.funnel[4].pct_total, 50);
+  const pension = d.ads.find(a => a.key === "pension");
+  assert.equal(pension.aceptaron, 1); assert.equal(pension.altas, 1); assert.equal(pension.pagadas, 1); assert.equal(pension.ingreso, 1500);
+  assert.equal(pension.reply_rate, 100); assert.equal(pension.hours_to_accept, 24);
+  assert.equal(pension.plans[0].label, "Plan 2");
+  assert.equal(pension.texts[0].text, "Dejé de cotizar, quiero seguir sumando para pensionarme");
+  assert.deepEqual(d.ads.find(a => a.key === "info").deferrals.map(x => x.label), ["Avisará después"]);
+  assert.equal(d.weekday.length, 7); assert.equal(d.hour_block.length, 5);
+  assert.equal(d.timing.accepted, 1); assert.equal(d.timing.median_messages, 2); assert.equal(d.timing.within_72h, 1);
+  assert.equal(d.sources.find(x => x.key === "fallback").count, 2);
 });
 
 import { MiaConsole } from "../src/inspector/mia-console.js";

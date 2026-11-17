@@ -446,8 +446,71 @@ function renderStats() {
       ${breakdownCard("¿Dónde se quedaron?", "clientes que pospusieron o se despidieron", s.breakdowns.deferral, false)}
       ${heatmapCard(s.heatmap)}
     </div>
+    ${s.detail ? renderStatsDetail(s.detail, s) : ""}
     ${s.notes.response_time ? `<p class="foot">${esc(s.notes.response_time)}</p>` : ""}
     <p class="foot">Las ventas pagadas e ingresos son el primer pago de cada expediente ($1,100 Plan 1 · $1,500 Plan 2). Los chats de prueba no cuentan.</p>`;
+}
+
+// ── Desglose detallado (17-nov) ─────────────────────────────────────
+const n0 = v => Number(v || 0).toLocaleString("es-MX");
+const pc = v => (v === null || v === undefined ? "—" : `${v}%`);
+const hrs = h => (h === null || h === undefined ? "—" : h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${h} h` : `${Math.round(h / 24 * 10) / 10} días`);
+function deltaPts(cur, prev) {
+  if (prev === null || prev === undefined) return "";
+  const d = Math.round((cur - prev) * 10) / 10;
+  return d ? `<span class="delta ${d > 0 ? "up" : "down"}">${d > 0 ? "▲" : "▼"} ${Math.abs(d)} pts</span>` : `<span class="delta">igual</span>`;
+}
+function miniList(rows, conv = true) {
+  if (!rows?.length) return `<p class="muted small">Sin datos.</p>`;
+  const max = Math.max(1, ...rows.map(r => r.count));
+  return `<div class="brk">${rows.map(r => `<div class="brk-row"><span>${esc(r.label)}</span><span class="track"><i style="width:${(r.count / max) * 100}%"></i></span><span class="num">${r.count}</span>${conv ? `<span class="num">${r.aceptaron ?? ""} <small>${r.conversion !== undefined ? `${r.conversion}%` : ""}</small></span>` : ""}</div>`).join("")}</div>`;
+}
+function renderStatsDetail(d, s) {
+  const steps = d.funnel.map(st => `<tr><th scope="row">${esc(st.label)}</th><td data-label="Clientes"><b>${n0(st.count)}</b></td><td data-label="% del total">${pc(st.pct_total)}</td><td data-label="% del paso anterior">${st.pct_prev_step === null ? "—" : pc(st.pct_prev_step)}</td><td data-label="Periodo anterior">${n0(st.previous)} <small class="muted">(${pc(st.previous_pct_total)})</small> ${deltaPts(st.pct_total, st.previous_pct_total)}</td></tr>`).join("");
+  const adRows = d.ads.map(a => `<tr><th scope="row">${esc(a.label)}</th><td data-label="Chats"><b>${n0(a.nuevas)}</b><small class="muted"> antes ${n0(a.previous.nuevas)}</small></td><td data-label="Contestaron">${pc(a.reply_rate)}</td><td data-label="Precio">${n0(a.precio)}</td><td data-label="Pregunta de cierre">${n0(a.cierre)}</td><td data-label="Aceptaron"><b>${n0(a.aceptaron)}</b></td><td data-label="Conversión"><b>${pc(a.conversion)}</b> ${deltaPts(a.conversion, a.previous.conversion)}</td><td data-label="Documentos">${n0(a.documentos)}</td><td data-label="Altas">${n0(a.altas)}</td><td data-label="Pagadas">${n0(a.pagadas)}</td><td data-label="Cobrado">${money(a.ingreso)}</td><td data-label="A persona">${n0(a.a_persona)}</td></tr>`).join("");
+  const adDetail = d.ads.map(a => `<details class="addetail"><summary><b>${esc(a.label)}</b> · ${n0(a.nuevas)} chats · ${n0(a.aceptaron)} aceptaron (${pc(a.conversion)})</summary><div class="cols2">
+      <div><h3>Embudo</h3><table class="stable itable"><tbody>
+        <tr><th scope="row">Contestaron a la primera respuesta</th><td>${n0(a.contestaron)} <small class="muted">${pc(a.reply_rate)}</small></td></tr>
+        <tr><th scope="row">Recibieron precio</th><td>${n0(a.precio)}</td></tr>
+        <tr><th scope="row">Se les preguntó si iniciamos</th><td>${n0(a.cierre)}</td></tr>
+        <tr><th scope="row">Aceptaron</th><td><b>${n0(a.aceptaron)}</b> <small class="muted">${pc(a.close_rate)} de los que recibieron la pregunta</small></td></tr>
+        <tr><th scope="row">Documentos completos</th><td>${n0(a.documentos)}</td></tr>
+        <tr><th scope="row">Expedientes · altas · pagadas</th><td>${n0(a.expedientes)} · ${n0(a.altas)} · ${n0(a.pagadas)}</td></tr>
+        <tr><th scope="row">Pospusieron o dijeron que no</th><td>${n0(a.pospusieron)}</td></tr>
+        <tr><th scope="row">Tiempo típico hasta aceptar</th><td>${hrs(a.hours_to_accept)}</td></tr>
+        <tr><th scope="row">Periodo anterior</th><td>${n0(a.previous.nuevas)} chats · ${n0(a.previous.aceptaron)} aceptaron (${pc(a.previous.conversion)}) · contestaron ${pc(a.previous.reply_rate)}</td></tr>
+      </tbody></table></div>
+      <div><h3>Qué buscan</h3>${miniList(a.needs)}<h3>Tiene IMSS</h3>${miniList(a.imss)}</div>
+      <div><h3>Plan de quienes aceptaron</h3>${miniList(a.plans, false)}<h3>Por qué se quedaron</h3>${miniList(a.deferrals, false)}</div>
+      <div>${a.variants.length ? `<h3>Versiones de la primera respuesta (A/B)</h3><table class="stable itable"><thead><tr><th scope="col">Versión</th><th scope="col">Chats</th><th scope="col">Contestaron</th><th scope="col">Aceptaron</th></tr></thead><tbody>${a.variants.map(v => `<tr><th scope="row">${esc(v.label)}</th><td>${n0(v.count)}</td><td>${pc(v.reply_rate)}</td><td><b>${n0(v.aceptaron)}</b> <small class="muted">${pc(v.conversion)}</small></td></tr>`).join("")}</tbody></table>` : ""}
+        ${a.texts.length ? `<h3>Mensaje con el que llegan</h3><ul class="adtexts">${a.texts.map(t => `<li><span>"${esc(t.text)}"</span><b>${n0(t.count)}</b></li>`).join("")}</ul>` : ""}
+        <h3>Por ${esc(GROUP_TEXT[s.group])}</h3><div class="tscroll"><table class="stable itable"><thead><tr><th scope="col">${esc(GROUP_TEXT[s.group])}</th><th scope="col">Chats</th><th scope="col">Aceptaron</th></tr></thead><tbody>${a.trend.slice().reverse().filter(t => t.nuevas).map(t => `<tr><th scope="row">${esc(t.label)}</th><td>${n0(t.nuevas)}</td><td>${n0(t.aceptaron)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">Sin chats</td></tr>`}</tbody></table></div></div>
+    </div></details>`).join("");
+  const t = d.timing, fu = d.followups;
+  return `<section class="card"><div class="card-head"><h2>Embudo de las conversaciones nuevas</h2><small>hasta dónde llegó cada conversación que empezó en el periodo · contra ${esc(s.compare.label)}</small></div><div class="card-body tscroll">
+      <table class="stable itable"><thead><tr><th scope="col">Paso</th><th scope="col">Clientes</th><th scope="col">% del total</th><th scope="col">% del paso anterior</th><th scope="col">Periodo anterior</th></tr></thead><tbody>${steps}</tbody></table>
+      <p class="muted small">El paso con el "% del paso anterior" más bajo es donde más clientes se pierden.</p>
+    </div></section>
+    <section class="card"><div class="card-head"><h2>Anuncios a detalle</h2><small>cada forma de llegar con su embudo completo · toca un anuncio para ver todo su desglose</small></div><div class="card-body tscroll">
+      ${d.ads.length ? `<table class="stable itable"><thead><tr><th scope="col">Entrada</th><th scope="col">Chats</th><th scope="col">Contestaron</th><th scope="col">Precio</th><th scope="col">Pregunta de cierre</th><th scope="col">Aceptaron</th><th scope="col">Conversión</th><th scope="col">Documentos</th><th scope="col">Altas</th><th scope="col">Pagadas</th><th scope="col">Cobrado</th><th scope="col">A persona</th></tr></thead><tbody>${adRows}</tbody></table>${adDetail}` : `<div class="empty">Sin conversaciones nuevas en el periodo.</div>`}
+      <p class="muted small">La entrada se reconoce por el mensaje automático de cada anuncio. "Escribió con su propio mensaje" son chats que no traían el mensaje de un anuncio.</p>
+    </div></section>
+    <div class="cols2">
+      ${breakdownCard("Día en que llegaron", "conversaciones nuevas y cuántas aceptaron", d.weekday, true)}
+      ${breakdownCard("Hora en que llegaron", "conversaciones nuevas y cuántas aceptaron", d.hour_block, true)}
+      ${breakdownCard("¿Tienen IMSS?", "conversaciones nuevas y cuántas aceptaron", d.imss, true)}
+      <section class="card"><div class="card-head"><h2>¿Cuánto tardan en aceptar?</h2><small>${n0(t.accepted)} aceptaron de las conversaciones nuevas</small></div><div class="card-body">
+        <div class="kpis mini"><div class="kpi"><span>Tiempo típico</span><b>${hrs(t.median_hours)}</b></div><div class="kpi"><span>Mensajes del cliente</span><b>${t.median_messages ?? "—"}</b><small>típicos antes de aceptar</small></div></div>
+        ${miniList([{ label: "En menos de 1 hora", count: t.within_1h }, { label: "De 1 a 24 horas", count: t.within_24h }, { label: "De 1 a 3 días", count: t.within_72h }, { label: "Más de 3 días", count: t.later }], false)}
+      </div></section>
+      <section class="card"><div class="card-head"><h2>Seguimientos</h2><small>conversaciones nuevas que recibieron al menos uno</small></div><div class="card-body">
+        <div class="kpis mini"><div class="kpi"><span>Recibieron seguimiento</span><b>${n0(fu.conversations)}</b></div><div class="kpi"><span>Contestaron después</span><b>${n0(fu.replied)}</b><small>${pc(fu.reply_rate)}</small></div><div class="kpi"><span>Aceptaron después</span><b>${n0(fu.accepted)}</b></div></div>
+      </div></section>
+      <section class="card"><div class="card-head"><h2>Cómo contestó Mia</h2><small>${n0(d.replies)} respuestas en el periodo</small></div><div class="card-body">
+        ${miniList(d.sources.map(r => ({ label: r.label || r.key, count: r.count })), false)}
+        ${d.direct_answers.length ? `<h3 class="subh">Respuestas oficiales más usadas</h3>${miniList(d.direct_answers.map(r => ({ label: r.label || r.key, count: r.count })), false)}` : ""}
+      </div></section>
+    </div>`;
 }
 
 // Etiqueta corta del eje: "10 ago" (semana), "29 oct" (día), "oct" (mes).
@@ -503,6 +566,12 @@ function statsCsv() {
   for (const b of s.buckets) rows.push([b.label + (b.partial ? " (en curso)" : ""), ...s.metrics.map(m => b[m.key])].map(cell).join(","));
   rows.push(["Total del periodo", ...s.metrics.map(m => s.totals[m.key])].map(cell).join(","));
   rows.push([`Comparación (${s.compare.label})`, ...s.metrics.map(m => s.previous[m.key])].map(cell).join(","));
+  if (s.detail) {
+    rows.push("", ["Embudo", "Clientes", "% del total", "% del paso anterior", "Periodo anterior"].map(cell).join(","));
+    for (const st of s.detail.funnel) rows.push([st.label, st.count, st.pct_total, st.pct_prev_step ?? "", st.previous].map(cell).join(","));
+    rows.push("", ["Anuncio", "Chats", "Contestaron %", "Precio", "Pregunta de cierre", "Aceptaron", "Conversión %", "Documentos", "Expedientes", "Altas", "Pagadas", "Cobrado", "A persona", "Pospusieron", "Chats periodo anterior", "Conversión anterior %"].map(cell).join(","));
+    for (const a of s.detail.ads) rows.push([a.label, a.nuevas, a.reply_rate, a.precio, a.cierre, a.aceptaron, a.conversion, a.documentos, a.expedientes, a.altas, a.pagadas, a.ingreso, a.a_persona, a.pospusieron, a.previous.nuevas, a.previous.conversion].map(cell).join(","));
+  }
   const url = URL.createObjectURL(new Blob(["﻿" + rows.join("\n")], { type: "text/csv;charset=utf-8" }));
   const a = Object.assign(document.createElement("a"), { href: url, download: `mia-estadisticas-${s.range.from}_a_${s.range.to}.csv` });
   document.body.appendChild(a); a.click(); a.remove();
