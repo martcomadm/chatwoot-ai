@@ -452,7 +452,7 @@ function renderShell() {
   }).join("");
   app.innerHTML = `<div class="shell">
     <nav class="rail" aria-label="Áreas">
-      <div class="brand"><strong>MARTCOM</strong><span>Operations NEXT</span>${me.build ? `<small class="muted" style="display:block;font-size:11px">Versión ${esc(me.build)}</small>` : ""}</div>
+      <div class="brand"><strong>MARTCOM</strong><span>Operations NEXT</span></div>
       <div class="nav">${nav}<div class="nav-sep" role="presentation"></div><button class="nav-item" data-go="notificaciones" ${state.view === "notificaciones" ? 'aria-current="page"' : ""}><span>🔔 Notificaciones</span>${state.unreadNotifications ? `<span class="nav-count alert" title="${state.unreadNotifications} sin leer">${state.unreadNotifications}</span>` : ""}</button></div>
       <div class="rail-foot">
         ${miaStatusHtml()}
@@ -1254,7 +1254,8 @@ async function renderAdmin(view) {
   view.style.setProperty("--area", areaVar("admin"));
   const tabs = [["users", "Usuarios"], ["audit", "Bitácora"], ["settings", "Configuración"]];
   if (state.me.can.lab) tabs.push(["lab", "Laboratorio"]);
-  view.innerHTML = `${pageHead("admin", "Admin", AREA_INTRO.admin)}
+  // 17-nov: la versión ya no se muestra en el menú; solo aquí en Admin, para comprobar que el despliegue quedó.
+  view.innerHTML = `${pageHead("admin", "Admin", AREA_INTRO.admin, state.me.build ? `<p class="muted small" style="margin:0">Versión desplegada: ${esc(state.me.build)}</p>` : "")}
     <div class="subnav" role="tablist">${tabs.map(([key, label]) => `<button role="tab" data-admin-tab="${key}" aria-selected="${state.adminTab === key}">${esc(label)}</button>`).join("")}</div>
     <div id="admin-body"><div class="empty">Cargando…</div></div>`;
   const body = document.getElementById("admin-body");
