@@ -1,3 +1,3 @@
 // Versión visible en Operations (debajo de "Operations NEXT") para confirmar qué quedó desplegado.
 // Se actualiza con cada entrega.
-export const BUILD_LABEL = "17-nov · Sin versión en el menú";
+export const BUILD_LABEL = "17-nov · Sitio más rápido (Mia libre y Chats de Mia)";

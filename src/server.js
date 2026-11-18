@@ -15,7 +15,7 @@ import { AiServices } from "./ai/services.js";
 import { ConversationProcessor } from "./core/conversation-processor.js";
 import { MessageBuffer } from "./core/message-buffer.js";
 import { createRouter } from "./routes.js";
-import { InspectorEventStore } from "./inspector/event-store.js";
+import { InspectorEventStore, flushInspectorEventStores } from "./inspector/event-store.js";
 import { HandoffRotationStore, HandoffRouter, OperationsConfigStore } from "./handoff/index.js";
 import { SaleStore } from "./operations/sale-store.js";
 import { SaleWorkflowEngine } from "./operations/workflow-engine.js";
@@ -72,6 +72,8 @@ try {
   const memories = new MemoryStore(config.storage.memoryFile);
   const agentRotation = new AgentRotationStore(config.storage.rotationFile, config.ai.introAgents);
   const inspectorEvents = new InspectorEventStore(config.storage.inspectorEventsFile, config.inspector.maxEventsPerConversation);
+  // 17-nov: los eventos se guardan agrupados; al apagar (redeploy) se escribe lo pendiente antes de salir.
+  for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => { flushInspectorEventStores(); process.exit(0); });
   const handoffRotation = new HandoffRotationStore(config.storage.handoffRotationFile);
   const operationsConfig = new OperationsConfigStore(config.storage.handoffConfigFile, {
     weekday: config.handoff.weekdayAgents,

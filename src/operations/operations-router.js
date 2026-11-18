@@ -322,7 +322,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const now = new Date();
     const to = day(now), from = day(new Date(now.getTime() - (days - 1) * 86400000));
     let modes = [];
-    try { modes = miaConsole?.stats?.({ group: "day", from, to })?.detail?.modes || []; } catch (error) { console.error("NEXT Mia libre resumen:", error?.message || error); }
+    try { modes = miaConsole?.modeSummary?.({ from, to }) || []; } catch (error) { console.error("NEXT Mia libre resumen:", error?.message || error); }
     const sales = saleStore.list().filter(isMiaLibreSale);
     const byQueue = {};
     for (const sale of sales) byQueue[sale.queue] = (byQueue[sale.queue] || 0) + 1;

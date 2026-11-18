@@ -61,9 +61,17 @@ const median = list => { if (!list.length) return null; const s = [...list].sort
 function localParts(tz) {
   const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23", weekday: "short" });
   const wd = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  // 17-nov (lentitud): se guarda por hora (la zona horaria solo cambia en horas exactas); antes se formateaba cada evento.
+  const memo = new Map();
   return value => {
+    const t = new Date(value).getTime();
+    const hourKey = Number.isFinite(t) ? Math.floor(t / 3600000) : NaN;
+    const hit = memo.get(hourKey);
+    if (hit) return hit;
     const p = Object.fromEntries(fmt.formatToParts(new Date(value)).map(x => [x.type, x.value]));
-    return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24, weekday: wd[p.weekday] ?? 0 };
+    const out = { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24, weekday: wd[p.weekday] ?? 0 };
+    if (Number.isFinite(hourKey)) memo.set(hourKey, out);
+    return out;
   };
 }
 const addDays = (date, n) => new Date(Date.parse(`${date}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
@@ -508,6 +516,29 @@ export function buildDetail({ facts, sales, local, from, to, compareFrom, compar
     direct_answers: [...directKeys].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count).slice(0, 12),
     replies,
   };
+}
+
+// Mia normal contra Mia libre (17-nov), sin calcular todas las estadísticas: solo las conversaciones repartidas.
+export function buildModeSummary({ memories = [], eventsByConv = new Map(), sales = [], timezone = "America/Mexico_City", from, to }) {
+  const local = localParts(timezone);
+  const saleByConv = new Map();
+  for (const s of sales) if (s.conversation_id) { const k = Number(s.conversation_id); const p = saleByConv.get(k); if (!p || ms(s.created_at) > ms(p.created_at)) saleByConv.set(k, s); }
+  const saleOf = id => saleByConv.get(Number(id)) || null;
+  const rows = [["full", "A", "Mia normal"], ["light", "B", "Mia libre"]].map(([mode, key, label]) => {
+    const list = [];
+    for (const m of memories) {
+      if (m.mia_mode !== mode) continue;
+      const events = eventsByConv.get(Number(m.id)) || [];
+      const first = events[0]?.timestamp;
+      if (!first) continue;
+      const day = local(first).date;
+      if (day < from || day > to) continue;
+      list.push(conversationFacts(Number(m.id), events, m));
+    }
+    const c = funnelCounts(list, saleOf);
+    return { key, label, ...c, reply_rate: pct(c.contestaron, c.nuevas), conversion: pct(c.aceptaron, c.nuevas), close_rate: pct(c.aceptaron, c.cierre) };
+  });
+  return rows.filter(r => r.nuevas);
 }
 
 function rangeLabel(from, to) {

@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { describeSchedule, localClock, nextOpeningDate, parseSchedule } from "../core/business-hours.js";
 import { buildImpact } from "./impact-service.js";
-import { buildStats, entryOf, needOf, ENTRY_LABELS, NEED_LABELS } from "./stats-service.js";
+import { buildStats, buildModeSummary, entryOf, needOf, ENTRY_LABELS, NEED_LABELS } from "./stats-service.js";
 
 const DAY = 24 * 3600 * 1000;
 const HOUR = 3600 * 1000;
@@ -245,10 +245,19 @@ export class MiaConsole {
 
   // Chats de prueba (no cuentan en Hoy, Calidad ni Embudo): marcados a mano en el Inspector,
   // listados en INSPECTOR_TEST_CONVERSATIONS o reiniciados alguna vez desde el LAB de Operations.
-  testIds(allEvents = this.inspectorEvents.listAll()) {
+  testIds(allEvents = null) {
     const ids = new Set([...this.manualTests, ...(this.config.inspector?.testConversations || []).map(Number)]);
-    for (const e of allEvents) if (e.type === "lab.conversation_reset") ids.add(Number(e.conversationId));
+    for (const e of allEvents || this.eventIndex().all) if (e.type === "lab.conversation_reset") ids.add(Number(e.conversationId));
     return ids;
+  }
+
+  // 17-nov (lentitud): índice de eventos en caché del almacén (se rehace solo cuando llega un evento nuevo).
+  eventIndex() {
+    if (typeof this.inspectorEvents.index === "function") return this.inspectorEvents.index();
+    const all = this.inspectorEvents.listAll();
+    const byConversation = new Map();
+    for (const e of all) { if (!byConversation.has(e.conversationId)) byConversation.set(e.conversationId, []); byConversation.get(e.conversationId).push(e); }
+    return { all, byConversation };
   }
 
   setTest(id, test) {
@@ -274,15 +283,15 @@ export class MiaConsole {
   }
 
   eventsByConversation({ includeTests = false } = {}) {
-    const all = this.inspectorEvents.listAll();
-    const tests = includeTests ? new Set() : this.testIds(all);
+    const index = this.eventIndex();
+    if (includeTests) return new Map(index.byConversation);
+    const tests = this.testIds(index.all);
+    const key = `${this.inspectorEvents.version ?? "x"}:${[...tests].sort().join(",")}`;
+    if (this.byConvCache?.key === key && this.byConvCache.source === index) return new Map(this.byConvCache.map);
     const map = new Map();
-    for (const event of all) {
-      if (tests.has(Number(event.conversationId))) continue;
-      if (!map.has(event.conversationId)) map.set(event.conversationId, []);
-      map.get(event.conversationId).push(event);
-    }
-    return map;
+    for (const [id, events] of index.byConversation) if (!tests.has(Number(id))) map.set(id, events);
+    this.byConvCache = { key, source: index, map };
+    return new Map(map);
   }
 
   followUpEntries() {
@@ -415,6 +424,19 @@ export class MiaConsole {
   // Todas las conversaciones que atiende la IA, con las señales de que se está perdiendo
   // la venta, para que Captura intervenga y trate de salvarla.
   // libre: true = solo chats de Mia libre; false = sin ellos; null = todos (17-nov).
+  // Resumen ligero de Mia normal contra Mia libre (17-nov): solo las conversaciones repartidas que empezaron en el
+  // periodo, sin calcular todas las estadísticas. Se guarda 60 segundos.
+  modeSummary({ from, to, now = new Date() } = {}) {
+    const cacheKey = `${from}|${to}`;
+    if (this.modeCache?.key === cacheKey && Date.now() - this.modeCache.at < 60000) return this.modeCache.value;
+    const memories = this.allMemories().filter(m => m.mia_mode === "light" || m.mia_mode === "full");
+    const byConv = this.eventsByConversation();
+    const sales = typeof this.saleStore?.list === "function" ? this.saleStore.list() : [];
+    const value = buildModeSummary({ memories, eventsByConv: byConv, sales, timezone: this.timezone(), from, to });
+    this.modeCache = { key: cacheKey, at: Date.now(), value };
+    return value;
+  }
+
   rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false, sort = "recent", libre = null } = {}) {
     const byConv = this.eventsByConversation();
     const since = now.getTime() - Math.max(1, Number(days) || 7) * DAY;
@@ -743,10 +765,14 @@ export class MiaConsole {
   stats({ group, from, to, compareFrom, compareTo, now = new Date() } = {}) {
     const tests = this.testIds();
     const sales = (this.saleStore?.list?.() || []).filter(s => !tests.has(Number(s.conversation_id)));
+    // 17-nov (lentitud): el mismo cálculo se reutiliza hasta 60 segundos.
+    const statsKey = JSON.stringify([group, from, to, compareFrom, compareTo]);
+    if (this.statsCache?.key === statsKey && Date.now() - this.statsCache.at < 60000) return this.statsCache.value;
     const stats = buildStats({ memories: this.allMemories(), eventsByConv: this.eventsByConversation(), sales, timezone: this.timezone(), group, from, to, compareFrom, compareTo, now });
     const GROUPED = { "direct:*": "Respuestas oficiales", "team_answer:*": "Respuestas del equipo", "commitment:*": "Regla · cierre de venta", "ad_opening:*": "Regla · apertura del anuncio", "case_diagnosis:*": "Regla · diagnóstico del caso" };
     for (const r of stats.detail?.sources || []) r.label = GROUPED[r.key] || sourceLabel(r.key);
     for (const r of stats.detail?.direct_answers || []) r.label = DIRECT_LABELS[r.key] || r.key.replace(/_/g, " ");
+    this.statsCache = { key: statsKey, at: Date.now(), value: stats };
     return stats;
   }
 
