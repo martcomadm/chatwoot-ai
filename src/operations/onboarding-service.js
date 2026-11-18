@@ -102,6 +102,9 @@ function isCourtesyText(text = "") {
   return !v || /^(?:(?:ok|okey|okay|oki|oi|va|sale|vale|si|claro|listo|perfecto|bien|muy bien|de acuerdo|entendido|enterado|gracias|grasias|gracia|muchas gracias|muchas grasias|mil gracias|que amable|muy amable|amable|pf|por favor|porfavor|quedo pendiente|quedo al pendiente|quedo atento|quedo atenta|pendiente|igualmente|bendiciones|buen dia|excelente|mia)\s*)+$/.test(v);
 }
 
+export const NSS_LOOKUP_DONE_TEXT = "No te preocupes. Con tu CURP localizamos tu número de seguridad social (NSS) y lo agregamos a tu expediente. Con eso ya tengo lo necesario: el equipo continúa con tu trámite y te aviso por aquí cuando tu alta quede lista.";
+export const NSS_NEW_DONE_TEXT = "No te preocupes. Como nunca has tenido número de seguridad social (NSS), lo solicitamos nuevo con tu CURP; eso puede tardar de 3 a 7 días. Con eso ya tengo lo necesario: el equipo continúa con tu trámite y te aviso por aquí cómo va.";
+
 export const ONBOARDING_DECLINED_TEXT = "Entendido, gracias por avisarme. Le aviso al equipo para que no continúe con tu trámite. Si más adelante quieres retomarlo, escríbeme por aquí y con gusto te ayudo.";
 
 // "No necesitaré el servicio", "No quiero continuar con el trámite" (caso real 24-oct: se le contestó que el
@@ -238,11 +241,15 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   const saysNeverHadNss = /\b(nunca|jamas)\b.{0,25}\b(?:he tenido|tuve|he contado con|me han dado|me asignaron)?\s*nss\b|\bnunca he tenido seguro\b|\bnunca lo (?:tuve|he tenido)\b/.test(text);
   // "Habíamos quedado que no lo tengo", "si usted pudiera localizármelo" (caso real 25-oct: se le repitió la solicitud).
   const saysNoItNss = /\b(?:no lo tengo|no lo se|no lo recuerdo|no lo encuentro|no se cual es|localiz\w*|buscarmelo|buscarlo)\b/.test(text) && !hasNssValue(combinedText);
-  if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && (saysNoNss || saysNeverHadNss || saysNoItNss)) {
+  // 18-nov (caso Silverio): sin otros documentos pendientes, "continuar con los demás documentos pendientes" no
+  // tenía sentido y cada "ok"/"gracias" recibía otra vez "Perfecto, ya recibimos tu documentación…".
+  const otherMissing = (memory.operations.documents_missing || []).filter(k => k !== "nss");
+  if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && !nssResolution && (saysNoNss || saysNeverHadNss || saysNoItNss)) {
+    const done = !otherMissing.length;
     return {
       reply: saysNeverHadNss
-        ? "No te preocupes. Si nunca has tenido NSS, podemos solicitar uno nuevo y continuar con tu trámite. Este proceso puede tardar aproximadamente de 3 a 7 días. Por ahora podemos seguir integrando tu expediente con tu CURP y los demás documentos para no retrasarlo."
-        : "No te preocupes. Si no tienes tu NSS a la mano, con tu CURP podemos localizarlo. El área de Captura puede agregarlo al expediente para que no se retrase tu trámite. Podemos continuar con los demás documentos pendientes.",
+        ? (done ? NSS_NEW_DONE_TEXT : "No te preocupes. Si nunca has tenido NSS, podemos solicitar uno nuevo y continuar con tu trámite. Este proceso puede tardar aproximadamente de 3 a 7 días. Por ahora podemos seguir integrando tu expediente con tu CURP y los demás documentos para no retrasarlo.")
+        : (done ? NSS_LOOKUP_DONE_TEXT : "No te preocupes. Si no tienes tu NSS a la mano, con tu CURP podemos localizarlo y agregarlo a tu expediente para que no se retrase tu trámite. Podemos continuar con los demás documentos pendientes."),
       question_key: null,
       add_labels: [], remove_labels: [], handoff: false, handoff_reason: "",
       onboarding_requirement: "nss",
@@ -252,12 +259,17 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   if ((memory.operations.onboarding_next === "nss" || memory.operations.documents_missing?.[0] === "nss") && nssResolution) {
     const remaining=(memory.operations.documents_missing||[]).find(key=>key!=="nss");
     if(remaining)return {reply:onboardingPrompt(remaining),question_key:remaining==="curp"?remaining:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:remaining};
-    return {
-      reply: nssResolution === "request_new"
-        ? "Perfecto, ya recibimos tu documentación. Podemos continuar con tu trámite. Como nos indicaste que nunca has tenido NSS, podemos solicitar uno nuevo para integrar tu expediente. Este proceso puede tomar de 3 a 7 días."
-        : "Perfecto, ya recibimos tu documentación. Podemos continuar con tu trámite. No te preocupes por el NSS; con tu CURP podemos localizarlo y agregarlo a tu expediente para que el proceso continúe sin retrasos.",
-      question_key:null,add_labels:[],remove_labels:[],handoff:false,handoff_reason:"",onboarding_requirement:null
-    };
+    // Ya se le dijo que su expediente sigue sin el NSS: "ok", "gracias" no reciben otro aviso igual; una pregunta
+    // la contesta el flujo normal; si manda el NSS, se registra abajo.
+    if (!hasNssValue(combinedText)) {
+      const doneText = nssResolution === "request_new" ? NSS_NEW_DONE_TEXT : NSS_LOOKUP_DONE_TEXT;
+      const toldBefore = [NSS_NEW_DONE_TEXT, NSS_LOOKUP_DONE_TEXT].includes(lastReply) || /^Perfecto, ya recibimos tu documentaci/.test(lastReply) || /^No te preocupes\. (?:Si no tienes|Si nunca has tenido)/.test(lastReply);
+      if (isCourtesyText(combinedText) || (toldBefore && !/[?¿]/.test(combinedText) && norm(combinedText).split(" ").length <= 4)) {
+        return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: null };
+      }
+      if (/[?¿]/.test(combinedText) || /\b(cuanto|como|cuando|donde|por que|puedo|incluye|cuesta|tarda|pago)\b/.test(text)) return null;
+      return { reply: toldBefore ? "" : doneText, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: null };
+    }
   }
   // "En dos horas te lo envío, ando fuera" (caso real 20-oct): antes se repetía la solicitud y se
   // suprimía como duplicada, y el cliente se quedaba sin respuesta.
