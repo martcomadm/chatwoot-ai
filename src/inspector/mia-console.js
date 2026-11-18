@@ -572,6 +572,8 @@ export class MiaConsole {
         ["Aceptó iniciar", memory.sales_cycle?.authorized ? "Sí" : "No"],
         ["Documento pendiente", memory.operations?.onboarding_next || (memory.operations?.documents_complete ? "Completos" : null)],
         ["Pospuso", DEFERRAL_LABELS[memory.sales_cycle?.deferral] || null],
+        // 18-nov: para analizar los exports por separado.
+        ["Versión de Mia", memory.mia_mode === "light" ? "Mia libre" : memory.mia_mode === "full" ? "Mia normal" : null],
         ["Pasó a persona", memory.handoff?.status ? `${memory.handoff.agent_name || "Sí"}${memory.handoff.reason ? ` · ${memory.handoff.reason}` : ""}` : null],
       ].map(([label, value]) => ({ label, value: value === undefined || value === null || value === "" ? null : String(value) })),
       followup: followUp ? { sent: Number(followUp.sent || 0), next_at: followUp.next_at } : null,

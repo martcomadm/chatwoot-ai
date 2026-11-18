@@ -34,7 +34,8 @@ export function menuChoiceText(lastReply = "", text = "") {
   const tokens = [...v.matchAll(/\b([123]|uno|dos|tres)\b/g)].map(m => WORD[m[1]] || Number(m[1]));
   if (!tokens.length) return null;
   // Solo el número con palabras de relleno: "la 2", "opcion 3", "el 1 por favor", "1 y 2", "las dos" (= 3? no: ambigua).
-  const filler = v.replace(/\b(?:[123]|uno|dos|tres|la|el|las|los|opcion|opciones|numero|num|no|y|e|por favor|porfavor|porfa|si|me interesa|quiero|seria|creo que|mejor)\b/g, "").replace(/[^a-z]/g, "");
+  // 18-nov: "Número 2 / Gracias", "Si sigo aquí / 1,3" (#11900, #11863) también son respuesta al menú.
+  const filler = v.replace(/\b(?:[123]|uno|dos|tres|la|el|las|los|opcion|opciones|numero|num|no|y|e|por favor|porfavor|porfa|si|me interesa|quiero|seria|creo que|mejor|gracias|muchas|sigo|aqui|hola|buenas|buen|dia|tardes|noches|ok|va|claro)\b/g, "").replace(/[^a-z]/g, "");
   if (filler.length) return null;
   if (/^las dos$|^los dos$|^ambas?$/.test(v)) return null;
   const unique = [...new Set(tokens)];

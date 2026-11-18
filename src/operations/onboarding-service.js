@@ -170,7 +170,9 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     // con qué plan va y, si pide otro, se avisa al equipo (Operaciones ya recibe el aviso del mensaje).
     {
       const t = norm(combinedText);
-      const asked = t.match(/^(?:(?:quiero|mejor|seria|prefiero|el|es el|para el|cambiar al?|cambiame al?)\s+)*(?:plan|paquete)\s*(1|2|uno|dos)\b/)?.[1];
+      // "Sería la de 1,100" (18-nov, #11955): el plan por su precio.
+      const byPrice = t.match(/^(?:(?:seria|sera|es|quiero|mejor|prefiero)\s+)*(?:la|el)\s+de\s+\$?\s?(1[,.\s]?100|1[,.\s]?500)\b/)?.[1];
+      const asked = byPrice ? (/500/.test(byPrice) ? "2" : "1") : t.match(/^(?:(?:quiero|mejor|seria|prefiero|el|es el|para el|cambiar al?|cambiame al?)\s+)*(?:plan|paquete)\s*(1|2|uno|dos)\b/)?.[1];
       if (asked && t.split(" ").length <= 6) {
         const wanted = /^(?:2|dos)$/.test(asked) ? "plan_2" : "plan_1";
         const current = ops.plan || memory.sales_cycle?.selected_plan || memory.sales_cycle?.recommended_plan || null;
@@ -181,7 +183,7 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     }
     // "¿Y para realizar los pagos?" antes de Cobranza (caso real 20-oct): se explica cuándo y cómo se paga.
     const tq = norm(combinedText);
-    if (!paying && !ops.payment_received && !ops.payment_validated && /\b(?:como|donde|en que|de que forma|por donde|para)\b.{0,25}\b(?:pag\w*|deposit\w*|transfer\w*)\b|\b(?:pagos?|deposito)\b.{0,10}\?/.test(tq + (/[?¿]/.test(combinedText) ? " ?" : ""))) {
+    if (!paying && !ops.payment_received && !ops.payment_validated && /\b(?:como|donde|adonde|a donde|en que|de que forma|por donde|para)\b.{0,25}\b(?:pag\w*|deposit\w*|transfer\w*)\b|\b(?:pagos?|deposito)\b.{0,10}\?/.test(tq + (/[?¿]/.test(combinedText) ? " ?" : ""))) {
       return { reply: PAYMENT_HOW_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
     }
     // Operaciones acaba de avisarle que recibimos su pago ("Recibimos el registro de tu pago…"): un
@@ -189,6 +191,18 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     if (ops.payment_received && Date.now() - Date.parse(ops.payment_received_at || 0) < 15 * 60 * 1000 && !/[?¿]/.test(combinedText)) {
       return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true };
     }
+    // 18-nov (#11905, #11955): con el expediente completo, una pregunta sobre su mensualidad o sobre el servicio se
+    // contesta; antes recibía "Tu expediente está completo…" o nada.
+    if (!paying && !ops.payment_received && !ops.payment_validated) {
+      const plan = memory.sales_cycle?.selected_plan || ops.plan || memory.sales_cycle?.recommended_plan || null;
+      const amount = plan === "plan_2" ? "$1,500 MXN al mes, del Plan 2" : plan === "plan_1" ? "$1,100 MXN al mes, del Plan 1" : null;
+      if (amount && /\b(?:cuanto|saldo|mensualidad|monto|costo)\b/.test(tq) && /\b(?:pag\w*|mensual\w*|saldo|quedaria|seria|costo|monto)\b/.test(tq)) {
+        return { reply: `Tu mensualidad es de ${amount}. No pagas nada por adelantado: el primer pago es hasta que tu alta ya esté vigente y te lo confirmemos por aquí.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+      }
+    }
+    const statusAsk = /\b(?:como va|como vamos|que sigue|ya quedo|ya esta|estatus|status|avance|vigencia|mi alta|el alta|mi tramite|mi expediente)\b/.test(tq);
+    const realQuestion = (/[?¿]/.test(combinedText) || /^(?:una pregunta|pregunta|oiga|disculpe|y)\b.{0,80}\b(?:cuanto|cuando|como|donde|adonde|que|tengo que|se tiene que|puedo|hasta)\b|\b(?:tengo que|se tiene que|hasta que edad|despues de los)\b/.test(tq)) && tq.split(" ").length >= 4;
+    if (realQuestion && !statusAsk) return null;
     const status = operationsStatusText(memory.operations);
     const asks = /[?¿]/.test(combinedText) || /\b(cuando|como va|como vamos|que sigue|ya quedo|ya esta|estatus|status|avance|pago|pague|pagar|deposit\w*|transferi\w*|comprobante|vigencia|alta)\b/.test(norm(combinedText));
     const question = /[?¿]/.test(combinedText);
@@ -279,8 +293,12 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   // 17-nov (#11725): CURP con 17 caracteres; se le repetía la misma solicitud sin decirle qué estaba mal.
   const compact = String(combinedText || "").toUpperCase().replace(/[\s.\-_]+/g, "");
   const curpLike = compact.match(/[A-Z]{4}\d{6}[A-Z0-9]{4,10}/);
-  if (!containsRequestedData && key === "curp" && curpLike && curpLike[0].length !== 18) {
-    const reply = `Gracias. A la CURP que me enviaste ${curpLike[0].length < 18 ? "le falta" : "le sobra"} al menos un carácter: debe tener 18 (4 letras, 6 números de la fecha de nacimiento y 8 letras y números más). ¿Me la confirmas? Si se te complica, mándame una foto clara de tu INE.`;
+  // 18-nov (#11895): 18 caracteres pero con un error ("…NOP": el último debe ser número; a veces es O por 0).
+  const curpBad18 = curpLike && curpLike[0].length === 18 && !/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/.test(curpLike[0]);
+  if (!containsRequestedData && key === "curp" && curpLike && (curpLike[0].length !== 18 || curpBad18)) {
+    const reply = curpBad18
+      ? "Gracias. Parece que la CURP que me enviaste tiene un error: el último carácter debe ser un número (a veces se confunde la letra O con el cero). ¿Me la confirmas? Si se te complica, mándame una foto clara de tu INE."
+      : `Gracias. A la CURP que me enviaste ${curpLike[0].length < 18 ? "le falta" : "le sobra"} al menos un carácter: debe tener 18 (4 letras, 6 números de la fecha de nacimiento y 8 letras y números más). ¿Me la confirmas? Si se te complica, mándame una foto clara de tu INE.`;
     return { reply, question_key: "curp", add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: "curp", priority: true };
   }
   const digits = String(combinedText || "").replace(/\D/g, "");

@@ -72,6 +72,10 @@ function currentPlan(memory = {}) {
   const mentioned = cycle.selected_plan || cycle.recommended_plan || cycle.last_plan || (cycle.pitched_plans || []).length || (cycle.explained_plans || []).length
     || /\bplan\s*[12]\b/i.test(String(memory.ultima_respuesta_agente || ""));
   if (!mentioned) return null;
+  // 18-nov (#11896, #11933): si lo último fue "¿hace cuánto dejaste de cotizar…?" y aún no se le explicó ningún plan,
+  // el seguimiento retoma esa pregunta (no "¿Te quedó alguna duda sobre el Plan 1?").
+  const explained = (cycle.pitched_plans || []).length || (cycle.explained_plans || []).length || cycle.selected_plan;
+  if (!explained && /dejaste de cotizar/i.test(String(memory.ultima_respuesta_agente || "")) && !/\bplan\s*[12]\b/i.test(String(memory.ultima_respuesta_agente || ""))) return null;
   // Mismo criterio que el resto de Mia: plan elegido > AFORE/INFONAVIT > recomendado > necesidad.
   return discussedPlan(memory) || (cycle.pitched_plans || []).at(-1) || null;
 }

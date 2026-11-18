@@ -95,6 +95,8 @@ export function detectDirectRequest(text){
   // "El plan 1 también es con la continuación de semanas, verdad?" (caso real 4-nov, quedó sin respuesta).
   if(/\bplan\s*(?:1|uno)\b.{0,50}\b(?:semanas|cotiza\w*|servicio medico)\b/.test(v) && /[?¿]|\b(?:verdad|tambien|cierto|incluye)\b/.test(String(text||'').toLowerCase()) && !/\b(?:afore|infonavit|plan\s*(?:2|dos)|cuanto|costo|precio)\b/.test(v)) return {type:'plan1_confirm',priority:'high',answerKey:'plan1_confirm'};
   // "Y los pagos al IMSS lo haría yo directo al seguro" (caso real 2-nov: recibió "¿Hay algo más en lo que te pueda ayudar?").
+  // 18-nov (#11656): "el pago q se tiene q hacer al IMSS mensual cuánto sería", "las cuotas que se pagan al IMSS".
+  if(/\b(?:pago|pagos|pagar|cuotas?|cantidades)\b[^.?]{0,35}\b(?:al|del)\s+imss\b/.test(v)) return {type:'pay_to_imss',priority:'high',answerKey:'pay_to_imss'};
   if(/\b(?:pagos?|pagar|pagaria|pago|cuotas?|aportaciones)\b.{0,40}\bdirect\w*\s+(?:al?\s+)?(?:el\s+)?(?:imss|seguro)\b|\b(?:pagos?|cuotas?)\s+(?:al|del)\s+(?:imss|seguro)\b.{0,40}\b(?:yo|direct\w*|ustedes|quien)\b/.test(v)) return {type:'pay_to_imss',priority:'high',answerKey:'pay_to_imss'};
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
   // Proveedores que ofrecen su servicio ("ofrezco la siguiente plataforma… costo $350", caso real 26-oct).

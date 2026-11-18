@@ -21,9 +21,10 @@ const DAY = 24 * 3600 * 1000;
 const norm = v => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 
 // "No me escriban", "ya no me manden mensajes", "dejen de escribirme", "baja" (de los mensajes).
+// 18-nov (#11788): "yo creo que los tengo que bloquear… nomás me están mandando" también pide que no le escriban.
 export function asksNoContact(text = "") {
   const v = norm(text);
-  return /\b(?:no|ya no)\s+me\s+(?:escriban|escribas|manden|mandes|envien|envies|molesten|molestes|contacten|contactes)\b|\bdejen de (?:escribirme|mandarme|molestarme|enviarme)\b|\b(?:no quiero|ya no quiero) (?:recibir|que me (?:escriban|manden))\b|^\s*(?:stop|alto|basta)\s*[.!]*\s*$/.test(v);
+  return /\b(?:no|ya no)\s+me\s+(?:escriban|escribas|manden|mandes|envien|envies|molesten|molestes|contacten|contactes)\b|\bdejen de (?:escribirme|mandarme|molestarme|enviarme)\b|\b(?:no quiero|ya no quiero) (?:recibir|que me (?:escriban|manden))\b|^\s*(?:stop|alto|basta)\s*[.!]*\s*$|(?<!\bno\s)\b(?:los|las|lo|la)\s+(?:tengo que|voy a|voy a tener que)\s+bloquear\b|\b(?:ya\s+)?(?:los|las)\s+bloquee\b|\b(?:me\s+)?(?:estan|siguen)\s+(?:mandando|escribiendo)\s+(?:a cada rato|mucho|muchos mensajes|y mensajes)\b/.test(v);
 }
 
 const MONTHS = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, setiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
