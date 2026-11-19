@@ -48,7 +48,7 @@ export function resolveAnswer(text, memory = {}) {
       patch.tipo_trabajo = job.value;
       resolved.push("actividad");
       events.push({ field: "actividad", value: job.value, rule: job.rule });
-    } else if (String(text ?? "").trim().length >= 3 && String(text).trim().length <= 120) {
+    } else if (String(text ?? "").trim().length >= 3 && String(text).trim().length <= 120 && plausibleActivity(text)) {
       patch.actividad = String(text).trim();
       resolved.push("actividad");
       events.push({ field: "actividad", value: patch.actividad, rule: "free_activity_answer" });
@@ -63,7 +63,7 @@ export function resolveAnswer(text, memory = {}) {
       if (/(?:si|sí)?\s*(?:tengo|cuento con|tengo el|tengo la).{0,22}(?:imss|seguro|servicio)|(?:estoy|sigo)\s+(?:dado de alta|afiliado)/.test(low)
           && !/(?:no tengo|no cuento|sin imss|sin seguro|dado de baja)/.test(low)) {
         answer = true; rule = "natural_imss_positive_bound_to_last_question";
-      } else if (/(?:no tengo|no cuento con|sin)\s+(?:imss|seguro)|(?:estoy|me encuentro)\s+(?:dado de baja|sin alta)/.test(low)) {
+      } else if (/(?:no tengo|no cuento con|sin)\s+(?:imss|seguro)|(?:estoy|me encuentro)\s+(?:dado de baja|sin alta)|\b(?:no hay|no tengo|sin|me quede sin|ando sin|estoy sin)\s+(?:trabajo|empleo|chamba)\b|\bya no\s+(?:cotizo|estoy cotizando|tengo|trabajo|estoy dado de alta)\b|\b(?:deje|dejo|deje de|hace .{1,20} que deje)\s+(?:de\s+)?cotizar\b|\b(?:ya|estoy)\s+fuera\b|\bdesemplead[oa]\b|^no\b[ ,.!]/.test(low)) {
         answer = false; rule = "natural_imss_negative_bound_to_last_question";
       }
     }
@@ -103,4 +103,15 @@ export function resolveAnswer(text, memory = {}) {
   }
 
   return { patch, resolved, events };
+}
+
+// Respuesta libre a "¿a qué te dedicas?". No es actividad una edad ("39 Ya casi 40 en un mes") ni
+// una pregunta ("Ustedes financian las mensualidades al imms"), casos reales 20-oct.
+export function plausibleActivity(text) {
+  const raw = String(text ?? "").trim();
+  const v = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/[?¿]/.test(raw) || /^\d/.test(v)) return false;
+  if (/^(?:ustedes|usted|que|como|cuanto|cuando|donde|cual|cuales|por que|porque|y si|tienen|hay|me pueden|pueden|se puede)\b/.test(v)) return false;
+  if (/\b(?:plan\s*[12]|precio|costo|mensualidad\w*|cuesta|cobran|financ\w*|tramite|afiliar\w*|anos|años)\b/.test(v)) return false;
+  return true;
 }
