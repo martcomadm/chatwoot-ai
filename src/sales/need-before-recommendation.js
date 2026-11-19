@@ -68,6 +68,8 @@ export function needGuardDecision(memory = {}, combinedText = "") {
   if (/[?¿]/.test(String(combinedText)) || /^(?:que|cual|cuales|como|cuanto|cuando|donde|por que|tu dime|dime|me puedes|explicame)\b/.test(norm(combinedText))) return null;
   // 17-nov (#11765, #11777, #11819): ya se le preguntó qué busca y contestó otra cosa ("Tengo 54 años"): en vez de
   // repetir la pregunta se le presentan los dos planes para que elija.
+  // 19-nov (#11953): el resumen de los dos planes salió dos veces igual. Ya se le dio: contesta el flujo normal.
+  if (memory?.plans_overview_sent) return null;
   const askedBefore = /lo mas importante para ti|que te interesa principalmente|que buscas principalmente|que es lo que buscas principalmente|que te interesa mas/.test(norm(memory?.ultima_respuesta_agente || ""));
   if (askedBefore) return plansOverview();
   // 13-nov (#11719): la misma pregunta salió 5 veces. A la tercera se le presentan los dos planes para que elija.
@@ -96,6 +98,8 @@ function plansOverview() {
 
 export function suppressRecommendationWithoutNeed(decision, memory = {}, combinedText = "") {
   if (hasCommercialNeed(memory) || memory?.sales_cycle?.authorized) return decision;
+  // Ya vio los dos planes: la IA puede orientarle hacia uno sin volver a preguntar qué busca.
+  if (memory?.plans_overview_sent) return decision;
   const text = String(decision?.reply || "");
   const recommendsPlan = /\b(te recomiendo|recomiendo|mejor opcion|mejor opción|plan\s*[12])\b/i.test(text);
   if (!recommendsPlan) return decision;

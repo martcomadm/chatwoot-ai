@@ -25,6 +25,8 @@ const INTENT_RE = new RegExp([
   "^(?:si|claro|pues si)\\s+me gustaria\\b",
   // "Si pero sería hasta el jueves para asegurar el dinero primero" (caso real 10-nov).
   "^(?:si|claro|pues si|esta bien|ok)(?: pero| solo que| nada mas que| nomas que)? (?:seria|tendria que ser|podria ser|puede ser|lo haria|lo hariamos)\\b",
+  // "Si pero a fin de mes va", "Si pero el día 1ro" (19-nov, #11944) a "¿Quieres que iniciemos tu trámite?".
+  "^(?:si|claro|pues si|esta bien|ok|va)(?: pero| solo que| nada mas que| nomas que) (?=(?:a|para|el|del|hasta|en|la|a partir)\\b)",
 ].join("|"));
 
 // Cuándo. Devuelve el texto tal como lo dijo, para repetírselo.
@@ -36,6 +38,7 @@ const WHEN_RE = new RegExp([
   "\\b(?:el|al|para el|en el) (?:proximo|siguiente) mes\\b",
   `\\b(?:a|para|en) (?:fin|finales|principios|inicios) de(?: (?:mes|${MONTHS}))?\\b`,
   `\\b(?:el|para el|a partir del?) (?:dia (?:[1-9]|[12]\\d|3[01])|(?:[1-9]|[12]\\d|3[01]|primero) de (?:${MONTHS}))\\b`,
+  "\\b(?:el|del|para el|a partir del?) (?:dia )?(?:1ro|1ero|1o|primero)\\b",
   `\\b(?:en|para|hasta) (?:${MONTHS})\\b`,
   `\\b(?:el|este|para el|hasta el) (?:${DAYS})\\b`,
   "\\bcuando (?:me (?:paguen|depositen|llegue (?:mi|el) (?:deposito|pago|sueldo|quincena))|cobre|reciba (?:mi )?(?:pago|sueldo|deposito|quincena))\\b",

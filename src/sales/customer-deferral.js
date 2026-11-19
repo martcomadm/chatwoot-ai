@@ -156,7 +156,9 @@ function firstName(memory = {}) {
 }
 
 function planLabel(memory = {}) {
-  const plan = memory.sales_cycle?.selected_plan || memory.sales_cycle?.recommended_plan;
+  // El plan del que se habló al último manda sobre una recomendación vieja (19-nov, #11977: se habló del Plan 2 y
+  // la despedida dijo "con el Plan 1").
+  const plan = memory.sales_cycle?.selected_plan || memory.sales_cycle?.last_plan || memory.sales_cycle?.recommended_plan;
   return plan === "plan_2" ? "el Plan 2" : plan === "plan_1" ? "el Plan 1" : null;
 }
 
@@ -165,7 +167,7 @@ function planLabel(memory = {}) {
 const DECLINE_RE = /^(?:no|nop|nel)[ ,.!]*(?:muchas |mil )?gracias\b|^(?:muchas |mil )?gracias[ ,.!]*(?:pero )?no (?:me )?interesa\b|^no[ ,.!]*(?:me interesa(?! (?:el |la |lo de )?(?:infonavit|afore|credito|plan))|por ahora|por el momento|de momento)\b/;
 
 // "Disculpe no haré trámite", "No necesito ya el servicio", "No quiero continuar con el trámite" (24-oct).
-const DECLINE_ANY_RE = /\bsi no(?: es posible| se puede| esta bien)?,? (?:ni modo,? )?(?:muchas )?gracias\b|\bno (?:hare|voy a hacer|realizare|voy a realizar) (?:el |ningun )?tramite\b|\b(?:no|ya no) (?:necesitare|necesito|ocupo|requiero|quiero) (?:ya )?(?:el |del |tu |su )?servicio\b|\bno (?:quiero|deseo|voy a) (?:continuar|seguir) con el tramite\b|^(?:ya|ya lo|ya la)\s+(?:encontre|consegui|tengo otra opcion|contrate)\b/;
+const DECLINE_ANY_RE = /\bsi no(?: es posible| se puede| esta bien)?,? (?:ni modo,? )?(?:muchas )?gracias\b|\bno (?:hare|voy a hacer|realizare|voy a realizar) (?:el |ningun )?tramite\b|\bno (?:quiero|deseo|pienso|elijo|voy a) (?:iniciar|empezar|hacer|realizar|elegir)?\s*(?:ningun|algun|el|un) ?tramite\b|\bno elijo\b.{0,25}\btramite\b|\b(?:no|ya no) (?:necesitare|necesito|ocupo|requiero|quiero) (?:ya )?(?:el |del |tu |su )?servicio\b|\bno (?:quiero|deseo|voy a) (?:continuar|seguir) con el tramite\b|^(?:ya|ya lo|ya la)\s+(?:encontre|consegui|tengo otra opcion|contrate)\b/;
 // "No, me equivoqué, perdón" (caso real 24-oct): escribió por error.
 const MISTAKE_RE = /^(?:no[ ,.!]*)?(?:me equivoque|me equivoque de (?:chat|numero|contacto)|fue un error|era para otra persona|no era para ustedes|disculpe? me equivoque|perdon me equivoque)\b/;
 const NOT_FIT_RE = /\bno (?:es|era) (?:lo que|el (?:servicio|plan) que) (?:busco|buscaba|necesito|necesitaba|quiero|queria|ocupo)\b|\bno (?:es|era) (?:para mi|lo mio)\b|\bno me (?:sirve|funciona)\b(?! (?:el|la) (?:plan|horario))/;
@@ -200,7 +202,7 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   const lastReply = String(memory.ultima_respuesta_agente || "");
   // También cuando la despedida la escribió la IA ("Que tengas buen día", "escríbeme y con gusto te apoyo";
   // caso real 24-oct: a un "Ok" final volvió a ofrecer el Plan 1).
-  const closedBefore = lastReply.includes(CLOSING_MARK) || (!/[?¿]/.test(lastReply) && /que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que te vaya (?:muy )?bien|escr[ií]beme y con gusto|quedo al pendiente|cuando quieras retomar/i.test(lastReply));
+  const closedBefore = lastReply.includes(CLOSING_MARK) || (!/[?¿]/.test(lastReply) && /que tengas (?:un )?(?:buen|excelente|bonito|lindo) d[ií]a|que te vaya (?:muy )?bien|escr[ií]beme y con gusto|quedo al pendiente|quedo (?:atenta|pendiente)|cuando quieras retomar|cuando (?:decidas|lo decidas|lo tengan decidido) (?:retomar|continuar)|puedes escribirnos por este medio|gracias por tu tiempo/i.test(lastReply));
   if (closedBefore && isCourtesy(combinedText)) {
     return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: detectDeferral(combinedText) || "closing" };
   }
@@ -208,7 +210,8 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   // Se despide con gusto y no se le insiste más.
   if (gotJob(combinedText)) {
     const name = firstName(memory);
-    return { reply: `¡Qué gusto${name}, felicidades por tu trabajo! Mientras tu patrón te tenga dado de alta ya cuentas con IMSS. Si más adelante lo vuelves a necesitar, ${CLOSING_MARK} y con gusto te ayudo.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: "not_fit" };
+    const job = /\b(?:trabaj\w*|labor\w*|empleo|chamba|contrataron|aseguraron|patron|de alta)\b/.test(norm(combinedText));
+    return { reply: job ? `¡Qué gusto${name}, felicidades por tu trabajo! Mientras tu patrón te tenga dado de alta ya cuentas con IMSS. Si más adelante lo vuelves a necesitar, ${CLOSING_MARK} y con gusto te ayudo.` : `¡Qué bien${name}! Mientras sigas cotizando ya cuentas con IMSS. Si más adelante dejas de cotizar y quieres seguir sumando semanas con servicio médico, ${CLOSING_MARK} y con gusto te ayudo.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", deferral: "not_fit" };
   }
   // "No de momento, ando en la calle, pero en dos horas te lo mando" (caso real 22-oct) no es rechazo.
   if (MISTAKE_RE.test(norm(combinedText).replace(/[,.!]+/g, " ").replace(/\s+/g, " ").replace(/\b(?:perdon|disculpa|disculpe|una disculpa)\b/g, " ").trim()) && !/[?¿]/.test(String(combinedText))) {
@@ -243,7 +246,8 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   let reply;
   // Quiere iniciar pero después ("Podemos iniciar el trámite el lunes, voy a buscar mis papeles",
   // "mañana le envío papeles"; casos reales 21 y 22-oct): se le dice qué tener listo.
-  const startLater = kind === "later" && /\bno\s+(?:lo|los|la|las)\s+tengo\b|\b(?:papeles|documentos|documentacion|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
+  // "Por el momento no quiero iniciar ningún trámite" (19-nov, #11977) no es "luego te mando mis papeles".
+  const startLater = kind === "later" && !/\bno (?:quiero|deseo|pienso|elijo|voy a)\b.{0,20}\b(?:iniciar|empezar|tramite)\b|\bningun tramite\b/.test(norm(combinedText)) && /\bno\s+(?:lo|los|la|las)\s+tengo\b|\b(?:papeles|documentos|documentacion|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
   if (startLater) reply = String(memory.ultima_respuesta_agente || "").includes(START_LATER_MARK) ? "" : `Perfecto${name}. Cuando tengas a la mano tu CURP, NSS e INE, ${START_LATER_MARK}${plan ? ` con ${plan}` : ""}.`;
   // Sin dinero por ahora (5-nov: la objeción más común, y siempre terminaba en despedida): una vez se le dice que
   // hoy no paga nada y se le ofrece programar el alta para cuando tenga el pago.
@@ -280,5 +284,5 @@ export function isClosingReply(reply = "") {
 export function gotJob(text = "") {
   const v = norm(text).replace(/[.,;:!¡]+/g, " ").replace(/\s+/g, " ").trim();
   if (!v || /[?¿]/.test(String(text)) || /\b(?:no se si|todavia no|aun no|estoy por|voy a entrar|por entrar)\b/.test(v)) return false;
-  return /\bya\s+(?:empece|entre|comence|inicie|estoy)\s+(?:a\s+)?(?:laborar|trabajar|trabajando|laborando)\b|\bya\s+(?:consegui|encontre|tengo)\s+(?:un\s+)?(?:trabajo|empleo|chamba)\b|\bya\s+me\s+(?:dieron|dio|dan)\s+de\s+alta\b(?!.{0,30}\b(?:ustedes|martcom|con ustedes)\b)|\bya\s+(?:me\s+)?(?:contrataron|aseguraron)\b/.test(v);
+  return /\bya\s+(?:empece|entre|comence|inicie|estoy)\s+(?:a\s+)?(?:laborar|trabajar|trabajando|laborando)\b|\bya\s+(?:consegui|encontre|tengo)\s+(?:un\s+)?(?:trabajo|empleo|chamba)\b|\bya\s+me\s+(?:dieron|dio|dan)\s+de\s+alta\b(?!.{0,30}\b(?:ustedes|martcom|con ustedes)\b)|\bya\s+(?:me\s+)?(?:contrataron|aseguraron)\b|\bya\s+(?:estoy|ando|me encuentro)\s+(?:cotizando|asegurad[oa]|trabajando con seguro)\b|\bya\s+(?:cotizo|tengo (?:imss|seguro))\b(?!.{0,25}\b(?:pero|ustedes|martcom)\b)/.test(v);
 }

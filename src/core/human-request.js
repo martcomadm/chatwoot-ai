@@ -92,18 +92,23 @@ export const CALL_OFFER_MARK = "prefieres que un asesor te llame";
 // 12-nov: también cuentan las ofertas de llamada de las respuestas del equipo y de la IA ("podemos agendar una
 // llamada el día de mañana a partir de las 10:00 am… ¿Estás de acuerdo?"). Tres clientes dijeron "sí, de acuerdo"
 // y nadie registró la llamada (#11638, #11649).
-const CALL_OFFER_RE = /prefieres que un asesor te llame|(?:agendar|agendemos|programar|programemos|fijar|fijemos)\s+(?:una|tu|la)\s+llamada|(?:que|si)\s+(?:un asesor|una asesora|alguien del equipo)\s+te\s+(?:llame|marque)|te\s+(?:llame|marque)\s+un\s+asesor|(?:realizarle|hacerte|hacerle)\s+una\s+llamada/;
+// 19-nov (#11920): "Este número no recibe llamadas, pero un asesor puede regresarte la llamada. ¿En qué horario…?" y el
+// cliente dijo "Como a las 7:00pm": la IA preguntó "¿Te parece bien?" y nadie registró la llamada.
+const CALL_OFFER_RE = /prefieres que un asesor te llame|(?:un asesor|una asesora|alguien del equipo)\s+(?:puede|podria|te puede|te podria)\s+(?:regresarte|devolverte|hacerte|llamarte|marcarte)\b|(?:agendar|agendemos|programar|programemos|fijar|fijemos)\s+(?:una|tu|la)\s+llamada|(?:que|si)\s+(?:un asesor|una asesora|alguien del equipo)\s+te\s+(?:llame|marque)|te\s+(?:llame|marque)\s+un\s+asesor|(?:realizarle|hacerte|hacerle)\s+una\s+llamada/;
 // Hora que Mia ya propuso en la oferta ("mañana a partir de las 10:00 am").
 function offeredTime(lastReply = "") {
   const m = norm(lastReply).match(/\b(?:(?:el dia de )?(?:hoy|manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo))\s+)?(?:a partir de las|despues de las|a las)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|a m|p m|hrs?)?/);
   return m ? m[0].replace(/^el dia de /, "").trim() : null;
 }
-const TIME_RE = /\b(?:a las|alas|despues de las|antes de las|entre las|de las)\s*\d{1,2}(?::\d{2})?|\b\d{1,2}(?::\d{2})?\s*(?:am|pm|hrs?|horas)\b|\b(?:en la|por la)\s+(?:manana|tarde|noche)\b|\b(?:ahorita|ahora|ya|cuando gusten|cuando quieran|a cualquier hora|cualquier hora|hoy|manana)\b/;
+// "ya" solo cuenta como hora cuando es la respuesta ("Ya", "Sí, ya"): "yo ya estoy cotizando" no (19-nov, #11866).
+const TIME_RE = /\b(?:a las|alas|despues de las|antes de las|entre las|de las)\s*\d{1,2}(?::\d{2})?|\b\d{1,2}(?::\d{2})?\s*(?:am|pm|hrs?|horas)\b|\b(?:en la|por la)\s+(?:manana|tarde|noche)\b|\b(?:ahorita|ahora|cuando gusten|cuando quieran|a cualquier hora|cualquier hora|hoy|manana)\b|^(?:si |ok |va )?ya(?: mismo)?$/;
 export function acceptsCallOffer(text, lastReply = "") {
   if (!CALL_OFFER_RE.test(norm(lastReply))) return null;
   const value = norm(text).replace(/[^a-z0-9n: ]+/g, " ").replace(/\s+/g, " ").trim();
   if (!value || /^(?:no|nop|nel)\b|\bno (?:gracias|me llamen|me marquen|puedo|quiero|me interesa)\b|\bya no\b|\bpor mensaje\b|\bpor (?:aqui|escrito|whats)\b/.test(value)) return null;
   // "Ok checo las recomendaciones" (12-nov, #11617) no acepta la llamada: lo va a revisar por su cuenta.
+  // "Muchas gracias yo ya estoy cotizando ok" (19-nov, #11866): ya tiene IMSS o ya lo resolvió; no es aceptar la llamada.
+  if (/\bya (?:estoy|tengo|cuento|cotizo|consegui|me dieron|lo resolvi|no)\b|\b(?:asi|aqui) (?:esta|estoy) (?:muy )?bien\b/.test(value)) return null;
   if (/\b(?:checo|chequo|reviso|reviso|analizo|lo pienso|lo voy a pensar|lo veo|lo checo|lo reviso|recomendaciones|resenas|facebook|luego le|luego te|yo le (?:marco|aviso|escribo)|yo me comunico|yo les? (?:marco|aviso|escribo))\b/.test(value)) return null;
   const proposed = offeredTime(lastReply);
   const yes = /^(?:si+|sip|claro|ok|okay|va|vale|sale|por favor|porfavor|de acuerdo|me parece|esta bien|bueno|perfecto|adelante|orale)\b/.test(value);

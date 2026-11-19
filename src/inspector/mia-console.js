@@ -1,3 +1,4 @@
+import { clarifyNss } from "../core/nss-wording.js";
 import { leadScore } from "../sales/lead-score.js";
 import { profileFacts } from "../memory/customer-profile.js";
 import fs from "node:fs";
@@ -90,6 +91,7 @@ export const EVENT_LABELS = {
   operations_customer_notification: "Aviso de Operations al cliente",
   reply_superseded: "Respuesta reemplazada (el cliente siguió escribiendo)",
   human_replied_skip: "No respondió: una persona del equipo ya había contestado",
+  person_answering_skip: "No respondió: el cliente le contestaba a una persona del equipo",
   reassigned_skip: "No respondió: el chat está asignado a otra persona",
   stop_label_skip: "No respondió: el chat tiene una etiqueta de cierre",
   reply_outside_window: "Fuera de la ventana de 24 h (se usa plantilla)",
@@ -123,7 +125,7 @@ const eventLabel = e => e.type === "handoff" && e.details?.rotation === "atencio
 // 9-nov: lo que escribió el modelo avanzado se marca (y por qué se usó).
 const replyLabel = d => `${sourceLabel(d?.decision_source)}${d?.model_tier === "strong" ? ` · modelo avanzado${d?.hard_turn ? ` (${d.hard_turn})` : ""}` : ""}`;
 
-const SILENCE_EVENTS = new Set(["already_answered_skip", "empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule", "agent_owned_skip", "onboarding_declined", "payment_extension_requested", "capture_review_handoff"]);
+const SILENCE_EVENTS = new Set(["already_answered_skip", "empty_batch_skipped", "duplicate_turn_skipped", "audio_transcription_failed", "empty_reply_skipped", "human_replied_skip", "person_answering_skip", "reassigned_skip", "stop_label_skip", "mia_paused_skip", "ai_error", "processing_error", "after_hours_skipped", "reply_outside_window", "duplicate_reply_suppressed", "reply_superseded", "auto_reply_ignored", "chatwoot_messages_fetch_failed", "followup_cancelled", "handoff", "specialized_advice_handoff", "ignored_out_of_schedule", "agent_owned_skip", "onboarding_declined", "payment_extension_requested", "capture_review_handoff"]);
 
 const REASON_LABELS = {
   human_replied: "Parecía que una persona ya había contestado",
@@ -510,7 +512,9 @@ export class MiaConsole {
     const memory = this.memories.get(id);
     const events = this.inspectorEvents.get(id).map(e => ({ ...e, conversationId: id }));
     const replyEvents = events.filter(e => e.type === "ai_reply_sent");
-    const followTexts = new Set(events.filter(e => e.type === "followup_sent").map(e => norm(e.details?.text)));
+    const followTexts = new Set(events.filter(e => e.type === "followup_sent").flatMap(e => [norm(e.details?.text), norm(clarifyNss(e.details?.text || ""))]));
+    // Mensajes que el equipo mandó desde Operaciones (salen con la cuenta de Mia).
+    const teamTexts = new Map((memory?.team_messages || []).map(t => [norm(t.text), t.by || null]));
 
     // Conversación real desde Chatwoot; si no se puede leer, se arma con los eventos.
     let transcript = null;
@@ -533,13 +537,15 @@ export class MiaConsole {
               return { who: "cliente", text: voice ? `🎤 (nota de voz) ${voice}` : m.content || "", at, attachments: (m.attachments || []).length };
             }
             // Cada mensaje de Mia se empareja con su propio evento (en orden), aunque el texto se repita.
-            const match = replyEvents.find(e => !usedReplies.has(e) && norm(e.details?.reply) === text);
+            // El texto enviado puede llevar "número de seguridad social (NSS)" (nss-wording.js) aunque el evento diga "NSS".
+            const match = replyEvents.find(e => !usedReplies.has(e) && (norm(e.details?.reply) === text || norm(clarifyNss(e.details?.reply || "")) === text));
             if (match) usedReplies.add(match);
             let who = "persona";
             let label = m.sender?.name ? `Persona · ${m.sender.name}` : "Persona del equipo";
             if (match) { who = "mia"; label = replyLabel(match.details); }
             else if (NOTICE_RE.test(text)) { who = "mia"; label = "Aviso de horario"; }
             else if (followTexts.has(text)) { who = "mia"; label = "Seguimiento"; }
+            else if (teamTexts.has(text)) { who = "persona"; label = `Persona · ${teamTexts.get(text) || "equipo"} (desde Operaciones)`; }
             else if (this.selfSenders?.isOwn?.(m)) { who = "mia"; label = "Mia"; }
             return { who, label, text: m.content || "", at, attachments: (m.attachments || []).length, flags: match ? replyFlags(match, new Set(replyEvents.filter(r => ms(r.timestamp) < ms(match.timestamp)).map(r => norm(r.details?.reply)))) : [], why: match ? (match.details?.replaced_reasons || []).map(replacedReasonLabel) : [], draft: match?.details?.replaced_reasons?.length ? match.details?.ai_draft || null : null };
           });

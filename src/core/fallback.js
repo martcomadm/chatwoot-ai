@@ -81,6 +81,8 @@ export function contextualNextStep(memory = {}) {
   if (plan) options.push(`¿Tienes alguna duda sobre el ${label} o quieres que iniciemos tu trámite?`);
   // Sin plan identificado se pregunta qué busca (antes salía "¿Hay algo más…?" porque la IA
   // había anotado una necesidad en texto libre; caso Laura, 17-oct).
+  // Ya vio el resumen de los dos planes (19-nov, #11953): se le pregunta cuál le interesa, no otra vez qué busca.
+  else if (memory?.plans_overview_sent) options.push("¿Cuál te interesa más, el Plan 1 ($1,100 MXN mensuales) o el Plan 2 ($1,500 MXN mensuales)?");
   else options.push("Para orientarte mejor, ¿qué buscas principalmente: servicio médico, seguir cotizando semanas o también aportar a AFORE e INFONAVIT?");
   // 04-nov: "¿Hay algo más en lo que te pueda ayudar?" sonaba a despedida justo cuando el cliente dijo "sí me interesa" (Irma).
   if (plan) options.push(`Si te parece bien, ¿iniciamos tu trámite con el ${label}?`);

@@ -10,7 +10,7 @@ import { needGuardDecision, suppressRecommendationWithoutNeed, isAdvisoryTurn, d
 import { commitmentDecision } from "../sales/commitment-flow.js";
 import { negatesCommitment } from "../sales/commitment-negation.js";
 import { affirmsWithDocuments } from "../sales/start-confirmation.js";
-import { deferralDecision, detectDeferral, detectClosing, isClosingReply } from "../sales/customer-deferral.js";
+import { deferralDecision, detectDeferral, detectClosing, isClosingReply, isCourtesy } from "../sales/customer-deferral.js";
 import { SelfSenders } from "./self-senders.js";
 import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
@@ -61,7 +61,7 @@ import { extractContactPhone } from "../operations/sale-factory.js";
 import { formatAmount } from "../operations/customer-messages.js";
 import { memoryAfterCancellation, SALE_STOP_LABELS } from "../operations/cancelled-sale.js";
 import { serviceSaleActive } from "../operations/customer-service/service-sale.js";
-import { agentStartedConversation, mentionsOwnAdvisor, existingClient, ownAdvisorReply, EXISTING_CLIENT_TEXT } from "./agent-ownership.js";
+import { agentStartedConversation, personAnsweredLast, mentionsOwnAdvisor, existingClient, ownAdvisorReply, EXISTING_CLIENT_TEXT } from "./agent-ownership.js";
 
 // Etiqueta de Chatwoot que pausa a Mia solo en esa conversación.
 export const PAUSE_LABEL = "pausar_mia";
@@ -80,7 +80,8 @@ function humanRepliedSince(conversation, sinceIso, miaAgentId, ignoreTexts = [],
     const senderId = Number(m?.sender_id || m?.sender?.id || 0);
     const text = String(m?.content || "").replace(/\s+/g, " ").trim();
     if (selfSenders?.isOwn?.(m)) return false;
-    return outgoing && m?.private !== true && senderType === "user" && senderId !== Number(miaAgentId) && !ignored.has(text) && Number(m?.created_at || 0) >= since;
+    // Con el registro de mensajes de Mia, alguien del equipo que usa la cuenta de Mia sí cuenta como persona.
+    return outgoing && m?.private !== true && senderType === "user" && (selfSenders?.tracking || senderId !== Number(miaAgentId)) && !ignored.has(text) && Number(m?.created_at || 0) >= since;
   });
 }
 
@@ -520,6 +521,10 @@ export class ConversationProcessor {
     }
     // El cliente escribió: se cancelan los seguimientos pendientes.
     this.followUps?.customerWrote(conversationId);
+    // Una persona del equipo contestó al último (en las últimas 24 h): el cliente le está contestando a ella.
+    // Con el trámite ya aceptado Mia no responde (los datos y documentos sí se guardan); antes de aceptar sigue
+    // vendiendo, porque el equipo a veces cierra con una pregunta y Mia abre el expediente (caso Enedino, 20-oct).
+    const personLast = awaitingValidity ? null : personAnsweredLast(conversation, messageIds, { miaAgentId: this.config.chatwoot.agentId, selfSenders: this.selfSenders, sinceIso: this.memories.get(conversationId)?.capture_intervention?.released_at || null });
     // El cliente contestó a la plantilla de vigencia: se le entrega su documento y listo.
     if (awaitingValidity && typeof this.onValidityReply === "function") {
       let delivered = false;
@@ -946,7 +951,16 @@ export class ConversationProcessor {
     const noContactDecision = asksNoContact(combinedText) && !base.sales_cycle?.authorized ? { reply: "Entendido, ya no te enviaremos mensajes. Si más adelante quieres información sobre tu afiliación al IMSS, escríbenos por aquí y con gusto te ayudamos.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" } : null;
     // Modo ligero (prueba A/B, 17-nov): solo las protecciones esenciales; lo demás lo contesta la IA.
     const L = isLightMode(memory) || isLightMode(base);
-    if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
+    // 19-nov (#11839): alguien del equipo escribió desde Operaciones ("…gracias por recibir mi llamada, soy Adriana") y
+    // a "👍👍" / "Gracias" Mia le pidió la CURP dos veces. Un agradecimiento a ese mensaje no necesita respuesta de Mia.
+    const lastTeam = (base.team_messages || []).at(-1);
+    const teamAck = !mediaDecision && lastTeam && String(lastTeam.text || "").trim() === String(base.ultima_respuesta_agente || "").trim() && isCourtesy(combinedText);
+    if (personLast && base.sales_cycle?.authorized) {
+      decision = protectDeterministicDecision({ reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "person_answering");
+      await this.record(conversationId, "person_answering_skip", { by: personLast.by, person_at: personLast.at, message_ids: messageIds.map(String) });
+    }
+    else if (teamAck) decision = protectDeterministicDecision({ reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "team_message_ack");
+    else if (mediaDecision) decision = protectDeterministicDecision(mediaDecision, `media_${mediaOnly}`);
     else if (noContactDecision) decision = protectDeterministicDecision(noContactDecision, "no_contact");
     else if (L && memory.sales_cycle?.authorized && onboardingDecision?.priority) decision = protectDeterministicDecision(onboardingDecision, "onboarding");
     else if (L && commitment) decision = protectDeterministicDecision(commitment, `commitment:${commitment.commitment}`);
@@ -965,6 +979,8 @@ export class ConversationProcessor {
       if (featureRejection.plan) memory = { ...memory, sales_cycle: { ...(memory.sales_cycle || {}), last_plan: featureRejection.plan, recommended_plan: featureRejection.plan }, commercial_need: { ...(memory.commercial_need || {}), afore_infonavit: featureRejection.plan === "plan_2" } };
     }
     else if (!L && deferral) decision = protectDeterministicDecision(deferral, `customer_${deferral.deferral === "closing" ? "closing" : "deferral"}`);
+    // Mia libre también se queda callada a un "👍"/"gracias" después de despedirse (19-nov, #11977: volvió a ofrecer el plan).
+    else if (L && deferral && !deferral.reply) decision = protectDeterministicDecision(deferral, "customer_closing");
     else if (!L && caseDiagnosis) decision = protectDeterministicDecision(caseDiagnosis, `case_diagnosis:${caseDiagnosis.case_diagnosis}`);
     else if (!L && priceObjection) decision = protectDeterministicDecision(priceObjection, "price_objection");
     else if (!L && medicalNotNeeded) decision = protectDeterministicDecision(medicalNotNeeded, "medical_not_needed");
@@ -978,6 +994,7 @@ export class ConversationProcessor {
     else if (!L && needDecision && !advisoryTurn) {
       decision = protectDeterministicDecision(needDecision, needDecision.plans_overview ? "need_plans_overview" : "need_discovery");
       if (!needDecision.plans_overview) memory = { ...memory, need_discovery_asks: (memory.need_discovery_asks || 0) + 1 };
+      else memory = { ...memory, plans_overview_sent: true };
     }
     else if (!L && compactRecommendation && !advisoryTurn) decision = protectDeterministicDecision(compactRecommendation, "compact_plan_recommendation");
     else {

@@ -29,9 +29,36 @@ export function agentStartedConversation(conversation, miaAgentId, selfSenders =
   const isHuman = m => isOutgoing(m)
     && !selfSenders?.isOwn?.(m)
     && String(m?.sender_type || m?.sender?.type || "").toLowerCase() === "user"
-    && Number(m?.sender_id || m?.sender?.id || 0) !== Number(miaAgentId);
+    && (selfSenders?.tracking || Number(m?.sender_id || m?.sender?.id || 0) !== Number(miaAgentId));
   if (!isHuman(msgs[0])) return false;
   return !msgs.some(m => isOutgoing(m) && !isHuman(m));
+}
+
+// 19-nov (#11962 Arcadia, #11839): una persona del equipo escribió al último ("¿Me dice qué clínica le queda
+// cerca?") y el cliente le contestó a ella; Mia respondía con su mensaje del expediente. Igual que el rescate de
+// chats (pending-sweep.js): si quien contestó al último fue una persona, ese mensaje del cliente es suyo.
+// Cuenta solo si la persona escribió en las últimas `windowMs` y después de que el chat se regresó a Mia.
+export function personAnsweredLast(conversation, batchIds = [], { miaAgentId, selfSenders = null, sinceIso = null, windowMs = 24 * 3600 * 1000 } = {}) {
+  const ids = new Set(batchIds.map(String));
+  const msgs = messagesOf(conversation)
+    .filter(m => m && m.private !== true && !isActivity(m))
+    .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0));
+  const firstBatch = msgs.find(m => ids.has(String(m.id)));
+  if (!firstBatch) return null;
+  const startAt = Number(firstBatch.created_at || 0);
+  const notice = m => /^¡Gracias por escribir a MARTCOM! Nuestro horario de atención es/.test(String(m?.content || "").trim());
+  const before = msgs.filter(m => isOutgoing(m) && !notice(m) && Number(m.created_at || 0) <= startAt);
+  const last = before.at(-1);
+  if (!last) return null;
+  const human = !selfSenders?.isOwn?.(last)
+    && String(last?.sender_type || last?.sender?.type || "").toLowerCase() === "user"
+    && (selfSenders?.tracking || Number(last?.sender_id || last?.sender?.id || 0) !== Number(miaAgentId));
+  if (!human) return null;
+  const at = Number(last.created_at || 0) * 1000;
+  if (!at || startAt * 1000 - at > windowMs) return null;
+  const since = Date.parse(sinceIso || "");
+  if (Number.isFinite(since) && at <= since) return null;
+  return { by: last?.sender?.name || null, at: new Date(at).toISOString() };
 }
 
 // Palabras que siguen a "que siga / que continúe" y no son nombres de asesores.

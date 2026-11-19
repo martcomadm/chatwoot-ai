@@ -92,6 +92,12 @@ export function extractFast(text,memory={}){
     patch.tiene_imss=false;
     patch.contexto_laboral.cotizo_anteriormente=true;
   }
+  // "Aorita.no.estoi Cotisando" (19-nov, #11970): recibió "¿Me confirmas si estás dado de alta?" y luego se confundió.
+  const loose=raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[.,;:!¡]+/g," ").replace(/\s+/g," ");
+  if(/\bno (?:estoy|estoi|esty|ando) (?:cotizando|cotisando|asegurad[oa]|dad[oa] de alta)\b|\bno (?:cotizo|cotiso)\b|\bno estoy en el (?:imss|seguro)\b/.test(loose) && !/\bno (?:estoy|estoi) (?:cotizando|cotisando) (?:en|con) (?:ustedes|martcom)\b/.test(loose)){
+    patch.tiene_imss=false;
+    patch.contexto_laboral.cotizo_anteriormente=true;
+  }
   if(/\b(contaba|ten[ií]a)\b.{0,20}\b(imss|seguro)\b/i.test(raw)){
     patch.tiene_imss=false;
     patch.contexto_laboral.cotizo_anteriormente=true;

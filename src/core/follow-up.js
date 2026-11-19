@@ -204,7 +204,7 @@ export class FollowUpService {
       && !this.selfSenders?.isOwn?.(m)
       && Number(m.created_at || 0) >= since
       && String(m.sender_type || m.sender?.type || "").toLowerCase() === "user"
-      && Number(m.sender_id || m.sender?.id || 0) !== Number(this.config.chatwoot.agentId)
+      && (this.selfSenders?.tracking || Number(m.sender_id || m.sender?.id || 0) !== Number(this.config.chatwoot.agentId))
       && !ignored.has(String(m.content || "").replace(/\s+/g, " ").trim())
       && !(entry.texts || []).includes(String(m.content || "").replace(/\s+/g, " ").trim()));
     if (humanReplied) return "human_replied";

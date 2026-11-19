@@ -116,6 +116,8 @@ export function detectDirectRequest(text){
   // como ISSSTE y portabilidad, lo revisa un asesor (confirmado 27-oct: Mia no lo explica).
   if(/\b(?:gobierno|dependencia|issste|pensiones del estado|policia federal|pemex|cfe|magisterio)\b.{0,90}\b(?:no (?:me )?(?:conto|cuenta|cuentan|contaron|aparece\w*|sirve|sirvio|valen?)|cambia\w* (?:en algo|el tramite|mi tramite|algo)|sube o baja|(?:podra|puede|se puede|pueden) hacer algo)\b|\bcambia\w* (?:en algo|mi tramite|el tramite)\b.{0,90}\b(?:gobierno|dependencia|issste|policia federal|pemex|cfe)\b/.test(v)) return {type:'advisor_topic',priority:'high',answerKey:'advisor_topic'};
   // "Lo único que me falta es el número de afiliación y no lo tengo, no me acuerdo" (caso real 27-oct).
+  // "Bueno déjeme voy a solicitar mi número de afiliación" (19-nov, #11949): no hace falta que vaya al IMSS.
+  if(/\b(?:voy|boy|ire|vamos|tengo que ir|tendria que ir)\s+a\s+(?:solicitar|sacar|pedir|tramitar|buscar|conseguir|ir por)\s+(?:mi\s+|el\s+)?(?:numero de afiliacion|nss|numero de seguro(?: social)?|numero de seguridad social|numero del imss)\b/.test(v)) return {type:'nss_lookup',priority:'high',answerKey:'nss_lookup'};
   if(/\bno (?:lo |la )?(?:tengo|recuerdo|me acuerdo|se|encuentro)\b.{0,40}\b(?:numero de afiliacion|nss|numero de seguro(?: social)?|numero del imss)\b|\b(?:numero de afiliacion|nss|numero de seguro(?: social)?|numero del imss)\b.{0,40}\bno (?:lo |la )?(?:tengo|recuerdo|me acuerdo|se cual|encuentro)\b/.test(v)) return {type:'nss_lookup',priority:'high',answerKey:'nss_lookup'};
   // "Aparte de altas en el IMSS, ¿tienes otros servicios?" (caso real 28-oct: respuesta genérica).
   if(/\b(?:otros?|mas|algun otro|otro tipo de)\s+servicios?\b|\baparte de (?:las |la )?(?:altas?|afiliacion\w*)\b/.test(v) && !/\b(?:servicio medico|medicamento\w*)\b/.test(v)) return {type:'other_services',priority:'high',answerKey:'other_services'};
@@ -424,7 +426,8 @@ export function directAnswerText(request){
   if(request.answerKey==='salary_pension') return 'Es una buena pregunta. En ambos planes el salario diario registrado es de $480 MXN. Lo que te da el plan es seguir sumando semanas cotizadas. Cuánto sería tu pensión depende de tu caso: si empezaste a cotizar antes o después del 1 de julio de 1997, cuántas semanas tienes y los salarios registrados en tu historial; por eso no puedo asegurarte un monto. Con tu constancia de semanas cotizadas, un asesor puede revisar cómo te conviene. ¿Quieres que te comunique con un asesor?';
   if(request.answerKey==='registered_salary') return 'Ambos planes manejan un salario diario registrado de $480 MXN.';
   if(request.answerKey==='pension_impact') return 'Seguir cotizando semanas puede ayudarte a continuar construyendo tu historial ante el IMSS, pero no puedo asegurarte que tu pensión aumente solo por contratar la afiliación. El monto de una pensión depende de varios datos de tu historial y régimen. Si tu objetivo es pensión, podemos revisar primero tu caso para orientarte sin prometer un incremento que todavía no conocemos.';
-  if(request.answerKey==='case_review') return 'Para empezar a revisar tu caso, compárteme tu NSS si lo tienes a la mano. Si no lo tienes, no te preocupes: con tu CURP podemos localizarlo y continuar sin atrasar la revisión.';
+  // 19-nov (#11967): antes pedía el NSS para "revisar el caso" sin haber explicado nada; ahora pregunta lo que importa.
+  if(request.answerKey==='case_review') return 'Con gusto revisamos tu caso. Para saber qué opciones tienes, ¿hace cuánto dejaste de cotizar y, más o menos, en qué año empezaste a cotizar?';
   if(request.answerKey==='case_review_curp') return 'Perfecto, ya tengo tu CURP. Con este dato podemos localizar tu NSS y continuar con la revisión de tu caso. No necesitas volver a enviarme la información anterior.';
   if(request.answerKey==='requirements'&&request.intent) return 'Para iniciar necesitamos CURP, NSS e INE del titular; la Constancia de Situación Fiscal se pide hasta los 3 meses de que ya estés con nosotros. Cuando los tengas a la mano, envíamelos por aquí y arrancamos tu trámite.';
   if(request.answerKey==='requirements') return 'Para iniciar necesitamos CURP, NSS e INE del titular. La Constancia de Situación Fiscal es opcional al inicio y se solicitará a los 3 meses de que ya estés con nosotros. Si todavía estás revisando la opción, no necesitas enviar tus documentos aún.';
@@ -577,6 +580,9 @@ export function orchestrateConversation(text,memory={}){
   if((!direct||direct.answerKey==='pension_general')&&/\b(?:por cuanto tiempo|cuanto tiempo (?:tengo|tendria|debo|hay) que|cuantos meses (?:tengo|tendria|debo|hay)|tiempo minimo|minimo de (?:meses|tiempo)|cuanto tiempo (?:debo|tengo que) (?:estar|pagar|cotizar|quedarme))\b/.test(norm(text))&&(pensionContext(memory)||/\bpension/.test(norm(text)))){
     direct={type:'pension_min_term',priority:'high',answerKey:'pension_min_term'};
   }
+  // 19-nov (#11950): ya se le preguntó cuándo dejó de cotizar y contestó ("no he cotizado en 4 años… no sé cuántas
+  // semanas tengo"); repetirle la misma pregunta no sirve: lo contesta el diagnóstico o la IA.
+  if(['weeks_review','case_review','needs_weeks'].includes(direct?.answerKey)&&/hace cuanto dejaste de cotizar/.test(norm(memory?.ultima_respuesta_agente||''))) direct=null;
   direct=enrich(direct,text,memory);
   return {
     directRequest:direct,

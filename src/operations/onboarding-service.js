@@ -292,7 +292,7 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   }
   // "Ok te la envío" (caso real 23-oct: no recibió respuesta).
   if (!hasCurpValue(combinedText) && !hasNssValue(combinedText) && !/[?¿]/.test(combinedText)
-    && /\b(?:te|se|le)\s+(?:la|lo|las|los)\s+(?:envio|mando|paso|comparto)\b|^(?:ok\s+|si\s+|claro\s+)?(?:ahi|alli)\s+(?:te|le)\s+(?:va|van)\b|^(?:ok\s+|si\s+)?(?:ahorita|ya)\s+(?:te|se|le)\s+(?:la|lo|las|los)\s+(?:envio|mando|paso)\b/.test(text)
+    && /\b(?:te|se|le)\s+(?:la|lo|las|los)\s+(?:envio|mando|paso|comparto)\b|^(?:(?:ok\w*|si|claro|va|sale)\s+)?(?:permit\w*\s*me|permitame|permiteme|permitanme|un momento|un momentito|un segundo|dame chance|deme chance|dejame ver|dejeme ver|ahorita (?:la|lo) busco)\b|^(?:ok\s+|si\s+|claro\s+)?(?:ahi|alli)\s+(?:te|le)\s+(?:va|van)\b|^(?:ok\s+|si\s+)?(?:ahorita|ya)\s+(?:te|se|le)\s+(?:la|lo|las|los)\s+(?:envio|mando|paso)\b/.test(text)
     && String(memory.ultima_respuesta_agente || "").trim() !== "Perfecto, aquí la espero.") {
     return { reply: "Perfecto, aquí la espero.", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: memory.operations.onboarding_next || null, priority: true };
   }
