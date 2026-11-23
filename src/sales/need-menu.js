@@ -42,3 +42,14 @@ export function menuChoiceText(lastReply = "", text = "") {
   const choice = unique.includes(3) || (unique.includes(1) && unique.includes(2)) ? (unique.includes(3) ? 3 : 2) : unique[0];
   return OPTION_TEXT[choice] || null;
 }
+
+// 23-nov (#12114): después de "Te lo resumo para que elijas: el Plan 1 (…) el Plan 2 (…) ¿Cuál te interesa más?" el
+// cliente contestó "2" y recibió otra vez "¿Qué te interesa principalmente…?". El número es el plan.
+export function overviewChoiceText(lastReply = "", text = "") {
+  if (!/te lo resumo para que elijas|cual te interesa mas, el plan 1/.test(norm(lastReply))) return null;
+  const v = norm(text).replace(/[.!,;:]+/g, " ").replace(/\s+/g, " ").trim();
+  const m = v.match(/^(?:(?:el|la|plan|opcion|numero|me interesa|quiero|si|ok|seria)\s+)*(1|2|uno|dos)(?:\s+(?:por favor|porfa|gracias))?$/);
+  if (!m) return null;
+  const n = { uno: 1, dos: 2 }[m[1]] || Number(m[1]);
+  return `Me interesa el Plan ${n}`;
+}

@@ -99,7 +99,7 @@ function isCourtesyText(text = "") {
   const raw = String(text || "").trim();
   if (/[?¿]/.test(raw)) return false;
   const v = norm(raw).replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
-  return !v || /^(?:(?:ok|okey|okay|oki|oi|va|sale|vale|si|claro|listo|perfecto|bien|muy bien|de acuerdo|entendido|enterado|gracias|grasias|gracia|muchas gracias|muchas grasias|mil gracias|que amable|muy amable|amable|pf|por favor|porfavor|quedo pendiente|quedo al pendiente|quedo atento|quedo atenta|pendiente|igualmente|bendiciones|buen dia|excelente|mia)\s*)+$/.test(v);
+  return !v || /^(?:(?:ok|okey|okay|oki|oi|va|sale|vale|si|claro|listo|perfecto|bien|muy bien|de acuerdo|entendido|enterado|gracias|grasias|gracia|muchas gracias|muchas grasias|mil gracias|que amable|muy amable|amable|pf|por favor|porfavor|quedo pendiente|quedo al pendiente|quedo atento|quedo atenta|pendiente|igualmente|bendiciones|buen dia|excelente|mia|esta bien|estabien|todo bien|enterad[oa]|pendientes|ok enterado|okey enterado|sale pues|va pues)\s*)+$/.test(v);
 }
 
 export const NSS_LOOKUP_DONE_TEXT = "No te preocupes. Con tu CURP localizamos tu número de seguridad social (NSS) y lo agregamos a tu expediente. Con eso ya tengo lo necesario: el equipo continúa con tu trámite y te aviso por aquí cuando tu alta quede lista.";
@@ -111,7 +111,9 @@ export const ONBOARDING_DECLINED_TEXT = "Entendido, gracias por avisarme. Le avi
 // asesor le llamaría y luego se le volvió a pedir la CURP dos veces).
 export function declinesOnboarding(text = "") {
   const t = norm(text);
-  return /\b(?:no|ya no)\s+(?:necesitare|necesito|ocupo|ocupare|requiero|quiero)\s+(?:ya\s+)?(?:el|del|tu|su)\s+servicio\b|\bno\s+(?:quiero|deseo|voy a)\s+(?:continuar|seguir)\s+con\s+(?:el|mi)\s+tramite\b|\b(?:cancel\w*)\s+(?:el|mi)\s+tramite\b|\bya no (?:quiero|me interesa) (?:continuar|el tramite|seguir)\b/.test(t);
+  return /\b(?:no|ya no)\s+(?:necesitare|necesito|ocupo|ocupare|requiero|quiero)\s+(?:ya\s+)?(?:el|del|tu|su)\s+servicio\b|\bno\s+(?:quiero|deseo|voy a)\s+(?:continuar|seguir)\s+con\s+(?:el|mi)\s+tramite\b|\b(?:cancel\w*)\s+(?:el|mi)\s+tramite\b|\bya no (?:quiero|me interesa) (?:continuar|el tramite|seguir)\b/.test(t)
+    // "Estoy buscando con recibo timbrados, gracias de cualquier manera" (21-nov, #12004: recibió otra vez la CURP).
+    || /\bgracias de (?:cualquier|todas) (?:manera|maneras|formas|modos)\b|\bde (?:cualquier|todas) (?:manera|maneras|formas|modos),? gracias\b|\bestoy buscando (?:con|otra|otro|algo que)\b/.test(t);
 }
 
 export function buildOnboardingDecision(memory = {}, combinedText = "") {
@@ -268,7 +270,9 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
         return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: null };
       }
       if (/[?¿]/.test(combinedText) || /\b(cuanto|como|cuando|donde|por que|puedo|incluye|cuesta|tarda|pago)\b/.test(text)) return null;
-      return { reply: toldBefore ? "" : doneText, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: null };
+      // 20-nov (Arcadia, #11960): "Tuve que salir de urgencias, murió mi hermana, llego hasta fin de mes" recibió
+      // otra vez el aviso del NSS. El aviso ya se dio al registrar que no tiene NSS; lo demás lo atiende el equipo.
+      return { reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: null };
     }
   }
   // "En dos horas te lo envío, ando fuera" (caso real 20-oct): antes se repetía la solicitud y se
@@ -333,9 +337,15 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
   // 17-nov (#11811, #11824): "Ok", "Ok grasias muy amable" después de "aquí la espero" o del aviso al asesor
   // recibían otra vez la solicitud de la CURP.
   const ackedBefore = samePrompt || lastReply === "Perfecto, aquí la espero." || lastReply === DOCS_LATER_TEXT || /^Gracias, ya le pasé tu respuesta/.test(lastReply);
-  if (ackedBefore && !containsRequestedData && isCourtesyText(combinedText)) {
+  // 21-nov (#12040): "Ok enterado, pendientes" / "Está bien" después de "en cuanto la tengas, envíala" recibían la
+  // misma solicitud de la CURP dos veces seguidas.
+  const lastIsStatement = Boolean(lastReply) && !/[?¿]/.test(lastReply) && !Object.values(PROMPTS).includes(lastReply) && Boolean(String(combinedText || "").trim());
+  if ((ackedBefore || lastIsStatement) && !containsRequestedData && isCourtesyText(combinedText)) {
     return { reply: "", question_key: key === "curp" || key === "nss" ? key : null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_requirement: key };
   }
+  // Ya se le pidió eso mismo en el mensaje anterior y contestó otra cosa ("Todo tengo", "estoy esperando a mi hija"):
+  // no se repite palabra por palabra; contesta el flujo normal con su contexto.
+  if (samePrompt && !containsRequestedData) return null;
   return {
     reply: onboardingPrompt(key),
     question_key: key === "curp" || key === "nss" ? key : null,

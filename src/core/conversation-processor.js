@@ -16,7 +16,7 @@ import { plausibleName } from "../semantic/name-validator.js";
 import { isAutoReply } from "../semantic/auto-reply.js";
 import { adOpeningDecision } from "../sales/ad-openings.js";
 import { asksNoContact, reactivationReplyDecision, resumeDate } from "../sales/reactivation.js";
-import { menuChoiceText } from "../sales/need-menu.js";
+import { menuChoiceText, overviewChoiceText } from "../sales/need-menu.js";
 import { caseDiagnosisDecision, parseCaseData } from "../sales/case-diagnosis.js";
 import { analyzeNextSale } from "../sales/next-sales-engine.js";
 import { hotLeadReason } from "../operations/hot-lead-alerts.js";
@@ -27,7 +27,9 @@ import { CALL_OFFER_MARK } from "./human-request.js";
 
 // Quita la pregunta final y ofrece la llamada (9-nov).
 export function withCallOffer(reply = "") {
-  const base = String(reply).trim().replace(/\s*¿[^¿?]*\?\s*$/, "").trim();
+  // Sin la pregunta final; si quedó colgando la frase que la introducía ("Si prefieres que una persona te atienda,"),
+  // también se quita (19-nov, #12033: "…resuelva tus dudas, Si te ayuda a decidir…").
+  const base = String(reply).trim().replace(/\s*¿[^¿?]*\?\s*$/, "").trim().replace(/(^|[.!?])\s*[^.!?]*,$/, "$1").trim();
   return `${base} Si te ayuda a decidir, ¿${CALL_OFFER_MARK} unos minutos y lo resuelva contigo? Dime sí y a qué hora te queda bien, y te marcamos a este número.`.trim();
 }
 import { scheduledStartIntro, scheduledStartNote } from "../sales/scheduled-start.js";
@@ -48,7 +50,7 @@ import { discussedPlan } from "../sales/progressive-disclosure.js";
 import { featureRejectionDecision } from "../sales/feature-rejection.js";
 import { hasInfonavitCredit, INFONAVIT_CREDIT_TEXT, INFONAVIT_CREDIT_PLAN2_TEXT, INFONAVIT_CREDIT_SHORT_TEXT } from "../sales/infonavit-credit.js";
 import { isAudioAttachment } from "../ai/audio.js";
-import { buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT, ONBOARDING_DECLINED_TEXT } from "../operations/onboarding-service.js";
+import { declinesOnboarding, buildOnboardingDecision, ONBOARDING_COMPLETE_TEXT, CALL_ACK_TEXT, ONBOARDING_DECLINED_TEXT } from "../operations/onboarding-service.js";
 import { specializedAdviceHandoff } from "./specialized-advice-handoff.js";
 import { clarifyNss } from "./nss-wording.js";
 import { assignMiaMode, isLightMode } from "./mia-mode.js";
@@ -632,7 +634,7 @@ export class ConversationProcessor {
       }
     }
     // Respuesta al menú numerado del seguimiento ("2", "la 3"): se traduce a la necesidad para seguir la venta.
-    const menuChoice = menuChoiceText(base.ultima_respuesta_agente, combinedText);
+    const menuChoice = menuChoiceText(base.ultima_respuesta_agente, combinedText) || overviewChoiceText(base.ultima_respuesta_agente, combinedText);
     if (menuChoice) {
       await this.record(conversationId, "need_menu_choice", { customer_text: combinedText.slice(0, 40), as: menuChoice });
       combinedText = menuChoice;
@@ -732,7 +734,8 @@ export class ConversationProcessor {
     // 13-nov: "Deme un momento y le marco" y "si me permites, que sea personal, mejor con un contacto" (#11708,
     // #11719) recibían "Claro, aquí te espero": quieren hablar con alguien.
     const wantsToTalk = callRequest(combinedText) || /\b(?:le|les|te)\s+(?:marco|llamo)\b/.test(String(combinedText).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-    if (patience.shouldPause && !wantsToTalk) {
+    // "Estoy buscando con recibo timbrados, gracias de cualquier manera" (21-nov, #12004) no es "estoy buscando mi CURP".
+    if (patience.shouldPause && !wantsToTalk && !declinesOnboarding(combinedText)) {
       await this.record(conversationId, "conversation_patience_pause", { sensitive_state: patience.state || null, reply: patience.reply });
       await this.chatwoot.sendMessage(conversationId, clarifyNss(patience.reply));
       await this.memories.markProcessedMany(conversationId, messageIds);
@@ -954,7 +957,12 @@ export class ConversationProcessor {
     // 19-nov (#11839): alguien del equipo escribió desde Operaciones ("…gracias por recibir mi llamada, soy Adriana") y
     // a "👍👍" / "Gracias" Mia le pidió la CURP dos veces. Un agradecimiento a ese mensaje no necesita respuesta de Mia.
     const lastTeam = (base.team_messages || []).at(-1);
-    const teamAck = !mediaDecision && lastTeam && String(lastTeam.text || "").trim() === String(base.ultima_respuesta_agente || "").trim() && isCourtesy(combinedText);
+    // 19-nov (#12012): el equipo preguntó desde Operaciones "¿Si gustas te podemos realizar una llamada…?" y a "Sí,
+    // ahorita que llegue a casa" Mia le pidió la CURP. Si el equipo hizo una pregunta o propuso una llamada, la
+    // respuesta del cliente (sin pregunta nueva ni datos) es para el equipo.
+    const teamLast = !mediaDecision && lastTeam && String(lastTeam.text || "").trim() === String(base.ultima_respuesta_agente || "").trim();
+    const teamAsked = teamLast && (/[?¿]/.test(String(lastTeam.text || "")) || /\b(?:llamada|llamar|marcar|marcamos|comunicamos|horario)\b/i.test(String(lastTeam.text || "")));
+    const teamAck = teamLast && (isCourtesy(combinedText) || (teamAsked && !/[?¿]/.test(combinedText) && !/\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b|\b\d{11}\b/i.test(combinedText)));
     if (personLast && base.sales_cycle?.authorized) {
       decision = protectDeterministicDecision({ reply: "", question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "" }, "person_answering");
       await this.record(conversationId, "person_answering_skip", { by: personLast.by, person_at: personLast.at, message_ids: messageIds.map(String) });

@@ -104,6 +104,10 @@ function offeredTime(lastReply = "") {
 const TIME_RE = /\b(?:a las|alas|despues de las|antes de las|entre las|de las)\s*\d{1,2}(?::\d{2})?|\b\d{1,2}(?::\d{2})?\s*(?:am|pm|hrs?|horas)\b|\b(?:en la|por la)\s+(?:manana|tarde|noche)\b|\b(?:ahorita|ahora|cuando gusten|cuando quieran|a cualquier hora|cualquier hora|hoy|manana)\b|^(?:si |ok |va )?ya(?: mismo)?$/;
 export function acceptsCallOffer(text, lastReply = "") {
   if (!CALL_OFFER_RE.test(norm(lastReply))) return null;
+  // La llamada ya quedó pedida ("Le dejo tu horario a un asesor…"): "Ok gracias" no es pedirla otra vez
+  // (23-nov, #12021: recibió de nuevo "Un asesor te va a llamar… ¿En qué horario?").
+  if (/\ble dejo tu horario a un asesor\b|\bagendamos (?:la|su|tu) llamada\b/.test(norm(lastReply)) && !/\d/.test(String(text))) return null;
+  if (/\bun asesor te va a llamar a este numero\b/.test(norm(lastReply)) && /^(?:ok\w*|okey|gracias|muchas gracias|ok gracias|okey gracias|esta bien|si gracias|perfecto|listo|va|sale|👍)$/.test(norm(text).replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim())) return null;
   const value = norm(text).replace(/[^a-z0-9n: ]+/g, " ").replace(/\s+/g, " ").trim();
   if (!value || /^(?:no|nop|nel)\b|\bno (?:gracias|me llamen|me marquen|puedo|quiero|me interesa)\b|\bya no\b|\bpor mensaje\b|\bpor (?:aqui|escrito|whats)\b/.test(value)) return null;
   // "Ok checo las recomendaciones" (12-nov, #11617) no acepta la llamada: lo va a revisar por su cuenta.

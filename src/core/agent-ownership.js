@@ -95,7 +95,10 @@ export function mentionsOwnAdvisor(text = "") {
 // "Ya pago el servicio con ustedes" (casos reales 21 al 25-oct).
 export function existingClient(text = "") {
   const v = norm(text);
-  return /\bya (?:estoy|soy) (?:inscrit[oa]|client[ea]|afiliad[oa] con ustedes|dad[oa] de alta con ustedes)\b|\bya tengo (?:ese|el|mi|este) (?:plan|paquete|servicio con ustedes)\b|\bya (?:estoy|estaba) pagando (?:el |mi |este |ese )?(?:plan|paquete|servicio)\b|\bya (?:pago|le pago|les pago) (?:el servicio|mi servicio|el plan|con ustedes)\b|\bya tengo (?:\d+|varios|unos) meses (?:pagando|con ustedes)\b/.test(v);
+  return /\bya (?:estoy|soy) (?:inscrit[oa]|client[ea]|afiliad[oa] con ustedes|dad[oa] de alta con ustedes)\b|\bya tengo (?:ese|el|mi|este) (?:plan|paquete|servicio con ustedes)\b|\bya (?:estoy|estaba) pagando (?:el |mi |este |ese )?(?:plan|paquete|servicio)\b|\bya (?:pago|le pago|les pago) (?:el servicio|mi servicio|el plan|con ustedes)\b|\bya tengo (?:\d+|varios|unos) meses (?:pagando|con ustedes)\b/.test(v)
+    // 19-nov (#10957): "Hoy haré el pago acordado, Yair" recibió preguntas de qué buscaba. Habla de un pago de su
+    // servicio: es cliente (lo ve Cobranza / Atención), no prospecto.
+    || /\b(?:el )?pago acordado\b|\b(?:hoy|manana|ahorita|en un rato|el (?:lunes|martes|miercoles|jueves|viernes|sabado))\s+(?:hare|hago|realizo|realizare|deposito|depositare|transfiero|mando) (?:el|mi) (?:pago|deposito|transferencia)\b|\bya (?:hice|realice|di|mande) (?:el|mi) (?:pago|deposito|transferencia)\b|\b(?:aqui (?:esta|le mando|te mando)|le (?:mando|envio)) (?:el|mi) comprobante\b|\bcomprobante de (?:la )?(?:transferencia|pago|deposito)\b/.test(v);
 }
 
 export function ownAdvisorReply(name) {

@@ -53,6 +53,10 @@ export function confirmsStart(text, memory = {}) {
   const curpOnly = /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/i.test(String(text || "").replace(/\s+/g, "").trim())
     // "Mi CURP es XXXX…" o la CURP con un saludo (9-nov, cierre que pide la CURP).
     || (/\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/i.test(String(text || "")) && !/\bno\b/i.test(String(text || "").replace(/\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b/gi, "")));
+  // "Okey gracias", "Está bien, gracias" (23-nov, #12025 y #12116: recibieron la petición de la CURP) agradecen la
+  // información; no dicen que sí. "Sí, gracias" sí acepta.
+  const ackThanks = /^(?:ok\w*|oki|okey|esta bien|de acuerdo|entendido|enterad[oa])\s+(?:muchas\s+)?gracias(?:\s+(?:por (?:la|su|tu) (?:informacion|atencion|ayuda)))?$/.test(norm(text).replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim());
+  if (ackThanks) return false;
   return (shortAffirmative(text) || affirmsWithDocuments(text) || genericInterest(text) || curpOnly) && agentAskedToStart(memory);
 }
 

@@ -67,6 +67,14 @@ export function detectDirectRequest(text){
   // ── 11-nov (export 10 al 11-nov) ──
   // "¿Cuánto queda la pensión?", "primero me gustaría saber cuánto quedaría mi pensión" (recibió tres veces los planes).
   if(/\bcuanto\b.{0,30}\b(?:queda|quedaria|seria|sera|me (?:dan|darian|daran|tocaria|toca|quedaria|pagarian)|recibiria|sale|saldria|apoyaria)\b.{0,30}\bpension\b|\bpension\b.{0,30}\bcuanto (?:queda|quedaria|seria|me (?:dan|darian|tocaria))\b|\b(?:monto|cantidad) (?:de|que (?:me )?(?:queda|quedaria) de) (?:la |mi )?pension\b|\bde cuanto (?:seria|es|quedaria|sale|me queda) (?:la|mi) pension\b/.test(v)) return {type:'pension_amount',priority:'high',answerKey:'pension_amount'};
+  // ── 23-nov (export 19 al 23-nov) ──
+  // "Con esos 1100 ¿cuánto ganaría al mes?", "¿cuánto recibiría?" (recibió "el pago es mensual").
+  if(/\bcuanto (?:c |se |me )?(?:ganaria|recibiria|me tocaria|me darian|me pagarian|cobraria)\b(?!.{0,20}\b(?:ustedes|martcom)\b)/.test(v)) return {type:'pension_general',priority:'high',answerKey:'pension_general'};
+  // "¿Cuánto tiempo tengo que pagar?", "¿por cuántos meses?", "tengo que pagar por aproximadamente 7 años, ¿verdad?",
+  // "eso es para el primer mes, ¿y cómo funciona con los sucesivos?" (todas recibían "Sí, el pago es mensual…").
+  if(/\b(?:por|durante) cuanto tiempo\b.{0,25}\bpag|\bcuanto tiempo (?:tengo|tendria|debo|hay|tendre|voy a tener) que (?:pagar|estar pagando|seguir pagando)\b|\bpor cuantos (?:meses|anos)\b|\b(?:tengo|tendria|hay) que pagar (?:por|durante) (?:aproximadamente |aprox |como |unos |mas o menos )?\d+ (?:anos|meses)\b|\b(?:los|con los) (?:siguientes|sucesivos) meses\b|\bcon los (?:siguientes|sucesivos)\b|\bhasta cuando (?:tengo|hay|debo|tendria) que pagar\b/.test(v)) return {type:'payment_duration',priority:'high',answerKey:'payment_duration'};
+  // "¿Cuántas semanas tiene un año?" (recibió la recomendación del plan).
+  if(/\bcuantas semanas (?:tiene|son|trae) (?:un|el) ano\b|\bun ano (?:cuantas semanas|son cuantas semanas)\b/.test(v)) return {type:'weeks_per_year',priority:'high',answerKey:'weeks_per_year'};
   // "¿Cuánto tiempo dura este pago mensual? ¿Un año, dos, tres o cuánto?" (recibió dos veces "el pago es mensual").
   if(/\bcuanto tiempo (?:dura|duran|es|son|seria|se paga|hay que pagar)\b.{0,30}\b(?:pago|pagos|mensualidad|mensual)\b|\b(?:pago|pagos|mensualidad)\b.{0,40}\b(?:un ano|dos anos|para siempre|por siempre|de por vida|indefinid\w*|cuantos (?:meses|anos))\b|\bun ano,? dos,? (?:tres )?o cuanto\b|\b(?:por|durante) cuantos (?:meses|anos) (?:se paga|hay que pagar|tengo que pagar|pagaria)\b/.test(v)) return {type:'payment_duration',priority:'high',answerKey:'payment_duration'};
   // "¿Me podría dar una cita para ir a su oficina?", "Me gustaría visitarlos en su empresa" (se le repitió la ubicación o
@@ -99,6 +107,10 @@ export function detectDirectRequest(text){
   if(/\b(?:pago|pagos|pagar|cuotas?|cantidades)\b[^.?]{0,35}\b(?:al|del)\s+imss\b/.test(v)) return {type:'pay_to_imss',priority:'high',answerKey:'pay_to_imss'};
   if(/\b(?:pagos?|pagar|pagaria|pago|cuotas?|aportaciones)\b.{0,40}\bdirect\w*\s+(?:al?\s+)?(?:el\s+)?(?:imss|seguro)\b|\b(?:pagos?|cuotas?)\s+(?:al|del)\s+(?:imss|seguro)\b.{0,40}\b(?:yo|direct\w*|ustedes|quien)\b/.test(v)) return {type:'pay_to_imss',priority:'high',answerKey:'pay_to_imss'};
   if(/\b(como (?:dices que )?te llamas|como te llamas|cual es tu nombre|quien eres|con quien hablo)\b/.test(v)) return {type:'identity',priority:'high',answerKey:'identity'};
+  // "¿De MARTCOM qué me puedes informar?", "háblame de ustedes", "¿quiénes son?" (23-nov: recibió otra vez el saludo).
+  if(/\b(?:de|sobre) (?:martcom|ustedes|la empresa)\b.{0,30}\b(?:informar|informas|saber|decir|contar|platicar)\b|\b(?:hablame|cuentame|platicame|digame|dime) (?:un poco )?(?:de|sobre) ustedes\b|\bquienes son\b|\bque es martcom\b/.test(v)) return {type:'about_us',priority:'high',answerKey:'about_us'};
+  // "¿Cuánto sale con 700 de salario diario?", "ahorita cotizo con 500 diarios" (recibían solo los precios).
+  if(/\b(?:con|de)\s+\$?\s*(?:[5-9]\d\d|[1-9]\d{3})\s+(?:pesos\s+)?(?:de\s+)?(?:salario|sueldo|diarios?)\b|\b(?:salario|sueldo)\s+(?:diario\s+)?(?:de|con)\s+\$?\s*(?:[5-9]\d\d|[1-9]\d{3})\b|\b(?:[2-9]|dos|tres|cuatro|cinco) (?:salarios|sueldos) minimos\b/.test(v)) return {type:'higher_salary',priority:'high',answerKey:'higher_salary'};
   // Proveedores que ofrecen su servicio ("ofrezco la siguiente plataforma… costo $350", caso real 26-oct).
   if(/\b(?:ofrezco|ofrecemos|vendo|vendemos)\b.{0,40}\b(?:plataforma|servicio de|sistema|documentos|tramites)\b|\bcosto de la plataforma\b|\bcuento con referencias\b/.test(v)) return {type:'b2b',priority:'critical',answerKey:'b2b'};
   // Confirmado 27-oct: ISSSTE, portabilidad y afiliación voluntaria no los explica Mia (pueden generar controversia).
@@ -184,7 +196,7 @@ export function detectDirectRequest(text){
   // "¿La empresa sería la misma de siempre? En donde estaba me la cambiaban cada mes" / "¿No cambian de empresa a cada rato?" (20-oct).
   if(/\b(?:empresa|patron)\b.{0,60}\b(?:la misma|el mismo|misma de siempre|cambia\w*|cambian|cambio)\b|\b(?:cambian|cambiaban|cambia|cambiar)\s+(?:constantemente\s+|seguido\s+|cada rato\s+)?(?:de\s+)?(?:empresas?|patron(?:es)?)\b|\baltas y bajas\b|\bme la cambiaban\b/.test(v)
     // "¿Cada mes se da de baja y vuelve a incorporar?", "¿Qué permanencia se tiene con el mismo patrón?", "¿Me cambiarían de empresa cada rato?" (23 al 26-oct).
-    || /\b(?:mismo|misma)\s+(?:patron|empresa)\b|\bpermanencia\b|\bcambi\w*\s+(?:de\s+)?(?:empresa|patron)\b|\b(?:se\s+)?(?:da|dan|dar|doy)\s+de\s+baja\b.{0,40}\b(?:vuelv\w*|reincorpor\w*|incorpor\w*|de nuevo|otra vez)\b|\bcada mes se (?:actualiza|renueva|cambia)\b/.test(v)) return {type:'same_company',priority:'high',answerKey:'same_company'};
+    || /\b(?:mismo|misma)\s+(?:patron|empresa)\b|\bpermanencia\b|\bcambi\w*\s+(?:de\s+)?(?:empresa|patron)\b|\b(?:se\s+)?(?:da|dan|dar|doy)\s+de\s+baja\b.{0,40}\b(?:vuelv\w*|reincorpor\w*|incorpor\w*|de nuevo|otra vez)\b|\bcada mes se (?:actualiza|renueva|cambia)\b|\b(?:misma|mismo|la)\s+(?:rp|registro patronal)\b|\bcada cuando (?:cambian|se cambia|me cambian)\b/.test(v)) return {type:'same_company',priority:'high',answerKey:'same_company'};
   // "¿Maneja altas con retroactivo?": no se manejan (confirmado 26-oct).
   if(/\bretroactiv\w*\b|\bextemporane\w*\b|\bfecha (?:anterior|atrasada|pasada)\b.{0,20}\balta\b|\balta\b.{0,20}\bfecha (?:anterior|atrasada|pasada)\b/.test(v)) return {type:'retroactive',priority:'high',answerKey:'retroactive'};
   // "¿El costo de la activación?", "me refiero a sus honorarios" (caso real 22-oct: recibió 4 veces la
@@ -264,6 +276,8 @@ export function detectDirectRequest(text){
     || /\b(donde (?:te|se|los|lo) (?:encuentro|encuentran|ubicas|ubican|ubico)|donde se (?:encuentran|ubican)|donde (?:estan|esta|queda|quedan|se ubica)|en donde (?:estan|esta)|ubicacion|ubicados|ubicada|ubicas|oficinas?|direccion|domicilio de (?:la empresa|ustedes))\b/.test(v)
     || /\b(?:ustedes\s+)?(?:estan|se encuentran|son|atienden|tienen (?:oficina|sucursal)\w*)\s+(?:de|en)\s+(?!el plan|la afiliacion|el imss|linea|horario|confianza|verdad|proceso|tramite|espera|acuerdo)[a-z]{4,}/.test(v) && /[?¿]|\b(?:ustedes|estan|sucursal|oficina)\b/.test(String(text))
     || /\b(?:hay|tienen)\s+(?:sucursal|oficina)\w*\b/.test(v)
+    // "¿De qué ciudad es la empresa?" (23-nov: recibió la recomendación del plan y lo tuvo que repetir).
+    || /\b(?:de|en) (?:que|cual) (?:ciudad|estado)\b/.test(v)
     || /\b(?:en )?(?:toda la republica|todo el pais|todo mexico|toda la republica mexicana|cualquier estado|otro estado|mi estado|foraneos?)\b/.test(v);
   const asksLegitimacy=/\b(es legal|son legales|legalidad|certeza|que tan seguro|seguro sea|es seguro hacerlo|que garantia|garantia tengo|es verdad|no es fraude|es legitimo|es real|son reales|estafa\w*|fraude|fraudes|confiable|confiables|es seguro esto|es de confianza|no me (?:van a )?(?:estafar|robar)|me (?:van a )?dar de baja)\b/.test(v) && !/\bmodalidad\b|\bm40\b/.test(v);
   // "¿A qué nombre de empresa es la alta?" (caso real 30-oct: "no compartimos el nombre" generó desconfianza). Confirmado 2-nov.
@@ -332,6 +346,7 @@ export function detectDirectRequest(text){
 
 export function directAnswerText(request){
   if(!request) return null;
+  if(request.answerKey==='about_us') return 'Somos MARTCOM, una consultoría privada en afiliaciones al IMSS (no somos el IMSS ni una oficina de gobierno). '+SOCIAL_PROOF+' Te damos de alta ante el IMSS como trabajador con un salario diario registrado de $480 MXN: tienes servicio médico y sigues sumando semanas, y con el Plan 2 también aportas a AFORE e INFONAVIT. Todo el trámite es por este medio y el primer pago se hace hasta que tu alta ya aparece vigente.';
   if(request.answerKey==='identity') return 'Me llamo Mia, soy la asistente virtual de MARTCOM. 😊';
   if(request.answerKey==='process_time') return 'Una vez que recibimos la documentación completa, el proceso suele tomar aproximadamente 48 horas hábiles. El tiempo puede variar según la revisión del caso.';
   if(request.answerKey==='medical_access_scope') return 'Sí. Una vez que tu alta esté vigente, tienes acceso al servicio médico del IMSS como trabajador asegurado: consultas, atención médica, medicamentos, estudios, hospitalización y cirugías cuando sean indicados por el personal médico del IMSS, conforme a sus procesos y reglas. También puedes registrar beneficiarios cuando corresponda. Si tienes una atención específica en mente, dime cuál y te explico cómo aplica.';
@@ -436,7 +451,8 @@ export function directAnswerText(request){
   if(request.answerKey==='services') return 'Tenemos dos opciones: Plan 1 por $1,100 MXN mensuales, enfocado en servicio médico, semanas cotizadas y beneficiarios; y Plan 2 por $1,500 MXN mensuales, que además contempla AFORE e INFONAVIT. Ambos manejan un salario diario registrado de $480 MXN e incluyen incapacidad por enfermedad.';
   if(request.answerKey==='payment_frequency') return 'Sí, el pago es mensual: el Plan 1 cuesta $1,100 MXN al mes y el Plan 2 $1,500 MXN al mes.';
   if(request.answerKey==='price'&&request.quote) return 'No necesito tu número de IMSS para darte el precio: los planes tienen un costo fijo. El Plan 1 cuesta $1,100 MXN mensuales (servicio médico del IMSS y semanas cotizadas) y el Plan 2 $1,500 MXN mensuales (además AFORE e INFONAVIT). Ambos manejan un salario diario registrado de $480 MXN e incluyen incapacidad por enfermedad.';
-  if(request.answerKey==='payment_duration') return 'El Plan 1 cuesta $1,100 MXN mensuales y el Plan 2 $1,500 MXN mensuales. Se paga mes a mes, sin plazo mínimo ni forzoso: mantienes tu afiliación el tiempo que quieras.';
+  if(request.answerKey==='payment_duration') return 'El Plan 1 cuesta $1,100 MXN mensuales y el Plan 2 $1,500 MXN mensuales. Se paga mes a mes, sin plazo mínimo ni forzoso: tú decides cuántos meses mantienes tu afiliación, y cada mes que pagas sigues sumando semanas. Si lo que buscas es pensionarte, el tiempo depende de las semanas que te falten; si me dices cuántas tienes y en qué año empezaste a cotizar, te oriento.';
+  if(request.answerKey==='weeks_per_year') return 'Un año tiene 52 semanas: cada mes que estás dado de alta suma más o menos 4 semanas cotizadas. Con nosotros sigues sumando semanas mes a mes; el Plan 1 cuesta $1,100 MXN al mes.';
   if(request.answerKey==='same_company') return 'Tu alta se mantiene con la misma empresa mientras realices tu pago mensual en tiempo y forma, en día hábil; no te cambiamos de empresa cada mes. Además contamos con una empresa de respaldo, y cuando tu alta esté vigente puedes comprobarla tú mismo en la app IMSS Digital o en tu clínica.'+(request.payroll?' Lo que no hacemos es timbrar recibos de nómina.':'');
   if(request.answerKey==='price') return 'El Plan 1 tiene un costo de $1,100 MXN mensuales y el Plan 2 de $1,500 MXN mensuales. Ambos manejan un salario diario registrado de $480 MXN; el Plan 2 además contempla AFORE e INFONAVIT. Los dos incluyen incapacidad por enfermedad.';
   if(request.answerKey==='disability') return `Los dos planes incluyen incapacidad por enfermedad, conforme a las reglas del IMSS: el Plan 1 de $1,100 MXN mensuales y el Plan 2 de $1,500 MXN mensuales.${request.maternity ? " Para la incapacidad por maternidad, el IMSS pide haber cotizado cierto número de semanas antes del parto, así que conviene revisarlo con anticipación." : ""} Lo que no manejamos es la incapacidad por accidente o riesgo de trabajo, porque no trabajas para nosotros, ni incapacidades permanentes. ¿Quieres que te explique cuál plan te conviene?`;
@@ -554,6 +570,8 @@ function multiQuestion(text,memory){
     if(!answer) continue;
     seen.add(key); answers.push(answer);
   }
+  // "¿Eso pagaría cada mes? ¿Por cuántos meses?" (23-nov): la respuesta del plazo ya dice que es mensual.
+  if(seen.has('payment_duration')&&seen.has('payment_frequency')){const i=[...seen].indexOf('payment_frequency');answers.splice(i,1);seen.delete('payment_frequency');}
   if(answers.length<2) return null;
   const strip=a=>a.replace(/\s*[^.!?]*\?\s*$/,'').trim();
   let combined=answers.slice(0,-1).map(strip).concat(answers.at(-1)).join('\n\n');
@@ -582,7 +600,14 @@ export function orchestrateConversation(text,memory={}){
   }
   // 19-nov (#11950): ya se le preguntó cuándo dejó de cotizar y contestó ("no he cotizado en 4 años… no sé cuántas
   // semanas tengo"); repetirle la misma pregunta no sirve: lo contesta el diagnóstico o la IA.
+  // "¿En cuánto tiempo quedaría pensionado?" recibía "48 horas hábiles" (es el tiempo del alta, no de la pensión).
+  if(direct?.answerKey==='process_time'&&/\b(?:pension\w*|pencion\w*|jubil\w*)\b/.test(norm(text))) direct={type:'pension_general',priority:'high',answerKey:'pension_general'};
   if(['weeks_review','case_review','needs_weeks'].includes(direct?.answerKey)&&/hace cuanto dejaste de cotizar/.test(norm(memory?.ultima_respuesta_agente||''))) direct=null;
+  // 23-nov (#12151): "Pero para pensionarme, ¿cuántas semanas tendría que tener?" después del diagnóstico recibía otra
+  // vez "¿hace cuánto dejaste de cotizar…?". Es una pregunta de requisitos de pensión.
+  if(direct?.answerKey==='weeks_review'&&/\bpara (?:pensionarme|pensionar|jubilarme|la pension|mi pension)\b|\b(?:tendria|tengo|debo|necesito) que tener\b/.test(norm(text))) direct={type:'pension_general',priority:'high',answerKey:'pension_general'};
+  // "¿Por cuánto tiempo tendría que pagar?" con contexto de pensión: lo de los 13 meses de Ley 73.
+  if(direct?.answerKey==='payment_duration'&&(/\bpension|pensionar|ley 73|jubil/.test(norm(text))||(pensionContext(memory)&&/\bpension|ley 73|jubil/.test(norm(memory?.ultima_respuesta_agente||''))))) direct={type:'pension_min_term',priority:'high',answerKey:'pension_min_term',pre1997:direct.pre1997};
   direct=enrich(direct,text,memory);
   return {
     directRequest:direct,

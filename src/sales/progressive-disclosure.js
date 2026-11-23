@@ -45,6 +45,11 @@ export function disclosureViolations(reply, { memory = {}, combinedText = "" } =
 
 export function progressiveOpeningDecision(memory = {}, combinedText = "") {
   if (!isInformationOpening(combinedText) || !isEarlyCommercialStage(memory)) return null;
+  // 23-nov (#12020, #12064, #12065): el saludo salió dos veces seguidas cuando el cliente repitió "Quiero más
+  // información", y también después de recomendarle un plan ("Necesito más información, de MARTCOM qué me puedes
+  // informar" recibió otra vez "¡Hola! Soy Mia…"). Solo se saluda si no se le acaba de saludar ni de presentar un plan.
+  const last = String(memory?.ultima_respuesta_agente || "");
+  if (/^¡Hola! Soy Mia de MARTCOM/.test(last) || (memory?.sales_cycle?.pitched_plans?.length && last && !/^¡Buen día!|^Hola de nuevo|^¡Gracias por escribir a MARTCOM!/.test(last))) return null;
   if (customerAskedCommercialDetails(combinedText)) return null;
   if (memory?.tiene_imss === null || memory?.tiene_imss === undefined) {
     return {

@@ -3,7 +3,9 @@ function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
 
-const MEDICAL = /\b(servicio medico|seguro medico|atencion medica|consultas|medicinas|hospital|maternidad|guarderia|beneficiarios?)\b|^(?:solo\s+)?(?:el\s+)?(?:servicio|seguro)(?:\s+(?:solo|nada mas|nomas))?$/;
+// 23-nov (#12123): "Por lo pronto seguro porque estoy tomando medicamentos", "Lo primero tener seguro", "Tener mi
+// seguro", "Para poder consultar" recibieron tres veces la pregunta de qué busca.
+const MEDICAL = /\b(servicio medico|seguro medico|atencion medica|consultas|medicinas|medicamentos?|hospital|maternidad|guarderia|beneficiarios?)\b|\b(?:tener|quiero|necesito|ocupo|busco|lo primero|por lo pronto)\s+(?:tener\s+)?(?:mi\s+|un\s+|el\s+)?seguro\b(?!\s+(?:de|para)\s+(?:auto|carro|coche|vida))|\bpara (?:poder )?consultar(?:me)?\b|^(?:solo\s+)?(?:el\s+)?(?:servicio|seguro)(?:\s+(?:solo|nada mas|nomas))?$/;
 const WEEKS = /\b(semanas|cotizar|cotizando|seguir cotizando|recuperar semanas|continuar semanas)\b/;
 const AFORE_INFONAVIT = /\b(afore|infonavit|credito de vivienda|credito infonavit|puntos infonavit|vivienda)\b/;
 const RETIREMENT = /\b(pension\w*|pensionar\w*|retiro|jubilar\w*|jubilacion)\b/;

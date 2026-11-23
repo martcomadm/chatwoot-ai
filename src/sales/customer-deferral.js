@@ -50,6 +50,11 @@ const LATER_RE = [
   /\b(?:seria|sera|cuando)\s+(?:ahora\s+)?(?:que\s+)?(?:renuncie|me liquiden|deje de trabajar|salga del trabajo|me den de baja)\b/,
   /\b(?:me|nos)\s+vuelvo\s+a\s+(?:comunicar|poner en contacto)|\b(?:me|nos)\s+volvemos\s+a\s+comunicar|\b(?:te|le|les)\s+vuelvo\s+a\s+(?:escribir|marcar|contactar)\b/,
   /\b(?:dej[ae]me|deje|dejeme) (?:lo )?(?:reviso|revisar|checo|checar|pienso|pensar|veo|ver|analizo)\b|\bvoy a (?:revisar|checar|pensarlo|analizarlo)\b/,
+  // 23-nov: "Déjeme pensarlo un poco", "Deje pensarlo y le mando mensaje", "Eldejeme seguirle pensando",
+  // "Déjame analizarlo y te contesto" (recibían respuesta de la IA con "¿Tienes alguna duda…?").
+  /(?:dej[ae]me|deje|dejame)\s+(?:lo\s+)?(?:pensarlo|seguirle pensando|seguir pensando|seguirlo pensando|analizarlo|checarlo|revisarlo|verlo|meditarlo)\b/,
+  /\bquedamos? pendientes?\b|\bquedo pendiente\b(?!.{0,15}\b(?:de|del)\s+(?:su|tu|mi)\b)/,
+  /\b(?:todavia|aun|por el momento|de momento|ahorita)\s+no\s+lo\s+(?:ocupo|necesito|requiero)\b/,
   /\b(?:te|le|les) (?:mando|escribo|envio) (?:un )?(?:mensaje|msj)? ?mas tarde\b|\bmas tarde (?:te|le|les) (?:escribo|mando|aviso)\b|\bte puedo mandar mensaje mas tarde\b/,
   /\b(?:me|nos) (?:comunico|comunicamos|reporto|pongo en contacto)\b.{0,25}\b(?:mas adelante|maz adelante|despues|luego|en otro momento|otro dia)\b/,
   // Casos reales 19 y 20-oct: "voy a comentar y me comunico nuevamente", "primero platico con
@@ -247,14 +252,20 @@ export function deferralDecision(memory = {}, combinedText = "", { resumedAfterH
   // Quiere iniciar pero después ("Podemos iniciar el trámite el lunes, voy a buscar mis papeles",
   // "mañana le envío papeles"; casos reales 21 y 22-oct): se le dice qué tener listo.
   // "Por el momento no quiero iniciar ningún trámite" (19-nov, #11977) no es "luego te mando mis papeles".
-  const startLater = kind === "later" && !/\bno (?:quiero|deseo|pienso|elijo|voy a)\b.{0,20}\b(?:iniciar|empezar|tramite)\b|\bningun tramite\b/.test(norm(combinedText)) && /\bno\s+(?:lo|los|la|las)\s+tengo\b|\b(?:papeles|documentos|documentacion|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
+  // 23-nov (#11846, #12042): "Deja y lo platico con mi pareja y te mando mensaje", "te mando mensaje mañana xq orita
+  // estoy trabajando" recibían "Cuando tengas tu CURP… arrancamos con el Plan 1" (al segundo ni le habían explicado
+  // un plan). Solo aplica con un plan ya explicado y si habla de sus papeles, no de pensarlo o mandar un mensaje.
+  const planShown = Boolean(memory.sales_cycle?.selected_plan || memory.sales_cycle?.recommended_plan || memory.sales_cycle?.explained_plans?.length || memory.sales_cycle?.fully_explained_plans?.length || memory.sales_cycle?.pitched_plans?.length);
+  const startLater = kind === "later" && planShown
+    && !/\b(?:platic|consult|coment|pens|analiz|mensaje|msj|no lo ocupo|no lo necesito)\w*/.test(norm(combinedText))
+    && !/\bno (?:quiero|deseo|pienso|elijo|voy a)\b.{0,20}\b(?:iniciar|empezar|tramite)\b|\bningun tramite\b/.test(norm(combinedText)) && /\bno\s+(?:lo|los|la|las)\s+tengo\b|\b(?:papeles|documentos|documentacion|curp|nss|ine|iniciar|empezar|tramite)\b|\b(?:te|se|le|les)\s+(?:los\s+|las\s+|lo\s+)?(?:envio|mando|paso)\b|\b(?:mando|envio|paso|ma do)\s+(?:todo|mis datos|los datos)\b|\b(?:te|t|se|le)\s+(?:los|las)\s+(?:mando|envio|paso)\b/.test(norm(combinedText));
   if (startLater) reply = String(memory.ultima_respuesta_agente || "").includes(START_LATER_MARK) ? "" : `Perfecto${name}. Cuando tengas a la mano tu CURP, NSS e INE, ${START_LATER_MARK}${plan ? ` con ${plan}` : ""}.`;
   // Sin dinero por ahora (5-nov: la objeción más común, y siempre terminaba en despedida): una vez se le dice que
   // hoy no paga nada y se le ofrece programar el alta para cuando tenga el pago.
   else if (kind === "no_money" && plan && !memory.sales_cycle?.schedule_offered && !lastReply.includes(SCHEDULE_OFFER_MARK)) reply = `Entiendo${name}, no te preocupes. Para iniciar hoy no pagas nada: el primer pago se hace hasta que tu alta ya aparece vigente. Si te ayuda, dejamos tu trámite listo y programamos tu alta para cuando tengas el pago (por ejemplo, tu próxima quincena). ${SCHEDULE_OFFER_MARK}`;
   else if (kind === "no_money") reply = `Entiendo${name}, no te preocupes. Cuando tengas la posibilidad, ${CLOSING_MARK} y con gusto retomamos tu trámite${plan ? ` con ${plan}` : ""}. Aquí estaré para ayudarte.`;
   // Día sin equipo (9-nov, punto 5): una vez se le ofrece dejar su lugar apartado para el siguiente día hábil.
-  else if (kind === "later" && !alreadyClosed && teamOff && plan && !memory.sales_cycle?.weekend_offer) reply = `Claro${name}, sin problema. Por si te sirve: hoy es ${teamOff.today} y el equipo arranca ${teamOff.next} a primera hora. Si me mandas hoy tu CURP, te aparto un lugar para que tu trámite sea de los primeros, y no pagas nada hasta que compruebes tu alta en el IMSS. Si prefieres pensarlo con calma, ${CLOSING_MARK} cuando quieras.`;
+  else if (kind === "later" && !alreadyClosed && teamOff && plan && !memory.sales_cycle?.weekend_offer && !/\bno lo (?:ocupo|necesito|requiero)\b/.test(norm(combinedText))) reply = `Claro${name}, sin problema. Por si te sirve: hoy es ${teamOff.today} y el equipo arranca ${teamOff.next} a primera hora. Si me mandas hoy tu CURP, te aparto un lugar para que tu trámite sea de los primeros, y no pagas nada hasta que compruebes tu alta en el IMSS. Si prefieres pensarlo con calma, ${CLOSING_MARK} cuando quieras.`;
   // "Déjeme pensar bien qué plan me conviene y ya le aviso" (8-nov): se le ayuda a decidir.
   else if (kind === "later" && !alreadyClosed && /\b(?:que|cual)\s+plan\b/.test(norm(combinedText))) reply = `Claro${name}, tómate tu tiempo. Por si te ayuda a decidir: si lo que más te importa es el servicio médico y seguir sumando semanas, el Plan 1 ($1,100 MXN mensuales) es suficiente; el Plan 2 ($1,500 MXN mensuales) conviene si además quieres aportaciones a tu AFORE. Cuando lo tengas, ${CLOSING_MARK} y lo iniciamos.`;
   else if (kind === "later") reply = alreadyClosed ? "" : `Claro${name}, sin problema. Cuando puedas, ${CLOSING_MARK} y con gusto continuamos con tu trámite. ${plan ? "Y recuerda que para iniciar no pagas nada: tu primer pago es hasta que compruebas en el IMSS que tu alta ya está vigente." : "Aquí estaré para ayudarte."}`;
