@@ -172,6 +172,9 @@ export function priceObjectionDecision(memory = {}, combinedText = "") {
   // "Compárteme lo del plan 2 porque es más caro, ¿cuál es la diferencia?" (caso real 22-oct) pide la
   // comparación, no un descuento.
   if (/\b(?:diferencia|diferencias|que incluye|que trae|compar\w*|por que (?:es|sale|cuesta) mas|lo del plan)\b/.test(value) && !/\b(?:descuento|rebaja|no me alcanza|presupuesto|mas barato)\b/.test(value)) return null;
+  // 13-nov (corrección de Brenda): "Me explica qué contiene el plan uno, que cuesta $1100, el otro rebasa mi
+  // presupuesto" no pide descuento: ya eligió el plan que le alcanza y pide que se lo expliquen.
+  if (/\b(?:explica\w*|que (?:contiene|incluye|trae|cubre)|como funciona|informacion (?:de|del|sobre))\b.{0,40}\b(?:plan\s*(?:1|uno)|el (?:de|del) (?:\$\s*)?1,?100)\b|\b(?:plan\s*(?:1|uno)|el (?:de|del) (?:\$\s*)?1,?100)\b.{0,40}\b(?:explica\w*|que (?:contiene|incluye|trae|cubre)|como funciona)\b/.test(value)) return null;
   const plan = effectivePlan(memory);
   const price = plan === "plan_2" ? "$1,500 MXN mensuales" : plan === "plan_1" ? "$1,100 MXN mensuales" : null;
   return {

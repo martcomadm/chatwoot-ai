@@ -529,7 +529,8 @@ export class ConversationProcessor {
     // 24-nov (#11895): GET /conversations/:id de Chatwoot trae solo el último mensaje, así que la regla nunca veía a
     // la persona que escribió antes. Con el trámite aceptado se piden los mensajes recientes para revisarlo.
     let ownershipView = conversation;
-    if (!awaitingValidity && this.memories.get(conversationId)?.sales_cycle?.authorized && typeof this.chatwoot.getMessages === "function") {
+    const quotedIds = batch.map(m => m?.content_attributes?.in_reply_to).filter(id => id !== undefined && id !== null && id !== "");
+    if (!awaitingValidity && (this.memories.get(conversationId)?.sales_cycle?.authorized || quotedIds.length) && typeof this.chatwoot.getMessages === "function") {
       try {
         const raw = await this.chatwoot.getMessages(conversationId);
         const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : messagesOf(raw);
@@ -644,6 +645,17 @@ export class ConversationProcessor {
         && Number(lastOutgoing?.sender_id || lastOutgoing?.sender?.id || 0) !== Number(this.config.chatwoot.agentId);
       if (byHuman && String(lastOutgoing.content).trim() !== String(base.ultima_respuesta_agente || "").trim()) {
         base = { ...base, ultima_respuesta_agente: String(lastOutgoing.content).trim() };
+      }
+    }
+    // 24-nov (#12146): el cliente contestó "Sí, por favor" citando "¿Quieres que te explique cómo funciona?", pero lo
+    // último que había mandado Mia era "¿Te gustaría que iniciemos tu trámite?" y se le abrió el expediente. Si el
+    // cliente cita un mensaje de Mia (o del equipo), su respuesta es a ese mensaje.
+    if (quotedIds.length) {
+      const quoted = messagesOf(ownershipView).find(m => String(m.id) === String(quotedIds.at(-1)));
+      const quotedText = String(quoted?.content || "").trim();
+      if (quoted && (quoted.message_type === 1 || quoted.message_type === "outgoing") && quoted.private !== true && quotedText && quotedText !== String(base.ultima_respuesta_agente || "").trim()) {
+        await this.record(conversationId, "quoted_reply_context", { quoted_id: String(quoted.id), quoted_text: quotedText.slice(0, 160) });
+        base = { ...base, ultima_respuesta_agente: quotedText };
       }
     }
     // Respuesta al menú numerado del seguimiento ("2", "la 3"): se traduce a la necesidad para seguir la venta.
