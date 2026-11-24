@@ -1,4 +1,6 @@
 export const FACT_LOCKED_TYPES = new Set([
+  // 24-nov: respuestas agregadas el 23 y 24-nov; sin estar aquí nunca se enviaban (contestaba la IA).
+  "about_us", "weeks_per_year", "afore_balance",
   "credit_payment", "advice_cost", "afore_withdrawal", "business_hours", "infonavit_credit_eligibility", "afore_statement", "pension_already_granted",
   "pension_amount", "office_visit", "company_workers", "invoice", "registration_how",
   "missing_weeks",

@@ -188,6 +188,13 @@ export function buildOnboardingDecision(memory = {}, combinedText = "") {
     }
     // "¿Y para realizar los pagos?" antes de Cobranza (caso real 20-oct): se explica cuándo y cómo se paga.
     const tq = norm(combinedText);
+    // 23-nov (#12018): con el alta ya vigente, "¿a dónde voy a depositar?" recibía "el pago se hace hasta que tu alta
+    // esté vigente". Ya lo está: sigue el primer pago y Cobranza le comparte los datos.
+    const vigente = ops.validity_confirmed || ["validity_confirmed", "payment_requested", "payment_issue"].includes(ops.status);
+    if (!paying && vigente && !ops.payment_received && !ops.payment_validated && /\b(?:como|donde|adonde|a donde|en que|de que forma|por donde|a que cuenta|que cuenta|numero de cuenta)\b.{0,25}\b(?:pag\w*|deposit\w*|transfer\w*|cuenta)\b|\b(?:pagos?|deposito)\b.{0,10}\?/.test(tq + (/[?¿]/.test(combinedText) ? " ?" : ""))) {
+      const amount = (ops.plan || memory.sales_cycle?.selected_plan) === "plan_2" ? "$1,500" : "$1,100";
+      return { reply: `Tu alta ya está vigente, así que sigue tu primer pago de ${amount} MXN. En un momento nuestra área de Cobranza te comparte por aquí los datos para pagar por transferencia, depósito u OXXO.`, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
+    }
     if (!paying && !ops.payment_received && !ops.payment_validated && /\b(?:como|donde|adonde|a donde|en que|de que forma|por donde|para)\b.{0,25}\b(?:pag\w*|deposit\w*|transfer\w*)\b|\b(?:pagos?|deposito)\b.{0,10}\?/.test(tq + (/[?¿]/.test(combinedText) ? " ?" : ""))) {
       return { reply: PAYMENT_HOW_TEXT, question_key: null, add_labels: [], remove_labels: [], handoff: false, handoff_reason: "", onboarding_status: true, priority: true };
     }

@@ -98,7 +98,10 @@ export function existingClient(text = "") {
   return /\bya (?:estoy|soy) (?:inscrit[oa]|client[ea]|afiliad[oa] con ustedes|dad[oa] de alta con ustedes)\b|\bya tengo (?:ese|el|mi|este) (?:plan|paquete|servicio con ustedes)\b|\bya (?:estoy|estaba) pagando (?:el |mi |este |ese )?(?:plan|paquete|servicio)\b|\bya (?:pago|le pago|les pago) (?:el servicio|mi servicio|el plan|con ustedes)\b|\bya tengo (?:\d+|varios|unos) meses (?:pagando|con ustedes)\b/.test(v)
     // 19-nov (#10957): "Hoy haré el pago acordado, Yair" recibió preguntas de qué buscaba. Habla de un pago de su
     // servicio: es cliente (lo ve Cobranza / Atención), no prospecto.
-    || /\b(?:el )?pago acordado\b|\b(?:hoy|manana|ahorita|en un rato|el (?:lunes|martes|miercoles|jueves|viernes|sabado))\s+(?:hare|hago|realizo|realizare|deposito|depositare|transfiero|mando) (?:el|mi) (?:pago|deposito|transferencia)\b|\bya (?:hice|realice|di|mande) (?:el|mi) (?:pago|deposito|transferencia)\b|\b(?:aqui (?:esta|le mando|te mando)|le (?:mando|envio)) (?:el|mi) comprobante\b|\bcomprobante de (?:la )?(?:transferencia|pago|deposito)\b/.test(v);
+    || /\b(?:el )?pago acordado\b|\b(?:hoy|manana|ahorita|en un rato|el (?:lunes|martes|miercoles|jueves|viernes|sabado))\s+(?:hare|hago|realizo|realizare|deposito|depositare|transfiero|mando) (?:el|mi) (?:pago|deposito|transferencia)\b|\bya (?:hice|realice|di|mande) (?:el|mi) (?:pago|deposito|transferencia)\b|\b(?:aqui (?:esta|le mando|te mando)|le (?:mando|envio)) (?:el|mi) comprobante\b|\bcomprobante de (?:la )?(?:transferencia|pago|deposito)\b/.test(v)
+    // 23-nov (#12218): "Ya estoy contigo en el IMSS" recibió el resumen de los planes y su comprobante en PDF, la
+    // pregunta de qué plan le interesa.
+    || /\bya (?:estoy|estamos|soy) (?:contigo|con ustedes|afiliad[oa] con ustedes|cliente de ustedes)\b|(?:^|[^a-z])comprobante\w*.*\.(?:pdf|jpe?g|png)\b/.test(v);
 }
 
 export function ownAdvisorReply(name) {

@@ -81,9 +81,16 @@ const CALL_PATTERNS = [
 export function callRequest(text) {
   const value = norm(text).replace(/[^a-z0-9n ]+/g, " ").replace(/\s+/g, " ").trim();
   if (!value || /\bno (?:me )?(?:llamen|marquen|quiero llamada)\b/.test(value)) return false;
+  // 23-nov (#12181): mandó solo su número de 10 dígitos y recibió la oferta del plan. Es para que le llamen.
+  if (/^(?:(?:mi (?:numero|cel|celular|telefono|whatsapp)(?: es)?|marcame al|llamame al|marquen al|al)\s+)?\d{10}$/.test(value.replace(/(\d)\s+(?=\d)/g, "$1"))) return true;
   return CALL_PATTERNS.some(pattern => pattern.test(value));
 }
 
+// Cuando ya mandó el número (24-nov, #12181), no se le vuelve a preguntar a qué número.
+export const CALL_NUMBER_TEXT = "Gracias. Un asesor te llama a ese número; ya le dejo el contexto de lo que platicamos para que no tengas que repetirlo. ¿En qué horario te queda mejor?";
+export function callHandoffText(text = "") {
+  return /\d{10}/.test(String(text).replace(/[\s-]+(?=\d)/g, "")) ? CALL_NUMBER_TEXT : CALL_HANDOFF_TEXT;
+}
 export const CALL_HANDOFF_TEXT = "Este número de WhatsApp no recibe llamadas, pero con gusto un asesor te llama. Ya le dejo el contexto de lo que platicamos para que no tengas que repetirlo. ¿A qué número y en qué horario te queda mejor que te marquemos?";
 
 // Último seguimiento (4-nov): "¿Prefieres que un asesor te llame…? Dime sí y a qué hora…".

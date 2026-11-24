@@ -56,7 +56,7 @@ import { clarifyNss } from "./nss-wording.js";
 import { assignMiaMode, isLightMode } from "./mia-mode.js";
 import { fixCommonTypos } from "../semantic/typos.js";
 import { customerResumeAt } from "./follow-up.js";
-import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT, acceptsCallOffer, callOfferReply } from "./human-request.js";
+import { explicitHumanRequest, acceptsAdvisorOffer, callRequest, CALL_HANDOFF_TEXT, callHandoffText, acceptsCallOffer, callOfferReply } from "./human-request.js";
 import { trace, traceEnabled } from "../utils/debug-trace.js";
 import { paymentProofAttachment } from "../operations/payment-proof.js";
 import { extractContactPhone } from "../operations/sale-factory.js";
@@ -526,7 +526,20 @@ export class ConversationProcessor {
     // Una persona del equipo contestó al último (en las últimas 24 h): el cliente le está contestando a ella.
     // Con el trámite ya aceptado Mia no responde (los datos y documentos sí se guardan); antes de aceptar sigue
     // vendiendo, porque el equipo a veces cierra con una pregunta y Mia abre el expediente (caso Enedino, 20-oct).
-    const personLast = awaitingValidity ? null : personAnsweredLast(conversation, messageIds, { miaAgentId: this.config.chatwoot.agentId, selfSenders: this.selfSenders, sinceIso: this.memories.get(conversationId)?.capture_intervention?.released_at || null });
+    // 24-nov (#11895): GET /conversations/:id de Chatwoot trae solo el último mensaje, así que la regla nunca veía a
+    // la persona que escribió antes. Con el trámite aceptado se piden los mensajes recientes para revisarlo.
+    let ownershipView = conversation;
+    if (!awaitingValidity && this.memories.get(conversationId)?.sales_cycle?.authorized && typeof this.chatwoot.getMessages === "function") {
+      try {
+        const raw = await this.chatwoot.getMessages(conversationId);
+        const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : messagesOf(raw);
+        const byId = new Map([...list, ...messagesOf(conversation)].filter(m => m?.id).map(m => [String(m.id), m]));
+        ownershipView = { messages: [...byId.values()].sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0)) };
+      } catch (error) {
+        await this.record(conversationId, "chatwoot_messages_fetch_failed", { error: String(error?.message || error).slice(0, 300) });
+      }
+    }
+    const personLast = awaitingValidity ? null : personAnsweredLast(ownershipView, messageIds, { miaAgentId: this.config.chatwoot.agentId, selfSenders: this.selfSenders, sinceIso: this.memories.get(conversationId)?.capture_intervention?.released_at || null });
     // El cliente contestó a la plantilla de vigencia: se le entrega su documento y listo.
     if (awaitingValidity && typeof this.onValidityReply === "function") {
       let delivered = false;
@@ -786,7 +799,7 @@ export class ConversationProcessor {
         await this.memories.markProcessedMany(conversationId, messageIds);
         return;
       }
-      await this.transfer(conversationId, conversation, reason, memory, { customerText: callOffer ? callOfferReply(callOffer) : wantsCall ? CALL_HANDOFF_TEXT : null, call: wantsCall });
+      await this.transfer(conversationId, conversation, reason, memory, { customerText: callOffer ? callOfferReply(callOffer) : wantsCall ? callHandoffText(combinedText) : null, call: wantsCall });
       await this.memories.markProcessedMany(conversationId, messageIds);
       return;
     }

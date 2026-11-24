@@ -53,6 +53,9 @@ const LATER_RE = [
   // 23-nov: "Déjeme pensarlo un poco", "Deje pensarlo y le mando mensaje", "Eldejeme seguirle pensando",
   // "Déjame analizarlo y te contesto" (recibían respuesta de la IA con "¿Tienes alguna duda…?").
   /(?:dej[ae]me|deje|dejame)\s+(?:lo\s+)?(?:pensarlo|seguirle pensando|seguir pensando|seguirlo pensando|analizarlo|checarlo|revisarlo|verlo|meditarlo)\b/,
+  // 24-nov (#12226, #12121): "el día de mañana me pongo en contacto con ustedes", "el martes en la noche regreso,
+  // ahorita ando en citas médicas".
+  /\b(?:me pongo|nos ponemos) en contacto\b|\b(?:regreso|vuelvo|estoy de regreso)\b.{0,30}\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana|noche|tarde|semana)\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana)\b.{0,30}\b(?:regreso|vuelvo)\b|\bando en (?:citas?|consultas?|el hospital|estudios|el trabajo|chamba)\b/,
   /\bquedamos? pendientes?\b|\bquedo pendiente\b(?!.{0,15}\b(?:de|del)\s+(?:su|tu|mi)\b)/,
   /\b(?:todavia|aun|por el momento|de momento|ahorita)\s+no\s+lo\s+(?:ocupo|necesito|requiero)\b/,
   /\b(?:te|le|les) (?:mando|escribo|envio) (?:un )?(?:mensaje|msj)? ?mas tarde\b|\bmas tarde (?:te|le|les) (?:escribo|mando|aviso)\b|\bte puedo mandar mensaje mas tarde\b/,

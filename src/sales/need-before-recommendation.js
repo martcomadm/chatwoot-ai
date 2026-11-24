@@ -33,7 +33,8 @@ export function deriveCommercialNeed(text, previous = {}) {
   const mentionsOwn = /\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/.test(value)
     || /\b(?:me dieron|me entregaron|retire|saque|cobre|ya cobre)\b.{0,30}\b(?:afore|dinero)\b/.test(value);
   if (rejectsAforeInfonavit) next.afore_infonavit = false;
-  else if (AFORE_INFONAVIT.test(value.replace(/\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/g, " ")) && !(mentionsOwn && !/\b(?:aportar|aportaciones|sumar|puntos|quiero|me interesa)\b/.test(value))) next.afore_infonavit = true;
+  // "¿Cuánto tengo en mi AFORE?" (24-nov, #12224) pregunta su saldo; no dice que quiera aportar.
+  else if (AFORE_INFONAVIT.test(value.replace(/\b(?:ya\s+)?(?:tengo|cuento con)\s+(?:mi\s+|una\s+|mis\s+)?(?:afore|infonavit|credito)\b/g, " ").replace(/\b(?:cuanto|cto|cuanto dinero|que saldo)\s+(?:tengo|hay|traigo)\s+(?:en|de)\s+(?:mi\s+|la\s+)?afore\b|\bsaldo (?:de|en) (?:mi |la )?afore\b|\bconsultar (?:mi |la )?afore\b/g, " ")) && !(mentionsOwn && !/\b(?:aportar|aportaciones|sumar|puntos|quiero|me interesa)\b/.test(value))) next.afore_infonavit = true;
   // "¿Cómo puedo hacer esas aportaciones?" = AFORE (caso Laura, 17-oct); "sin aportaciones" no.
   // "Aportar si es posible" a "¿…o también aportar a AFORE e INFONAVIT?" (caso real 21-oct).
   else if (/\b(?:aportaciones?|aportar|aporte)\b/.test(value) && !/\b(?:sin|ninguna|no tengo|no hay|no quiero|no puedo)\s+(?:\w+\s+)?(?:aportaciones?|aportar)\b/.test(value)) next.afore_infonavit = true;
@@ -67,7 +68,8 @@ export function needGuardDecision(memory = {}, combinedText = "") {
   if ((memory?.tiene_imss === null || memory?.tiene_imss === undefined) && !(memory?.resolved_questions || []).includes("tiene_imss") && !memory?.nombre) return null;
   // Si el cliente pregunta algo, se le responde primero (la IA contesta); no se repite la
   // pregunta de necesidad encima de su pregunta (caso real: se repitió 3 veces).
-  if (/[?¿]/.test(String(combinedText)) || /^(?:que|cual|cuales|como|cuanto|cuando|donde|por que|tu dime|dime|me puedes|explicame)\b/.test(norm(combinedText))) return null;
+  // 24-nov (#12224): también las preguntas indirectas sin signo ("Yo quería saber si cto tengo en afore").
+  if (/[?¿]/.test(String(combinedText)) || /^(?:que|cual|cuales|como|cuanto|cuando|donde|por que|tu dime|dime|me puedes|explicame)\b/.test(norm(combinedText)) || /\b(?:queria|quisiera|quiero|necesito|me gustaria) saber\b/.test(norm(combinedText))) return null;
   // 17-nov (#11765, #11777, #11819): ya se le preguntó qué busca y contestó otra cosa ("Tengo 54 años"): en vez de
   // repetir la pregunta se le presentan los dos planes para que elija.
   // 19-nov (#11953): el resumen de los dos planes salió dos veces igual. Ya se le dio: contesta el flujo normal.
