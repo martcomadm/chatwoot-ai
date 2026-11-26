@@ -1,3 +1,4 @@
+import { toConversationItems } from "./conversation-items.js";
 import { interveneConversation, releaseConversation, omitConversation, unomitConversation } from "./mia-intervention.js";
 import { closeSaleInService, returnSaleToMia } from "./customer-service/service-sale.js";
 import { extractContactPhone } from "./sale-factory.js";
@@ -258,24 +259,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const list = Array.isArray(raw?.payload) ? raw.payload : Array.isArray(raw) ? raw : [];
     // Mensajes que el equipo mandó desde la cuenta de Mia ("Intervenir solo con mensaje", 12-nov).
     const teamTexts = new Map((memories.get(Number(conversationId))?.team_messages || []).map(t => [String(t.text).trim(), t.by]));
-    return list
-      .filter(m => m && [0, 1, "incoming", "outgoing"].includes(m.message_type))
-      // Notas privadas no, salvo la transcripción de notas de voz (útil para Captura).
-      .filter(m => m.private !== true || /^🎤 Transcripción/.test(String(m.content || "")))
-      .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))
-      .slice(-300)
-      .map(m => {
-        const incoming = m.message_type === 0 || m.message_type === "incoming";
-        const own = !incoming && (selfSenders?.isOwn?.(m) || Number(m.sender_id || m.sender?.id || 0) === Number(config.chatwoot?.agentId || -1));
-        return {
-          id: String(m.id),
-          who: m.private ? "nota" : incoming ? "cliente" : own ? "mia" : "persona",
-          name: incoming ? (customerName || "Cliente") : own ? (teamTexts.has(String(m.content || "").trim()) ? `${teamTexts.get(String(m.content || "").trim())} (desde Mia)` : "Mia") : (m.sender?.name || "Equipo"),
-          text: String(m.content || ""),
-          at: new Date(Number(m.created_at || 0) * 1000).toISOString(),
-          attachments: (m.attachments || []).map(a => ({ type: String(a.file_type || "").toLowerCase(), url: a.data_url || a.file_url || null, thumb: a.thumb_url || null, name: a.file_name || a.fallback_title || null })).filter(a => a.url),
-        };
-      });
+    return toConversationItems(list, { customerName, teamTexts, isOwn: m => selfSenders?.isOwn?.(m), agentId: config.chatwoot?.agentId ?? -1, includeNotes: true });
   }
   async function sendConversation(res, conversationId, customerName) {
     if (!conversationId || !chatwoot) return res.json({ items: [], available: false });

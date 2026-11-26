@@ -967,7 +967,7 @@ async function loadChat(url, ownerId) {
           <button class="rate-btn ${r?.rating === "down" ? "on" : ""}" data-rate="down" data-msg-id="${esc(m.id)}" title="Así no: corregir" aria-pressed="${r?.rating === "down"}">👎</button>
         </span>` : "";
       const fix = r?.rating === "down" && r.correction ? `<div class="chat-fix"><span class="muted small">Debió decir (${esc(r.by || "equipo")}):</span> ${esc(r.correction)}</div>` : "";
-      return `<div class="chat-msg ${m.who}"><div class="chat-meta">${esc(m.who === "nota" ? "Nota interna" : m.name)} · ${esc(dateTime(m.at))}${rate}</div>${m.text ? `<div class="chat-text">${esc(m.text)}</div>` : ""}${files ? `<div class="chat-files">${files}</div>` : ""}${fix}</div>`;
+      return `<div class="chat-msg ${m.who}"><div class="chat-meta">${esc(m.who === "nota" ? `Nota interna${m.name && m.name !== "Equipo" ? ` · ${m.name}` : ""}` : m.name)} · ${esc(dateTime(m.at))}${rate}</div>${m.text ? `<div class="chat-text">${esc(m.text)}</div>` : ""}${files ? `<div class="chat-files">${files}</div>` : ""}${fix}</div>`;
     }).join("");
     if (state.keepChatScroll != null) { box.scrollTop = state.keepChatScroll; state.keepChatScroll = null; } else box.scrollTop = box.scrollHeight;
   } catch (error) {

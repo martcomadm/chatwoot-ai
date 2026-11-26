@@ -43,10 +43,10 @@ test("el expediente muestra la conversación; 'Abrir en Chatwoot' solo para Supe
   assert.equal(detail.body.links.chatwoot, null, "Captura no ve el enlace a Chatwoot");
   const chat = await ana(`/operations/api/sales/${sale.sale_id}/conversation`);
   assert.equal(chat.status, 200);
-  assert.deepEqual(chat.body.items.map(m => m.who), ["cliente", "mia", "nota", "persona"]);
+  assert.deepEqual(chat.body.items.map(m => m.who), ["cliente", "mia", "nota", "nota", "persona"]);
   assert.equal(chat.body.items[0].attachments[0].url, "https://chat/ine.jpg");
-  assert.ok(!chat.body.items.some(m => /Resumen interno/.test(m.text)), "sin notas privadas");
-  assert.equal(chat.body.items[3].name, "Pamela Montiel");
+  assert.ok(chat.body.items.some(m => /Resumen interno/.test(m.text)), "el expediente también muestra las notas internas (26-nov)");
+  assert.equal(chat.body.items[4].name, "Pamela Montiel");
   for (const u of ["sergio.super"]) assert.match((await (await as(u))(`/operations/api/sales/${sale.sale_id}`)).body.links.chatwoot, /conversations\/77/);
   const observer = await as("olga.observa");
   assert.equal((await observer(`/operations/api/sales/${sale.sale_id}`)).body.links.chatwoot, null);
