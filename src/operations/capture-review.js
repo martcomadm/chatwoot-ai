@@ -4,7 +4,6 @@ import { readJson, writeJson } from "./access/json-file.js";
 // Mia lo pasa con un capturista. Turnos entre las personas activas del área Captura que tienen ID de Chatwoot;
 // la conversación se les asigna y reciben aviso en Operations.
 export class CaptureReviewRouter {
-  // 17-nov: también sirve para Mia libre (area "mia_libre"): sus pases a una persona van a quienes tienen ese permiso.
   constructor({ users, chatwoot = null, notifier = null, file = null, logger = console, area = "captura", title = "Cliente quiere revisar sus semanas", url = "/operations" }) {
     this.area = area;
     this.title = title;

@@ -39,12 +39,6 @@ export class CustomerService {
   // mano en Chatwoot, 6-nov). Si es una persona del área se le asigna a ella; si no, el caso muestra su nombre
   // y cualquiera de Atención lo puede tomar. No se le quita la conversación.
   async openCase({ conversation_id, kind, reason = null, sale = null, customer = {}, prefer = null, assignTo = null, silent = false }) {
-    // 17-nov: los clientes de Mia libre no pasan a Atención a Clientes (ni al completar su trámite ni cuando vuelven a
-    // escribir): se avisa y se asigna a quienes tienen el permiso "Mia libre".
-    if (this.libre?.isLibre?.(conversation_id, sale)) {
-      try { await this.libre.handle?.({ conversation_id, kind, reason, sale, customer }); } catch (error) { console.error("NEXT Mia libre (en lugar de Atención):", error?.message || error); }
-      return null;
-    }
     const existing = conversation_id ? this.store.openForConversation(conversation_id) : null;
     if (existing) {
       // Ya hay un caso abierto: no se duplica; se anota el nuevo motivo.

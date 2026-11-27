@@ -14,7 +14,7 @@ import express from "express";
 import { operationsAppPage } from "./ui/operations-app.js";
 import { publicSale } from "./sale-store.js";
 import { RETURN_TARGETS } from "./workflow-engine.js";
-import { AREAS, ACTION_AREAS, QUEUE_LABELS, areaForQueue, canRequestCall, canRunAction, canSeeSale, hasArea, isMiaLibreSale, isMiaLibreUser, normalizeAreas, seesAllQueues, visibleQueues } from "./access/areas.js";
+import { AREAS, ACTION_AREAS, QUEUE_LABELS, areaForQueue, canRequestCall, canRunAction, canSeeSale, hasArea, normalizeAreas, seesAllQueues, visibleQueues } from "./access/areas.js";
 import { LoginThrottle, REQUEST_HEADER, actorOf, clearSessionCookie, createAuthenticator, requireArea, requireUser, sessionCookie } from "./access/auth.js";
 import { normalizeUsername } from "./access/user-store.js";
 import { CASE_KIND_LABELS, CASE_STATUS_LABELS } from "./customer-service/case-store.js";
@@ -68,9 +68,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   const canSeeMiaChats = user => canInterveneMia(user) || isCobranza(user) || (user?.areas || []).includes("observador") || isQuality(user) || hasChatsPermission(user);
   // 12-nov: "Intervenir solo con mensaje" también para Atención a Clientes con acceso a Chats de Mia.
   const canMessageMia = user => canInterveneMia(user) || (hasArea(user, "atencion") && canSeeMiaChats(user));
-  // 17-nov: en los chats de Mia libre solo cuenta el permiso "Mia libre" (ver, intervenir, mensaje, celular).
-  const libreChat = id => memories.get(Number(id))?.mia_mode === "light";
-  const chatAllowed = (user, id, normal) => libreChat(id) ? isMiaLibreUser(user) : normal(user);
+  const chatAllowed = (user, id, normal) => normal(user);
   const canSeeMiaPhones = user => hasArea(user, "supervision") || isCobranza(user) || (hasArea(user, "atencion") && canSeeMiaChats(user));
 
   function fail(res, error, status = 400) { return res.status(status).json({ error: error?.message || String(error) }); }
@@ -161,13 +159,12 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     res.json({
       user,
       unread_notifications: notifier?.inbox?.unread?.(user.username) || 0,
-      areas: [...AREAS.filter(area => !["calidad", "chats_mia", "mia_libre"].includes(area.key) && hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : []), ...(isMiaLibreUser(user) ? [{ key: "mia_libre", label: "Mia libre", queue: null }] : [])],
+      areas: [...AREAS.filter(area => !["calidad", "chats_mia"].includes(area.key) && hasArea(user, area.key)).map(area => ({ ...area })), ...(canSeeMiaChats(user) ? [{ key: "chats", label: "Chats de Mia", queue: null }] : []), ...(canTeachMia(user) ? [{ key: "respuestas", label: "Respuestas de Mia", queue: null }] : [])],
       visible_queues: visibleQueues(user),
       queue_labels: QUEUE_LABELS,
       can: {
         supervise: hasArea(user, "supervision"),
         intervene: canInterveneMia(user),
-        libre: isMiaLibreUser(user),
         message: canMessageMia(user),
         mia_phones: canSeeMiaPhones(user),
         admin: hasArea(user, "admin"),
@@ -226,10 +223,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   // ── Expedientes ──────────────────────────────────────────────────────────
   router.get("/operations/api/sales", (req, res) => {
     const queues = new Set(visibleQueues(req.opsUser));
-    // 17-nov: los de Mia libre solo para quien tiene el permiso (y en su sección, con ?origin=mia_libre).
-    const libreOnly = req.query.origin === "mia_libre";
-    if (libreOnly && !isMiaLibreUser(req.opsUser)) return res.status(403).json({ error: "Sin acceso a Mia libre", code: "forbidden" });
-    let items = saleStore.list({ status: req.query.status || undefined }).filter(sale => libreOnly ? isMiaLibreSale(sale) : !isMiaLibreSale(sale) && queues.has(sale.queue));
+    let items = saleStore.list({ status: req.query.status || undefined }).filter(sale => queues.has(sale.queue));
     if (req.query.queue) items = items.filter(sale => sale.queue === req.query.queue);
     const documents = String(req.query.documents || "").toLowerCase();
     if (documents === "complete") items = items.filter(sale => sale.documents?.complete === true);
@@ -274,11 +268,10 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
 
   // ── Chats de Mia (pedido 3-nov): todas las conversaciones de la IA + intervención de Captura ──
   router.get("/operations/api/mia-chats", async (req, res) => {
-    const libre = req.query.libre === "1";
-    if (libre ? !isMiaLibreUser(req.opsUser) : !canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Tu usuario no tiene acceso a Chats de Mia", code: "forbidden" });
+    if (!canSeeMiaChats(req.opsUser)) return res.status(403).json({ error: "Tu usuario no tiene acceso a Chats de Mia", code: "forbidden" });
     if (!miaConsole) return res.json({ items: [], total: 0, counts: {} });
-    const showPhones = libre || canSeeMiaPhones(req.opsUser);
-    const result = miaConsole.rescueList({ libre, search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7), page: Number(req.query.page || 1), searchPhones: showPhones, sort: req.query.sort === "score" ? "score" : "recent" });
+    const showPhones = canSeeMiaPhones(req.opsUser);
+    const result = miaConsole.rescueList({ search: String(req.query.q || ""), filter: String(req.query.filter || "all"), days: Number(req.query.days || 7), page: Number(req.query.page || 1), searchPhones: showPhones, sort: req.query.sort === "score" ? "score" : "recent" });
     if (!showPhones) return res.json({ ...result, items: result.items.map(({ phone, ...item }) => item) });
     // Chats anteriores a que Mia guardara el celular: se busca en Chatwoot (hasta 40 por carga) y se guarda.
     // 12-nov: mientras se escribe en el buscador no se consulta Chatwoot (hacía lenta cada letra), y un chat que
@@ -298,21 +291,6 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     }
     res.json(result);
   });
-  // ── Mia libre (17-nov): resumen para su sección (comparación contra Mia normal y sus expedientes) ──
-  router.get("/operations/api/mia-libre/summary", (req, res) => {
-    if (!isMiaLibreUser(req.opsUser)) return res.status(403).json({ error: "Sin acceso a Mia libre", code: "forbidden" });
-    const days = Math.max(1, Math.min(90, Number(req.query.days || 7)));
-    const day = d => new Intl.DateTimeFormat("en-CA", { timeZone: config.ai?.timezone || "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-    const now = new Date();
-    const to = day(now), from = day(new Date(now.getTime() - (days - 1) * 86400000));
-    let modes = [];
-    try { modes = miaConsole?.modeSummary?.({ from, to }) || []; } catch (error) { console.error("NEXT Mia libre resumen:", error?.message || error); }
-    const sales = saleStore.list().filter(isMiaLibreSale);
-    const byQueue = {};
-    for (const sale of sales) byQueue[sale.queue] = (byQueue[sale.queue] || 0) + 1;
-    res.json({ days, from, to, share: Number(config.ai?.lightShare ?? 0), modes, sales: { total: sales.length, by_queue: byQueue } });
-  });
-
   router.get("/operations/api/mia-chats/:id/conversation", async (req, res) => {
     if (!chatAllowed(req.opsUser, req.params.id, canSeeMiaChats)) return res.status(403).json({ error: "Sin acceso", code: "forbidden" });
     const memory = memories.get(req.params.id);
@@ -697,9 +675,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   // El campo "by" siempre es el nombre del usuario en sesión, nunca lo que mande el navegador.
   function areaAction(action, handler) {
     return (req, res) => {
-      // 17-nov: los expedientes de Mia libre los trabaja completos quien tiene ese permiso.
-      const libre = isMiaLibreSale(saleStore.get(req.params.id));
-      if (libre ? !isMiaLibreUser(req.opsUser) : !canRunAction(req.opsUser, action)) {
+      if (!canRunAction(req.opsUser, action)) {
         const area = AREAS.find(item => item.key === [].concat(ACTION_AREAS[action])[0]);
         return res.status(403).json({ error: `Esta acción corresponde a ${area?.label || "otra área"}`, code: "forbidden" });
       }
@@ -738,7 +714,6 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const sale = visibleSale(req, res);
     if (!sale) return;
     if (!canRequestCall(req.opsUser, sale)) return res.status(403).json({ error: "Solo el área que tiene el expediente o Supervisión pueden enviarlo a Atención a Clientes", code: "forbidden" });
-    if (isMiaLibreSale(sale)) return res.status(409).json({ error: "Los expedientes de Mia libre no pasan a Atención a Clientes", code: "mia_libre" });
     if (!customerService) return res.status(503).json({ error: "Atención a Clientes no disponible" });
     const reason = String(req.body?.reason || "").trim();
     if (!reason) return fail(res, new Error("Escribe por qué lo mandas a Atención a Clientes"));
@@ -824,7 +799,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
   }));
 
   router.get("/operations/api/supervision/overview", requireArea("supervision"), (req, res) => {
-    res.json(buildOverview(saleStore.list().filter(sale => !isMiaLibreSale(sale) || isMiaLibreUser(req.opsUser)), { alertHours: alertHours(), from: req.query.from || null, to: req.query.to || null }));
+    res.json(buildOverview(saleStore.list(), { alertHours: alertHours(), from: req.query.from || null, to: req.query.to || null }));
   });
 
   // Personas activas por área (para asignar expedientes).
@@ -945,8 +920,7 @@ export function createOperationsRouter({ config, saleStore, workflow, memories, 
     const listener = event => {
       let payload = event;
       if (event?.sale) {
-        if (isMiaLibreSale(event.sale) && !isMiaLibreUser(user)) return;
-        payload = (isMiaLibreSale(event.sale) || seesAllQueues(user) || queues.has(event.sale.queue))
+        payload = (seesAllQueues(user) || queues.has(event.sale.queue))
           ? { ...event, sale: saleView(event.sale, alertHours(), { withEvents: false }) }
           : { type: event.type, sale_id: event.sale.sale_id, queue: event.sale.queue };
       }

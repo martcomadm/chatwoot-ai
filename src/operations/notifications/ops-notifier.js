@@ -34,16 +34,6 @@ export class OpsNotifier extends EventEmitter {
     this.lastCustomerPing = new Map();
   }
 
-  // 17-nov: avisos de expedientes o chats de Mia libre → solo a quienes tienen ese permiso.
-  isLibre(n = {}) {
-    try { return Boolean((n.sale_id && this.libre?.saleIsLibre?.(n.sale_id)) || (n.conversation_id && this.libre?.chatIsLibre?.(n.conversation_id))); }
-    catch { return false; }
-  }
-
-  libreUsers() {
-    return (this.users?.list?.() || []).filter(u => u.active && (u.areas || []).includes("mia_libre")).map(u => u.username);
-  }
-
   // Personas activas que trabajan un área (no cuenta Admin: solo quien la tiene asignada).
   areaUsers(area) {
     return (this.users?.list?.() || []).filter(u => u.active && (u.areas || []).includes(area)).map(u => u.username);
@@ -135,9 +125,7 @@ export class OpsNotifier extends EventEmitter {
 
   // ── Envío ─────────────────────────────────────────────────────────
   async notify(n) {
-    const libre = this.isLibre(n);
-    if (libre && n.kind !== "test") n = { ...n, title: `Mia libre · ${n.title}`, url: String(n.url || "").includes("/sales/") ? n.url : String(n.url || "").includes("area=chats") ? String(n.url).replace("area=chats", "area=mia_libre") : "/operations?area=mia_libre" };
-    const to = [...new Set(((libre && n.kind !== "test") ? this.libreUsers() : (n.to || [])).filter(Boolean))];
+    const to = [...new Set((n.to || []).filter(Boolean))];
     if (!to.length) return { to: [], pushed: 0 };
     // 10-nov: cada aviso queda en el buzón de la persona (Operations → Notificaciones).
     const id = this.inbox?.add?.(to, n) || null;

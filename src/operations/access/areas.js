@@ -17,10 +17,6 @@ export const AREAS = Object.freeze([
   { key: "calidad", label: "Calidad de Mia", queue: null },
   // 12-nov: permiso para ver Chats de Mia (sin intervenir). Si además es de Atención a Clientes, ve los celulares.
   { key: "chats_mia", label: "Chats de Mia", queue: null },
-  // 17-nov: Mia libre (prueba de una Mia con menos restricciones). Solo quien tiene este permiso ve sus chats y sus
-  // expedientes, y los trabaja completos (Captura, Validación, Vigencia y Cobranza no los ven). Ni Admin ni Supervisión
-  // lo tienen por su rol: se asigna a cada persona.
-  { key: "mia_libre", label: "Mia libre", queue: null },
   { key: "supervision", label: "Supervisión", queue: null },
   { key: "admin", label: "Admin", queue: null },
 ]);
@@ -97,18 +93,13 @@ export function visibleQueues(user) {
   return [...new Set(queues)];
 }
 
-export const isMiaLibreUser = user => (user?.areas || []).includes("mia_libre");
-export const isMiaLibreSale = sale => sale?.origin === "mia_libre";
-
 export function canSeeSale(user, sale) {
-  if (isMiaLibreSale(sale)) return isMiaLibreUser(user);
   return Boolean(sale) && visibleQueues(user).includes(sale.queue);
 }
 
 // "Solicitar llamada": el área que tiene el expediente en su cola, o Supervisión/Admin (no Observador).
 export function canRequestCall(user, sale) {
   if (!sale || ["completed", "cancelled", "dropped"].includes(sale.queue)) return false;
-  if (isMiaLibreSale(sale)) return isMiaLibreUser(user);
   if (hasArea(user, "supervision")) return true;
   const area = areaForQueue(sale.queue);
   return Boolean(area) && hasArea(user, area);

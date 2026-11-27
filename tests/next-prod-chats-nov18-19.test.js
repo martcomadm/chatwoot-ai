@@ -75,7 +75,7 @@ test("#11977: 'no quiero iniciar ningún trámite' se despide; el plan es del qu
   const mem = { ultima_respuesta_agente: "¿Tienes alguna duda sobre el Plan 2 o quieres que iniciemos tu trámite?", sales_cycle: { recommended_plan: "plan_1", last_plan: "plan_2" } };
   assert.match(deferralDecision(mem, "No tengo duda, por el momento no quiero iniciar ningún trámite  Gracias").reply, /^Entendido, gracias por tu tiempo/);
   assert.match(deferralDecision(mem, "mañana te mando mis papeles").reply, /con el Plan 2/);
-  // Mia libre: "👍" después de despedirse no recibe otra oferta.
+  // "👍" después de despedirse no recibe otra oferta.
   assert.equal(deferralDecision({ ultima_respuesta_agente: "De acuerdo, gracias por tu tiempo. Si más adelante necesitas afiliarte al IMSS, puedes escribirnos por este medio." }, "👍").reply, "");
 });
 

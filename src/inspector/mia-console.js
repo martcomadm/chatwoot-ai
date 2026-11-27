@@ -10,7 +10,7 @@ import path from "node:path";
 
 import { describeSchedule, localClock, nextOpeningDate, parseSchedule } from "../core/business-hours.js";
 import { buildImpact } from "./impact-service.js";
-import { buildStats, buildModeSummary, entryOf, needOf, ENTRY_LABELS, NEED_LABELS } from "./stats-service.js";
+import { buildStats, entryOf, needOf, ENTRY_LABELS, NEED_LABELS } from "./stats-service.js";
 
 const DAY = 24 * 3600 * 1000;
 const HOUR = 3600 * 1000;
@@ -425,28 +425,13 @@ export class MiaConsole {
   // ── Chats de Mia (Operations, pedido 3-nov) ──────────────────────
   // Todas las conversaciones que atiende la IA, con las señales de que se está perdiendo
   // la venta, para que Captura intervenga y trate de salvarla.
-  // libre: true = solo chats de Mia libre; false = sin ellos; null = todos (17-nov).
-  // Resumen ligero de Mia normal contra Mia libre (17-nov): solo las conversaciones repartidas que empezaron en el
-  // periodo, sin calcular todas las estadísticas. Se guarda 60 segundos.
-  modeSummary({ from, to, now = new Date() } = {}) {
-    const cacheKey = `${from}|${to}`;
-    if (this.modeCache?.key === cacheKey && Date.now() - this.modeCache.at < 60000) return this.modeCache.value;
-    const memories = this.allMemories().filter(m => m.mia_mode === "light" || m.mia_mode === "full");
-    const byConv = this.eventsByConversation();
-    const sales = typeof this.saleStore?.list === "function" ? this.saleStore.list() : [];
-    const value = buildModeSummary({ memories, eventsByConv: byConv, sales, timezone: this.timezone(), from, to });
-    this.modeCache = { key: cacheKey, at: Date.now(), value };
-    return value;
-  }
-
-  rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false, sort = "recent", libre = null } = {}) {
+  rescueList({ search = "", filter = "all", days = 7, page = 1, pageSize = 40, now = new Date(), searchPhones = false, sort = "recent" } = {}) {
     const byConv = this.eventsByConversation();
     const since = now.getTime() - Math.max(1, Number(days) || 7) * DAY;
     const q = norm(search).toLowerCase();
     let items = [];
     for (const memory of this.allMemories()) {
       const id = Number(memory.id);
-      if (libre !== null && (memory.mia_mode === "light") !== Boolean(libre)) continue;
       const events = byConv.get(id) || [];
       const base = this.summarize(memory, events);
       if (ms(base.last_at) < since) continue;
@@ -578,8 +563,6 @@ export class MiaConsole {
         ["Aceptó iniciar", memory.sales_cycle?.authorized ? "Sí" : "No"],
         ["Documento pendiente", memory.operations?.onboarding_next || (memory.operations?.documents_complete ? "Completos" : null)],
         ["Pospuso", DEFERRAL_LABELS[memory.sales_cycle?.deferral] || null],
-        // 18-nov: para analizar los exports por separado.
-        ["Versión de Mia", memory.mia_mode === "light" ? "Mia libre" : memory.mia_mode === "full" ? "Mia normal" : null],
         ["Pasó a persona", memory.handoff?.status ? `${memory.handoff.agent_name || "Sí"}${memory.handoff.reason ? ` · ${memory.handoff.reason}` : ""}` : null],
       ].map(([label, value]) => ({ label, value: value === undefined || value === null || value === "" ? null : String(value) })),
       followup: followUp ? { sent: Number(followUp.sent || 0), next_at: followUp.next_at } : null,

@@ -486,16 +486,8 @@ export function buildDetail({ facts, sales, local, from, to, compareFrom, compar
     if (raw.startsWith("direct:") && inRange(e.timestamp)) { const k = raw.slice(7); directKeys.set(k, (directKeys.get(k) || 0) + 1); }
   }
 
-  // Prueba A/B del modo de Mia (17-nov): A = Mia completa, B = modo ligero; solo conversaciones nuevas.
-  const modes = [["A", "Mia normal"], ["B", "Mia libre"]].map(([key, label]) => {
-    const list = cur.filter(f => f.experiments.some(e => e.slot === "mia_mode" && e.variant === key));
-    const c = funnelCounts(list, saleOf);
-    return { key, label, ...c, reply_rate: pct(c.contestaron, c.nuevas), conversion: pct(c.aceptaron, c.nuevas), close_rate: pct(c.aceptaron, c.cierre) };
-  }).filter(r => r.nuevas);
-
   return {
     funnel,
-    modes,
     ads,
     weekday: conversionList(cur, f => WEEKDAYS[local(f.first_at).weekday], null, WEEKDAYS),
     hour_block: conversionList(cur, blockOf, null, HOUR_BLOCKS.map(b => b[2])),
@@ -516,29 +508,6 @@ export function buildDetail({ facts, sales, local, from, to, compareFrom, compar
     direct_answers: [...directKeys].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count).slice(0, 12),
     replies,
   };
-}
-
-// Mia normal contra Mia libre (17-nov), sin calcular todas las estadísticas: solo las conversaciones repartidas.
-export function buildModeSummary({ memories = [], eventsByConv = new Map(), sales = [], timezone = "America/Mexico_City", from, to }) {
-  const local = localParts(timezone);
-  const saleByConv = new Map();
-  for (const s of sales) if (s.conversation_id) { const k = Number(s.conversation_id); const p = saleByConv.get(k); if (!p || ms(s.created_at) > ms(p.created_at)) saleByConv.set(k, s); }
-  const saleOf = id => saleByConv.get(Number(id)) || null;
-  const rows = [["full", "A", "Mia normal"], ["light", "B", "Mia libre"]].map(([mode, key, label]) => {
-    const list = [];
-    for (const m of memories) {
-      if (m.mia_mode !== mode) continue;
-      const events = eventsByConv.get(Number(m.id)) || [];
-      const first = events[0]?.timestamp;
-      if (!first) continue;
-      const day = local(first).date;
-      if (day < from || day > to) continue;
-      list.push(conversationFacts(Number(m.id), events, m));
-    }
-    const c = funnelCounts(list, saleOf);
-    return { key, label, ...c, reply_rate: pct(c.contestaron, c.nuevas), conversion: pct(c.aceptaron, c.nuevas), close_rate: pct(c.aceptaron, c.cierre) };
-  });
-  return rows.filter(r => r.nuevas);
 }
 
 function rangeLabel(from, to) {
