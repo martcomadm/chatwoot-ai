@@ -29,7 +29,12 @@ function similarity(a,b){
   return common/Math.max(aa.size,bb.size);
 }
 
-export function checkReply(reply,{memory,questionKey,maxChars=850}){
+const PERSONAL_DATA_RE=/(?:tu|su) nombre(?: completo)?|como te llamas|con quien tengo el gusto|(?:cual es|me (?:indicas|confirmas|compartes|dices|podrias indicar)|me puedes decir) (?:tu|su) edad|que edad tienes|cuantos anos tienes|a que te dedicas|a que se dedica|cual es tu (?:ocupacion|actividad)|en que trabajas/;
+export function asksPersonalData(reply=""){
+  const questions=String(reply||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").match(/[^.!?]*\?/g)||[];
+  return questions.some(q=>PERSONAL_DATA_RE.test(q));
+}
+export function checkReply(reply,{memory,questionKey,maxChars=850,customerText=""}){
   const text=String(reply||"").trim();
   const reasons=[];
   if(!text) reasons.push("respuesta_vacia");
@@ -45,6 +50,9 @@ export function checkReply(reply,{memory,questionKey,maxChars=850}){
     reasons.push("respuesta_demasiado_similar_a_la_anterior");
   }
 
+  // 04-nov: la IA seguía pidiendo nombre, edad o actividad antes de que el cliente aceptara (6+ chats del 2 al 4-nov,
+  // p. ej. "Si por favor" → "¿Cuál es tu nombre completo?"). Esos datos salen de la CURP al iniciar el trámite.
+  if(!memory?.sales_cycle?.authorized&&asksPersonalData(text)) reasons.push("pide_datos_antes_de_aceptar");
   if(questionKey==="nombre"&&memory.nombre) reasons.push("nombre_ya_conocido");
   if(questionKey==="edad"&&memory.edad) reasons.push("edad_ya_conocida");
   if(questionKey==="actividad"&&memory.actividad) reasons.push("actividad_ya_conocida");
@@ -57,5 +65,40 @@ export function checkReply(reply,{memory,questionKey,maxChars=850}){
   }
 
   if(questionKey && (memory?.resolved_questions||[]).includes(questionKey)) reasons.push(`pregunta_resuelta:${questionKey}`);
+  // La misma pregunta ya se hizo 2 veces (caso real 20-oct: "¿estás dado de alta en el IMSS?" 5 veces
+  // a un cliente que no entendía): se deja de preguntar y se avanza.
+  const repeatedKey=questionKey||(asksImssStatus(text)?"tiene_imss":null);
+  // Solo si la pregunta anterior también fue esa: la IA etiqueta a veces mal question_key y se tiraban
+  // respuestas buenas ("¿a qué te dedicas?", caso real 21-oct).
+  if(repeatedKey && memory?.ultima_pregunta===repeatedKey && Number(memory?.asked_counts?.[repeatedKey]||0)>=2) reasons.push(`pregunta_repetida_muchas_veces:${repeatedKey}`);
+  // Antes de autorizar no se mencionan plazos de pago ni bajas, ni se inventan "cotizaciones",
+  // direcciones u otro nombre de asesor (casos reales del 13 y 14 de octubre).
+  if(!memory?.sales_cycle?.authorized && /(antes de las 6|d[eé] de baja|darse de baja|dar de baja el proceso)/i.test(text)) reasons.push("politica_pago_prematura");
+  // "Semanas de cotización" es normal; lo prohibido es ofrecer "preparar una cotización" (precios fijos).
+  if(/\b(?:una|la|tu|su|esta|nueva|personalizada)\s+cotizaci[oó]n\b|\bcotizaci[oó]n\s+(?:personalizada|formal|a tu medida)\b|\b(?:prepar|envi|mand|hac|elabor)\w*\s+(?:una\s+|la\s+|tu\s+)?cotizaci[oó]n\b/i.test(text) && !/\bsemanas? de cotizaci[oó]n\b/i.test(text)) reasons.push("cotizacion_inventada");
+  if(/\bxochimilco\b|\bcolonia\b|\balcald[ií]a\b/i.test(text)) reasons.push("ubicacion_inventada");
+  // "Parece que ese mensaje no era para nosotros" solo cabe ante cadenas o avisos largos;
+  // a "No lo conozco" (respuesta a una pregunta de Mia) se le contestó eso (caso real 15-oct).
+  if(/no era para nosotros/i.test(text)&&String(customerText||"").trim().length<120) reasons.push("fuera_de_tema_indebido");
+  // La IA inventaba un paso de "escribe exactamente: He leído y acepto…" y ofrecía las cuentas
+  // antes del alta (caso real 19-oct, el cliente acabó molesto).
+  if(/he le[ií]do y acepto|responde exactamente|escribe exactamente/i.test(text)) reasons.push("pide_frase_terminos");
+  // Caso real 21-oct: "inicio tu trámite… el área de validación (validacion@martcom.com.mx) te pedirá CURP, NSS e INE"
+  // sin que el sistema abriera el expediente. En la venta no se dan correos ni se da por iniciado el trámite.
+  if(/[\w.+-]+@[\w-]+\.[\w.]+/.test(text)) reasons.push("menciona_correo");
+  // Formas de pago: solo transferencia, depósito u OXXO (confirmado 26-oct); antes la IA ofrecía efectivo.
+  if(/(?:,|\bo\b|\by\b)\s+(?:en\s+)?efectivo\b/i.test(text) && !/\bno\b.{0,25}\befectivo\b/i.test(text)) reasons.push("ofrece_pago_efectivo");
+  // Solo afirmaciones ("Inicio tu trámite", "Ya registré tu caso"), no preguntas ni ofertas
+  // ("¿Quieres que inicie el trámite?", caso real 21-oct: se tiraban respuestas buenas).
+  if(!memory?.sales_cycle?.authorized && String(text).split(/(?<=[.!?¿])\s+/).some(sentence=>!/[?¿]/.test(sentence) && !/\b(?:que|si|cuando|para|puedo|podemos|quieres|deseas|gustas)[\s,]+(?:[\w,]+\s+){0,2}(?:inicio|registro|abro|doy)\b/i.test(sentence) && /(?:^|[\s,;:])(?:inicio|inici[ée]|registro|registr[ée]|abr[ií]|abro|di de alta|doy de alta)\s+(?:tu|el|su)\s+(?:tr[aá]mite|caso|expediente|alta)\b|\bya (?:qued[oó]|est[aá]) (?:iniciado|registrado) tu (?:tr[aá]mite|caso)\b/i.test(sentence) && !/\binicie\b/i.test(sentence.match(/inici\S*/i)?.[0]||""))) reasons.push("da_por_iniciado_sin_autorizacion");
+  // Este número no recibe llamadas, pero un asesor sí la regresa (casos reales 20-oct).
+  if(/\bno (?:realizamos|ofrecemos|damos|manejamos|hacemos|tenemos)\s+(?:atenci[oó]n\s+(?:por|telef[oó]nica)|llamadas|atenci[oó]n por tel[eé]fono)/i.test(text)) reasons.push("niega_llamadas");
+  if(!memory?.sales_cycle?.authorized && /(?:comparta|comparto|env[ií]e|env[ií]o|mande|mando|indique|indico|pase|paso)\s+(?:los\s+)?datos\s+(?:para|de)(?:l)?\s+(?:el\s+)?(?:pago|dep[oó]sito)|datos (?:bancarios|para (?:el )?pago|de pago)|cuentas? para (?:pagar|depositar)/i.test(text)) reasons.push("pago_antes_de_vigencia");
+  if(/\bsoy\s+axel\b|\baxel\s+(?:de|ia)\b/i.test(text)) reasons.push("identidad_incorrecta");
   return {ok:reasons.length===0,reasons};
+}
+
+export function asksImssStatus(text=""){
+  const t=String(text||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  return /\?/.test(t)&&/\b(?:dado de alta|alta activa|imss (?:activo|vigente)|sigues cotizando|ya no (?:estas )?cotiza\w*|tienes imss|cuentas con imss|estas cotizando)\b/.test(t);
 }

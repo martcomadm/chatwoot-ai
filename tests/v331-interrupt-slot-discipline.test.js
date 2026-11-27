@@ -24,10 +24,10 @@ test("REG-PRICE segunda solicitud no hace handoff",()=>{
   assert.equal(two.shouldHandoff,false);
   assert.equal(two.interrupt.resume_planner,true);
 });
-test("REG-PRICE tercera solicitud sí escala",()=>{
+test("REG-PRICE tercera solicitud tampoco escala en NEXT (se dan precios oficiales)",()=>{
   const r=analyzeJudgment("Costo por favor",{intent:{id:"COTIZACION_SEMANAS"},judgment:{price_requests:2}});
   assert.equal(r.patch.judgment.price_requests,3);
-  assert.equal(r.shouldHandoff,true);
+  assert.equal(r.shouldHandoff,false);
 });
 test("REG-INTENT cotización para completar semanas",()=>{
   assert.equal(classifyIntent("Necesito cotizar para acompletar mis semanas").id,INTENTS.COTIZACION_SEMANAS);
